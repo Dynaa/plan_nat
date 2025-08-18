@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion Créneaux Natation - Club Triathlon</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>🏊‍♂️ Créneaux Natation - Club Triathlon</h1>
+        <nav id="nav-menu" style="display: none;">
+            <span id="user-name"></span>
+            <button id="logout-btn">Déconnexion</button>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Formulaires de connexion/inscription -->
+        <div id="auth-section">
+            <div class="auth-container">
+                <div class="auth-tabs">
+                    <button class="tab-btn active" data-tab="login">Connexion</button>
+                    <button class="tab-btn" data-tab="register">Inscription</button>
+                </div>
+
+                <form id="login-form" class="auth-form active">
+                    <h2>Connexion</h2>
+                    <input type="email" id="login-email" placeholder="Email" required>
+                    <input type="password" id="login-password" placeholder="Mot de passe" required>
+                    <button type="submit">Se connecter</button>
+                </form>
+
+                <form id="register-form" class="auth-form">
+                    <h2>Créer un compte</h2>
+                    <input type="text" id="register-prenom" placeholder="Prénom" required>
+                    <input type="text" id="register-nom" placeholder="Nom" required>
+                    <input type="email" id="register-email" placeholder="Email" required>
+                    <input type="password" id="register-password" placeholder="Mot de passe" required>
+                    <button type="submit">Créer le compte</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Interface principale -->
+        <div id="main-section" style="display: none;">
+            <div class="tabs">
+                <button class="main-tab-btn active" data-tab="creneaux">Créneaux disponibles</button>
+                <button class="main-tab-btn" data-tab="mes-inscriptions">Mes inscriptions</button>
+                <button class="main-tab-btn admin-only" data-tab="admin" style="display: none;">Administration</button>
+            </div>
+
+            <!-- Onglet Créneaux -->
+            <div id="creneaux-tab" class="tab-content active">
+                <h2>Créneaux de natation</h2>
+                <div id="creneaux-list"></div>
+            </div>
+
+            <!-- Onglet Mes inscriptions -->
+            <div id="mes-inscriptions-tab" class="tab-content">
+                <h2>Mes inscriptions</h2>
+                <div id="mes-inscriptions-list"></div>
+            </div>
+
+            <!-- Onglet Administration -->
+            <div id="admin-tab" class="tab-content">
+                <h2>Administration</h2>
+                
+                <div class="admin-section">
+                    <h3>Créer un nouveau créneau</h3>
+                    <form id="create-creneau-form">
+                        <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
+                        <select id="creneau-jour" required>
+                            <option value="">Jour de la semaine</option>
+                            <option value="1">Lundi</option>
+                            <option value="2">Mardi</option>
+                            <option value="3">Mercredi</option>
+                            <option value="4">Jeudi</option>
+                            <option value="5">Vendredi</option>
+                            <option value="6">Samedi</option>
+                            <option value="0">Dimanche</option>
+                        </select>
+                        <input type="time" id="creneau-debut" required>
+                        <input type="time" id="creneau-fin" required>
+                        <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
+                        <button type="submit">Créer le créneau</button>
+                    </form>
+                </div>
+
+                <div class="admin-section">
+                    <h3>Gestion des inscriptions</h3>
+                    <div id="admin-creneaux-list"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="message" class="message"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>

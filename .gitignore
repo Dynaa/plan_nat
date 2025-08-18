@@ -1,0 +1,33 @@
+# Dépendances
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Base de données locale
+natation.db
+
+# Variables d'environnement
+.env
+
+# Logs
+logs
+*.log
+
+# Fichiers temporaires
+.tmp/
+.cache/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build
+dist/
+build/
