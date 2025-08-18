@@ -31,6 +31,14 @@ function setupEventListeners() {
         });
     });
 
+    // Sous-onglets d'administration
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const tab = e.target.dataset.adminTab;
+            switchAdminTab(tab);
+        });
+    });
+
     // Formulaires
     document.getElementById('login-form').addEventListener('submit', handleLogin);
     document.getElementById('register-form').addEventListener('submit', handleRegister);
@@ -47,11 +55,23 @@ function switchAuthTab(tab) {
 }
 
 function switchMainTab(tab) {
+    // Vérifier les permissions pour l'onglet admin
+    if (tab === 'admin' && (!currentUser || currentUser.role !== 'admin')) {
+        showMessage('Accès non autorisé à l\'administration', 'error');
+        // Rediriger vers l'onglet créneaux
+        tab = 'creneaux';
+    }
+    
     document.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
     
-    document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`${tab}-tab`).classList.add('active');
+    const tabButton = document.querySelector(`[data-tab="${tab}"]`);
+    const tabContent = document.getElementById(`${tab}-tab`);
+    
+    if (tabButton && tabContent) {
+        tabButton.classList.add('active');
+        tabContent.classList.add('active');
+    }
     
     // Charger les données selon l'onglet
     if (tab === 'creneaux') {
@@ -60,6 +80,16 @@ function switchMainTab(tab) {
         loadMesInscriptions();
     } else if (tab === 'admin') {
         loadAdminCreneaux();
+        // Charger les utilisateurs si on est sur cet onglet
+        const activeAdminTab = document.querySelector('.admin-tab-btn.active');
+        if (activeAdminTab) {
+            const adminTabName = activeAdminTab.dataset.adminTab;
+            if (adminTabName === 'users') {
+                loadAdminUsers();
+            } else if (adminTabName === 'limites') {
+                loadAdminLimites();
+            }
+        }
     }
 }
 
@@ -110,12 +140,13 @@ async function handleRegister(e) {
     const nom = document.getElementById('register-nom').value;
     const email = document.getElementById('register-email').value;
     const password = document.getElementById('register-password').value;
+    const licence_type = document.getElementById('register-licence').value;
     
     try {
         const response = await fetch('/api/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prenom, nom, email, password })
+            body: JSON.stringify({ prenom, nom, email, password, licence_type })
         });
         
         const data = await response.json();
@@ -136,10 +167,36 @@ async function handleLogout() {
     try {
         await fetch('/api/logout', { method: 'POST' });
         currentUser = null;
+        
+        // Réinitialiser l'interface aux onglets par défaut
+        resetToDefaultTabs();
+        
         showAuthInterface();
         showMessage('Déconnexion réussie', 'success');
     } catch (error) {
         showMessage('Erreur lors de la déconnexion', 'error');
+    }
+}
+
+function resetToDefaultTabs() {
+    // Réinitialiser les onglets principaux
+    document.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    
+    // Activer l'onglet créneaux par défaut
+    document.querySelector('[data-tab="creneaux"]').classList.add('active');
+    document.getElementById('creneaux-tab').classList.add('active');
+    
+    // Réinitialiser les sous-onglets d'administration
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.admin-tab-content').forEach(content => content.classList.remove('active'));
+    
+    // Activer le sous-onglet créneaux par défaut dans l'admin
+    const firstAdminTab = document.querySelector('.admin-tab-btn[data-admin-tab="creneaux"]');
+    const firstAdminContent = document.getElementById('admin-creneaux-section');
+    if (firstAdminTab && firstAdminContent) {
+        firstAdminTab.classList.add('active');
+        firstAdminContent.classList.add('active');
     }
 }
 
@@ -155,16 +212,36 @@ function showMainInterface() {
     navMenu.style.display = 'flex';
     userName.textContent = `${currentUser.prenom} ${currentUser.nom}`;
     
-    // Afficher l'onglet admin si l'utilisateur est admin
+    // Afficher la licence de l'utilisateur (temporaire pour debug)
+    if (currentUser.licence_type) {
+        userName.textContent += ` (${currentUser.licence_type})`;
+    }
+    
+    // Gérer l'affichage de l'onglet admin
     const adminTab = document.querySelector('[data-tab="admin"]');
     if (currentUser.role === 'admin') {
         adminTab.style.display = 'block';
     } else {
         adminTab.style.display = 'none';
+        
+        // Si l'onglet admin était actif et que l'utilisateur n'est pas admin,
+        // rediriger vers l'onglet créneaux
+        const activeTab = document.querySelector('.main-tab-btn.active');
+        if (activeTab && activeTab.dataset.tab === 'admin') {
+            switchMainTab('creneaux');
+            return; // switchMainTab va déjà charger les créneaux
+        }
     }
     
-    // Charger les créneaux par défaut
-    loadCreneaux();
+    // Forcer l'affichage de l'onglet créneaux par défaut si aucun onglet n'est actif
+    const activeTab = document.querySelector('.main-tab-btn.active');
+    if (!activeTab || (activeTab.dataset.tab === 'admin' && currentUser.role !== 'admin')) {
+        switchMainTab('creneaux');
+    } else {
+        // Charger les données de l'onglet actuel
+        const currentTabName = activeTab.dataset.tab;
+        switchMainTab(currentTabName);
+    }
 }
 
 async function checkAuthStatus() {
@@ -174,6 +251,8 @@ async function checkAuthStatus() {
         
         if (data.authenticated) {
             currentUser = data.user;
+            // Réinitialiser aux onglets par défaut avant d'afficher l'interface
+            resetToDefaultTabs();
             showMainInterface();
         } else {
             showAuthInterface();
@@ -218,12 +297,26 @@ function displayCreneaux() {
         const statusClass = disponible ? 'available' : 'full';
         const statusText = disponible ? 'Places disponibles' : 'Complet';
         
+        // Vérifier si l'utilisateur peut s'inscrire (licence compatible)
+        const licencesAutorisees = creneau.licences_autorisees ? creneau.licences_autorisees.split(',') : [];
+        const userLicence = currentUser ? currentUser.licence_type : null;
+        const peutSinscrire = !currentUser || !userLicence || licencesAutorisees.includes(userLicence);
+        const licencesText = licencesAutorisees.length > 0 ? licencesAutorisees.join(', ') : 'Toutes licences';
+        
+        // Debug pour identifier le problème
+        if (currentUser && userLicence) {
+            console.log(`Créneau: ${creneau.nom}, Licences autorisées: [${licencesAutorisees.join(', ')}], Licence utilisateur: ${userLicence}, Peut s'inscrire: ${peutSinscrire}`);
+        }
+        
         return `
             <div class="creneau-card">
                 <div class="creneau-info">
                     <h3>${creneau.nom}</h3>
                     <div class="creneau-details">
                         <div>${joursMap[creneau.jour_semaine]} • ${creneau.heure_debut} - ${creneau.heure_fin}</div>
+                        <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
+                            🎫 ${licencesText}
+                        </div>
                     </div>
                 </div>
                 <div class="creneau-status">
@@ -234,8 +327,9 @@ function displayCreneaux() {
                     <div>${statusText}</div>
                     <button onclick="inscrireCreneau(${creneau.id})" 
                             class="btn-success" 
-                            ${!disponible ? '' : ''}>
-                        ${disponible ? 'S\'inscrire' : 'Liste d\'attente'}
+                            ${!peutSinscrire ? 'disabled title="Votre licence ne permet pas l\'accès à ce créneau"' : ''}
+                            ${!peutSinscrire ? 'style="background: #a0aec0; cursor: not-allowed;"' : ''}>
+                        ${!peutSinscrire ? 'Licence incompatible' : (disponible ? 'S\'inscrire' : 'Liste d\'attente')}
                     </button>
                 </div>
             </div>
@@ -266,6 +360,7 @@ async function inscrireCreneau(creneauId) {
 
 async function loadMesInscriptions() {
     try {
+        // Charger les inscriptions
         const response = await fetch('/api/mes-inscriptions');
         const data = await response.json();
         
@@ -274,8 +369,52 @@ async function loadMesInscriptions() {
         } else {
             showMessage('Erreur lors du chargement des inscriptions', 'error');
         }
+
+        // Charger les limites de l'utilisateur
+        const limitesResponse = await fetch('/api/mes-limites');
+        const limitesData = await limitesResponse.json();
+        
+        if (limitesResponse.ok) {
+            displayMesLimites(limitesData);
+        }
     } catch (error) {
         showMessage('Erreur de connexion', 'error');
+    }
+}
+
+function displayMesLimites(limites) {
+    const quotaDetails = document.getElementById('quota-details');
+    const quotaVisual = document.getElementById('quota-visual');
+    
+    if (!limites) {
+        quotaDetails.textContent = 'Informations non disponibles';
+        return;
+    }
+    
+    const pourcentage = Math.round((limites.seancesActuelles / limites.maxSeances) * 100);
+    const couleur = pourcentage >= 100 ? '#e53e3e' : pourcentage >= 80 ? '#ed8936' : '#38a169';
+    
+    quotaDetails.innerHTML = `
+        Licence <strong>${limites.licenceType}</strong> • 
+        <span style="color: ${couleur}; font-weight: 500;">
+            ${limites.seancesActuelles}/${limites.maxSeances} séances cette semaine
+        </span>
+        ${limites.seancesRestantes > 0 ? 
+            `• <span style="color: #38a169;">${limites.seancesRestantes} séance(s) restante(s)</span>` : 
+            `• <span style="color: #e53e3e;">Limite atteinte !</span>`
+        }
+    `;
+    
+    // Indicateur visuel
+    if (limites.limiteAtteinte) {
+        quotaVisual.innerHTML = '🚫';
+        quotaVisual.title = 'Limite de séances atteinte';
+    } else if (limites.seancesRestantes <= 1) {
+        quotaVisual.innerHTML = '⚠️';
+        quotaVisual.title = 'Attention : bientôt la limite';
+    } else {
+        quotaVisual.innerHTML = '✅';
+        quotaVisual.title = 'Quota disponible';
     }
 }
 
@@ -350,11 +489,15 @@ async function handleCreateCreneau(e) {
     const heure_fin = document.getElementById('creneau-fin').value;
     const capacite_max = document.getElementById('creneau-capacite').value;
     
+    // Récupérer les licences sélectionnées
+    const licencesCheckboxes = document.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked');
+    const licences_autorisees = Array.from(licencesCheckboxes).map(cb => cb.value).join(',');
+    
     try {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, capacite_max })
+            body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees })
         });
         
         const data = await response.json();
@@ -399,35 +542,42 @@ function displayAdminCreneaux(creneaux) {
         4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi'
     };
     
-    container.innerHTML = creneaux.map(creneau => `
-        <div class="creneau-card">
-            <div class="creneau-info">
-                <h4>${creneau.nom}</h4>
-                <div class="creneau-details">
-                    ${joursMap[creneau.jour_semaine]} • ${creneau.heure_debut} - ${creneau.heure_fin}
+    container.innerHTML = creneaux.map(creneau => {
+        const licencesText = creneau.licences_autorisees ? creneau.licences_autorisees.split(',').join(', ') : 'Toutes licences';
+        
+        return `
+            <div class="creneau-card">
+                <div class="creneau-info">
+                    <h4>${creneau.nom}</h4>
+                    <div class="creneau-details">
+                        ${joursMap[creneau.jour_semaine]} • ${creneau.heure_debut} - ${creneau.heure_fin}
+                        <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
+                            🎫 ${licencesText}
+                        </div>
+                    </div>
+                </div>
+                <div class="creneau-status">
+                    <div class="capacite">
+                        ${creneau.inscrits}/${creneau.capacite_max} inscrits
+                        ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button onclick="voirInscriptions(${creneau.id})" class="btn-warning">
+                            👥 Inscriptions
+                        </button>
+                        <button onclick="editerCreneau(${creneau.id})" class="btn-success">
+                            ✏️ Modifier
+                        </button>
+                        <button onclick="supprimerCreneau(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', ${creneau.inscrits + creneau.en_attente})" 
+                                class="btn-danger" 
+                                title="${creneau.inscrits + creneau.en_attente > 0 ? 'Suppression forcée (avec inscriptions)' : 'Supprimer le créneau'}">
+                            ${creneau.inscrits + creneau.en_attente > 0 ? '🗑️ Supprimer (forcé)' : '🗑️ Supprimer'}
+                        </button>
+                    </div>
                 </div>
             </div>
-            <div class="creneau-status">
-                <div class="capacite">
-                    ${creneau.inscrits}/${creneau.capacite_max} inscrits
-                    ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
-                </div>
-                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                    <button onclick="voirInscriptions(${creneau.id})" class="btn-warning">
-                        👥 Inscriptions
-                    </button>
-                    <button onclick="editerCreneau(${creneau.id})" class="btn-success">
-                        ✏️ Modifier
-                    </button>
-                    <button onclick="supprimerCreneau(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', ${creneau.inscrits + creneau.en_attente})" 
-                            class="btn-danger" 
-                            title="${creneau.inscrits + creneau.en_attente > 0 ? 'Suppression forcée (avec inscriptions)' : 'Supprimer le créneau'}">
-                        ${creneau.inscrits + creneau.en_attente > 0 ? '🗑️ Supprimer (forcé)' : '🗑️ Supprimer'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 async function voirInscriptions(creneauId) {
@@ -621,6 +771,17 @@ async function editerCreneau(creneauId) {
                     </small>
                 </div>
                 
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
+                    <div id="edit-licences-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                        ${['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'].map(licence => {
+                            const isChecked = creneau.licences_autorisees && creneau.licences_autorisees.includes(licence);
+                            const emoji = licence === 'Compétition' ? '🏆' : licence === 'Loisir/Senior' ? '🏊‍♂️' : licence === 'Benjamins/Junior' ? '🧒' : '👶';
+                            return `<label><input type="checkbox" value="${licence}" ${isChecked ? 'checked' : ''}> ${emoji} ${licence}</label>`;
+                        }).join('')}
+                    </div>
+                </div>
+                
                 <div style="display: flex; gap: 1rem; justify-content: flex-end;">
                     <button type="button" onclick="this.closest('.edit-modal').remove()" 
                             style="background: #718096; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
@@ -642,12 +803,17 @@ async function editerCreneau(creneauId) {
         document.getElementById('edit-creneau-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // Récupérer les licences sélectionnées
+            const editLicencesCheckboxes = document.querySelectorAll('#edit-licences-checkboxes input[type="checkbox"]:checked');
+            const licences_autorisees = Array.from(editLicencesCheckboxes).map(cb => cb.value).join(',');
+            
             const formData = {
                 nom: document.getElementById('edit-nom').value,
                 jour_semaine: document.getElementById('edit-jour').value,
                 heure_debut: document.getElementById('edit-debut').value,
                 heure_fin: document.getElementById('edit-fin').value,
-                capacite_max: document.getElementById('edit-capacite').value
+                capacite_max: document.getElementById('edit-capacite').value,
+                licences_autorisees: licences_autorisees
             };
             
             try {
@@ -683,6 +849,259 @@ async function editerCreneau(creneauId) {
     } catch (error) {
         console.error('Erreur lors du chargement du créneau:', error);
         showMessage('Erreur lors du chargement du créneau', 'error');
+    }
+}
+
+function switchAdminTab(tab) {
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.admin-tab-content').forEach(content => content.classList.remove('active'));
+    
+    document.querySelector(`[data-admin-tab="${tab}"]`).classList.add('active');
+    document.getElementById(`admin-${tab}-section`).classList.add('active');
+    
+    // Charger les données selon l'onglet
+    if (tab === 'creneaux') {
+        loadAdminCreneaux();
+    } else if (tab === 'users') {
+        loadAdminUsers();
+    } else if (tab === 'limites') {
+        loadAdminLimites();
+    }
+}
+
+async function loadAdminUsers() {
+    try {
+        const response = await fetch('/api/admin/users');
+        const data = await response.json();
+        
+        if (response.ok) {
+            displayAdminUsers(data);
+        } else {
+            showMessage('Erreur lors du chargement des utilisateurs', 'error');
+        }
+    } catch (error) {
+        showMessage('Erreur de connexion', 'error');
+    }
+}
+
+function displayAdminUsers(users) {
+    const container = document.getElementById('admin-users-list');
+    
+    if (users.length === 0) {
+        container.innerHTML = '<p>Aucun utilisateur trouvé.</p>';
+        return;
+    }
+    
+    container.innerHTML = users.map(user => {
+        const isCurrentUser = currentUser && currentUser.id === user.id;
+        const roleClass = user.role === 'admin' ? 'role-admin' : 'role-membre';
+        const createdDate = new Date(user.created_at).toLocaleDateString('fr-FR');
+        
+        return `
+            <div class="user-card">
+                <div class="user-info">
+                    <h4>${user.prenom} ${user.nom} ${isCurrentUser ? '(Vous)' : ''}</h4>
+                    <div class="user-details">
+                        <div>📧 ${user.email}</div>
+                        <div>🎫 Licence: ${user.licence_type || 'Non définie'}</div>
+                        <div>📅 Inscrit le ${createdDate} • ${user.nb_inscriptions} inscription(s)</div>
+                    </div>
+                </div>
+                <div class="user-actions">
+                    <span class="user-role ${roleClass}">
+                        ${user.role === 'admin' ? '👑 Administrateur' : '👤 Membre'}
+                    </span>
+                    <select onchange="changerRoleUtilisateur(${user.id}, this.value)" 
+                            ${isCurrentUser ? 'disabled title="Vous ne pouvez pas modifier votre propre rôle"' : ''}>
+                        <option value="">Changer le rôle</option>
+                        <option value="membre" ${user.role === 'membre' ? 'selected' : ''}>👤 Membre</option>
+                        <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>👑 Admin</option>
+                    </select>
+                    <button onclick="supprimerUtilisateur(${user.id}, '${user.prenom} ${user.nom}', ${user.nb_inscriptions})" 
+                            class="btn-danger"
+                            ${isCurrentUser ? 'disabled title="Vous ne pouvez pas supprimer votre propre compte"' : ''}
+                            ${user.nb_inscriptions > 0 ? 'title="Cet utilisateur a des inscriptions actives"' : ''}>
+                        🗑️ Supprimer
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function changerRoleUtilisateur(userId, nouveauRole) {
+    if (!nouveauRole) return;
+    
+    const confirmation = confirm(
+        `Êtes-vous sûr de vouloir ${nouveauRole === 'admin' ? 'donner les droits administrateur' : 'retirer les droits administrateur'} à cet utilisateur ?`
+    );
+    
+    if (!confirmation) {
+        // Recharger pour remettre la valeur précédente
+        loadAdminUsers();
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/role`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: nouveauRole })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(data.message, 'success');
+            loadAdminUsers(); // Recharger la liste
+        } else {
+            showMessage(data.error, 'error');
+            loadAdminUsers(); // Recharger pour annuler le changement
+        }
+    } catch (error) {
+        console.error('Erreur lors du changement de rôle:', error);
+        showMessage('Erreur lors du changement de rôle', 'error');
+        loadAdminUsers();
+    }
+}
+
+async function supprimerUtilisateur(userId, nomUtilisateur, nbInscriptions) {
+    if (nbInscriptions > 0) {
+        showMessage(`Impossible de supprimer ${nomUtilisateur} : ${nbInscriptions} inscription(s) active(s)`, 'error');
+        return;
+    }
+    
+    const confirmation = confirm(
+        `Êtes-vous sûr de vouloir supprimer définitivement l'utilisateur "${nomUtilisateur}" ?\n\n⚠️ Cette action est irréversible !`
+    );
+    
+    if (!confirmation) return;
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(data.message, 'success');
+            loadAdminUsers(); // Recharger la liste
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Erreur lors de la suppression:', error);
+        showMessage('Erreur lors de la suppression de l\'utilisateur', 'error');
+    }
+}
+
+async function loadAdminLimites() {
+    try {
+        const response = await fetch('/api/admin/licence-limits');
+        const data = await response.json();
+        
+        if (response.ok) {
+            displayAdminLimites(data);
+        } else {
+            showMessage('Erreur lors du chargement des limites', 'error');
+        }
+    } catch (error) {
+        showMessage('Erreur de connexion', 'error');
+    }
+}
+
+function displayAdminLimites(limites) {
+    const container = document.getElementById('admin-limites-list');
+    
+    // Créer un objet pour faciliter la recherche
+    const limitesMap = {};
+    limites.forEach(limite => {
+        limitesMap[limite.licence_type] = limite.max_seances_semaine;
+    });
+    
+    // Types de licences disponibles
+    const typesLicences = ['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'];
+    
+    container.innerHTML = `
+        <div style="display: grid; gap: 1rem;">
+            ${typesLicences.map(licenceType => {
+                const emoji = licenceType === 'Compétition' ? '🏆' : 
+                             licenceType === 'Loisir/Senior' ? '🏊‍♂️' : 
+                             licenceType === 'Benjamins/Junior' ? '🧒' : '👶';
+                const maxSeances = limitesMap[licenceType] || 3;
+                
+                return `
+                    <div class="limite-card" style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="limite-info">
+                            <h4 style="margin: 0 0 0.5rem 0; color: #2d3748;">${emoji} ${licenceType}</h4>
+                            <div style="color: #718096; font-size: 0.9rem;">
+                                Nombre maximum de séances par semaine
+                            </div>
+                        </div>
+                        <div class="limite-controls" style="display: flex; align-items: center; gap: 1rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <label style="font-weight: 500; color: #4a5568;">Limite :</label>
+                                <input type="number" 
+                                       id="limite-${licenceType.replace('/', '-')}" 
+                                       value="${maxSeances}" 
+                                       min="1" 
+                                       max="10" 
+                                       style="width: 80px; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px; text-align: center;">
+                                <span style="color: #718096;">séances/semaine</span>
+                            </div>
+                            <button onclick="modifierLimite('${licenceType}', document.getElementById('limite-${licenceType.replace('/', '-')}').value)" 
+                                    class="btn-success" 
+                                    style="padding: 0.5rem 1rem;">
+                                💾 Sauvegarder
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+        
+        <div style="margin-top: 2rem; padding: 1rem; background: #e6fffa; border: 1px solid #81e6d9; border-radius: 8px;">
+            <h4 style="margin: 0 0 0.5rem 0; color: #234e52;">💡 Informations</h4>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #2d3748; font-size: 0.9rem;">
+                <li>Les limites s'appliquent par semaine (du lundi au dimanche)</li>
+                <li>Les utilisateurs ne pourront pas s'inscrire au-delà de leur limite</li>
+                <li>Les changements prennent effet immédiatement</li>
+                <li>Valeurs recommandées : Compétition (6), Loisir/Senior (3), Benjamins/Junior (4), Poussins/Pupilles (2)</li>
+            </ul>
+        </div>
+    `;
+}
+
+async function modifierLimite(licenceType, nouvelleValeur) {
+    const valeur = parseInt(nouvelleValeur);
+    
+    if (!valeur || valeur < 1 || valeur > 10) {
+        showMessage('La limite doit être entre 1 et 10 séances', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/admin/licence-limits/${encodeURIComponent(licenceType)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max_seances_semaine: valeur })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(`Limite mise à jour : ${licenceType} = ${valeur} séances/semaine`, 'success');
+            // Pas besoin de recharger, la valeur est déjà à jour dans l'interface
+        } else {
+            showMessage(data.error, 'error');
+            // Recharger pour remettre l'ancienne valeur
+            loadAdminLimites();
+        }
+    } catch (error) {
+        console.error('Erreur lors de la modification:', error);
+        showMessage('Erreur lors de la modification de la limite', 'error');
+        loadAdminLimites();
     }
 }
 

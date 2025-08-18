@@ -37,6 +37,13 @@
                     <input type="text" id="register-nom" placeholder="Nom" required>
                     <input type="email" id="register-email" placeholder="Email" required>
                     <input type="password" id="register-password" placeholder="Mot de passe" required>
+                    <select id="register-licence" required>
+                        <option value="">Type de licence</option>
+                        <option value="Compétition">🏆 Compétition</option>
+                        <option value="Loisir/Senior">🏊‍♂️ Loisir/Senior</option>
+                        <option value="Benjamins/Junior">🧒 Benjamins/Junior</option>
+                        <option value="Poussins/Pupilles">👶 Poussins/Pupilles</option>
+                    </select>
                     <button type="submit">Créer le compte</button>
                 </form>
             </div>
@@ -59,6 +66,15 @@
             <!-- Onglet Mes inscriptions -->
             <div id="mes-inscriptions-tab" class="tab-content">
                 <h2>Mes inscriptions</h2>
+                <div id="mes-limites-info" style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h4 style="margin: 0 0 0.25rem 0; color: #2d3748;">📊 Votre quota de séances</h4>
+                            <div id="quota-details" style="color: #718096; font-size: 0.9rem;">Chargement...</div>
+                        </div>
+                        <div id="quota-visual" style="font-size: 1.5rem;"></div>
+                    </div>
+                </div>
                 <div id="mes-inscriptions-list"></div>
             </div>
 
@@ -66,30 +82,67 @@
             <div id="admin-tab" class="tab-content">
                 <h2>Administration</h2>
                 
-                <div class="admin-section">
-                    <h3>Créer un nouveau créneau</h3>
-                    <form id="create-creneau-form">
-                        <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
-                        <select id="creneau-jour" required>
-                            <option value="">Jour de la semaine</option>
-                            <option value="1">Lundi</option>
-                            <option value="2">Mardi</option>
-                            <option value="3">Mercredi</option>
-                            <option value="4">Jeudi</option>
-                            <option value="5">Vendredi</option>
-                            <option value="6">Samedi</option>
-                            <option value="0">Dimanche</option>
-                        </select>
-                        <input type="time" id="creneau-debut" required>
-                        <input type="time" id="creneau-fin" required>
-                        <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
-                        <button type="submit">Créer le créneau</button>
-                    </form>
+                <div class="admin-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 2rem; background: #f7fafc; padding: 0.5rem; border-radius: 8px;">
+                    <button class="admin-tab-btn active" data-admin-tab="creneaux">Gestion des créneaux</button>
+                    <button class="admin-tab-btn" data-admin-tab="users">Gestion des utilisateurs</button>
+                    <button class="admin-tab-btn" data-admin-tab="limites">Limites de séances</button>
                 </div>
 
-                <div class="admin-section">
-                    <h3>Gestion des inscriptions</h3>
-                    <div id="admin-creneaux-list"></div>
+                <!-- Sous-onglet Créneaux -->
+                <div id="admin-creneaux-section" class="admin-tab-content active">
+                    <div class="admin-section">
+                        <h3>Créer un nouveau créneau</h3>
+                        <form id="create-creneau-form">
+                            <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
+                            <select id="creneau-jour" required>
+                                <option value="">Jour de la semaine</option>
+                                <option value="1">Lundi</option>
+                                <option value="2">Mardi</option>
+                                <option value="3">Mercredi</option>
+                                <option value="4">Jeudi</option>
+                                <option value="5">Vendredi</option>
+                                <option value="6">Samedi</option>
+                                <option value="0">Dimanche</option>
+                            </select>
+                            <input type="time" id="creneau-debut" required>
+                            <input type="time" id="creneau-fin" required>
+                            <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
+                            <div style="grid-column: 1 / -1;">
+                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
+                                <div id="licences-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                                    <label><input type="checkbox" value="Compétition" checked> 🏆 Compétition</label>
+                                    <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️ Loisir/Senior</label>
+                                    <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒 Benjamins/Junior</label>
+                                    <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶 Poussins/Pupilles</label>
+                                </div>
+                            </div>
+                            <button type="submit">Créer le créneau</button>
+                        </form>
+                    </div>
+
+                    <div class="admin-section">
+                        <h3>Gestion des créneaux</h3>
+                        <div id="admin-creneaux-list"></div>
+                    </div>
+                </div>
+
+                <!-- Sous-onglet Utilisateurs -->
+                <div id="admin-users-section" class="admin-tab-content">
+                    <div class="admin-section">
+                        <h3>Gestion des utilisateurs</h3>
+                        <div id="admin-users-list"></div>
+                    </div>
+                </div>
+
+                <!-- Sous-onglet Limites -->
+                <div id="admin-limites-section" class="admin-tab-content">
+                    <div class="admin-section">
+                        <h3>Limites de séances par semaine</h3>
+                        <p style="color: #718096; margin-bottom: 1.5rem;">
+                            Définissez le nombre maximum de séances par semaine pour chaque type de licence.
+                        </p>
+                        <div id="admin-limites-list"></div>
+                    </div>
                 </div>
             </div>
         </div>

@@ -83,22 +83,36 @@ SMTP_PASS=votre-mot-de-passe-app
    - Générez un "mot de passe d'application" dans les paramètres Google
    - Utilisez ce mot de passe dans SMTP_PASS
 
-3. **Redémarrez l'application** pour appliquer la configurationlaces) p11h, 15edi 10h-(SamLibre tion 
-- Nataplaces)12 0-19h30, redi 18h3rance (Vendtation Endu Na places)
--2h-13h, 10credi 1e (Mern Techniqutios)
-- Natalace, 6 p0h19h-2 (Lundi onfirmés- Natation C8 places)
--19h, 8h 1ndiutants (Luatation Déb
-- Nxemple :aux d'eelques créneiquement qua automatréercation c
-L'applix de test
-neau3
+3. **Redémarrez l'application** pour appliquer la configuration
 
-## Créest12se : tot de pasom
-- M.chlont@triatmail : tesre :**
-- Eisateur membUtil
-**admin123
-:  de passe com
-- Moton.n@triathl: admimail :**
-- Eistrateur 
+## Développement
 
-**Admintes de test
-## Comp
+### Lancement en mode développement
+```bash
+npm run dev
+```
+
+### Structure du projet
+```
+├── public/           # Fichiers statiques (HTML, CSS, JS)
+├── server.js         # Serveur Express principal
+├── natation.db       # Base de données SQLite (créée automatiquement)
+├── package.json      # Dépendances et scripts
+└── README.md         # Documentation
+```
+
+## Contribution
+
+1. Fork le projet
+2. Créez une branche pour votre fonctionnalité (`git checkout -b feature/nouvelle-fonctionnalite`)
+3. Committez vos changements (`git commit -am 'Ajout nouvelle fonctionnalité'`)
+4. Poussez vers la branche (`git push origin feature/nouvelle-fonctionnalite`)
+5. Ouvrez une Pull Request
+
+## Licence
+
+Ce projet est sous licence MIT. Voir le fichier LICENSE pour plus de détails.
+
+## Support
+
+Pour toute question ou problème, ouvrez une issue sur GitHub ou contactez l'équipe de développement.

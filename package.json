@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "nodemon --experimental-fetch server.js",
     "build": "echo 'No build step required'",
-    "test": "echo 'No tests specified'"
+    "test": "echo 'No tests specified'",
+    "deploy": "echo 'Déploiement en cours...'"
   },
   "engines": {
     "node": ">=18.0.0",
