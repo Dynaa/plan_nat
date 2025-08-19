@@ -6,6 +6,7 @@ const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const DatabaseAdapter = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -86,47 +87,43 @@ const initEmailTransporter = async () => {
 // Initialiser le transporteur email
 initEmailTransporter();
 
-// Base de données SQLite avec gestion d'erreurs améliorée
-const dbPath = process.env.DATABASE_URL || './natation.db';
-console.log('Tentative de connexion à la base de données:', dbPath);
-
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('Erreur de connexion à la base de données:', err.message);
-        console.error('Chemin de la base:', dbPath);
-        console.error('Répertoire de travail:', process.cwd());
-        console.error('Permissions du répertoire:', process.getuid ? process.getuid() : 'N/A');
-    } else {
-        console.log('✅ Connexion à la base de données réussie');
-    }
-});
+// Initialisation de la base de données (SQLite ou PostgreSQL)
+const db = new DatabaseAdapter();
+console.log('✅ Adaptateur de base de données initialisé');
 
 // Initialisation de la base de données
-console.log('🔄 Initialisation de la base de données...');
-db.serialize(() => {
-    // Table des utilisateurs
-    console.log('📋 Création de la table users...');
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        nom TEXT NOT NULL,
-        prenom TEXT NOT NULL,
-        role TEXT DEFAULT 'membre',
-        licence_type TEXT DEFAULT 'Loisir',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+const { migrateDatabase } = require('./migrate-to-postgres');
 
-    // Table des limites de séances par type de licence
-    db.run(`CREATE TABLE IF NOT EXISTS licence_limits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        licence_type TEXT UNIQUE NOT NULL,
-        max_seances_semaine INTEGER NOT NULL DEFAULT 3,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+// Exécuter la migration au démarrage
+migrateDatabase().then(() => {
+    console.log('✅ Base de données prête');
+}).catch(err => {
+    console.error('❌ Erreur lors de l\'initialisation:', err);
+});
 
-    // Table des créneaux
-    db.run(`CREATE TABLE IF NOT EXISTS creneaux (
+        // Table des limites de séances par type de licence
+        const createLimitsSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS licence_limits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                licence_type TEXT UNIQUE NOT NULL,
+                max_seances_semaine INTEGER NOT NULL DEFAULT 3,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS licence_limits (
+                id SERIAL PRIMARY KEY,
+                licence_type VARCHAR(50) UNIQUE NOT NULL,
+                max_seances_semaine INTEGER NOT NULL DEFAULT 3,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`
+        );
+        await db.run(createLimitsSQL);
+
+        // Table des créneaux
+        const createCreneauxSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS creneaux (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nom TEXT NOT NULL,
         jour_semaine INTEGER NOT NULL,
@@ -1295,7 +1292,8 @@ app.get('/debug', (req, res) => {
         cwd: process.cwd(),
         platform: process.platform,
         nodeVersion: process.version,
-        databasePath: process.env.DATABASE_URL || './natation.db'
+        databasePath: dbPath,
+        volumePath: process.env.RAILWAY_VOLUME_MOUNT_PATH || 'non configuré'
     };
     
     // Test de la base de données
@@ -1308,6 +1306,26 @@ app.get('/debug', (req, res) => {
         
         res.json(diagnostics);
     });
+});
+
+// Route d'export de la base de données (admin seulement)
+app.get('/admin/export-db', requireAdmin, (req, res) => {
+    const fs = require('fs');
+    
+    try {
+        if (fs.existsSync(dbPath)) {
+            res.download(dbPath, 'natation-backup.db', (err) => {
+                if (err) {
+                    console.error('Erreur téléchargement DB:', err);
+                    res.status(500).json({ error: 'Erreur lors du téléchargement' });
+                }
+            });
+        } else {
+            res.status(404).json({ error: 'Base de données non trouvée' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur lors de l\'export' });
+    }
 });
 
 // Servir les fichiers statiques
