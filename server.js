@@ -482,19 +482,33 @@ server.on('error', (err) => {
 });
 
 // Routes de création de créneaux (ADMIN)
-app.post('/api/creneaux', requireAdmin, (req, res) => {
+app.post('/api/creneaux', requireAdmin, async (req, res) => {
     const { nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees } = req.body;
     
-    db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) 
-            VALUES (?, ?, ?, ?, ?, ?)`,
-        [nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'], 
-        function(err) {
-            if (err) {
-                console.error('Erreur création créneau:', err);
-                return res.status(500).json({ error: 'Erreur lors de la création du créneau' });
-            }
-            res.json({ message: 'Créneau créé avec succès', creneauId: this.lastID });
+    try {
+        const sql = db.isPostgres ? 
+            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) 
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id` :
+            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) 
+             VALUES (?, ?, ?, ?, ?, ?)`;
+        
+        const result = await db.run(sql, [
+            nom, 
+            jour_semaine, 
+            heure_debut, 
+            heure_fin, 
+            capacite_max, 
+            licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'
+        ]);
+        
+        res.json({ 
+            message: 'Créneau créé avec succès', 
+            creneauId: result.lastID || result.id 
         });
+    } catch (err) {
+        console.error('Erreur création créneau:', err);
+        return res.status(500).json({ error: 'Erreur lors de la création du créneau' });
+    }
 });
 
 // Route de modification de créneaux (ADMIN)
