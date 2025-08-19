@@ -254,7 +254,7 @@ const requireAdmin = (req, res, next) => {
 };
 
 // Routes d'authentification
-app.post('/api/register', (req, res) => {
+app.post('/api/register', async (req, res) => {
     const { email, password, nom, prenom, licence_type } = req.body;
     
     if (!email || !password || !nom || !prenom || !licence_type) {
@@ -268,19 +268,27 @@ app.post('/api/register', (req, res) => {
 
     const hashedPassword = bcrypt.hashSync(password, 10);
     
-    db.run(`INSERT INTO users (email, password, nom, prenom, licence_type) VALUES (?, ?, ?, ?, ?)`,
-        [email, hashedPassword, nom, prenom, licence_type], function(err) {
-            if (err) {
-                if (err.message.includes('UNIQUE constraint failed')) {
-                    return res.status(400).json({ error: 'Email déjà utilisé' });
-                }
-                return res.status(500).json({ error: 'Erreur lors de la création du compte' });
-            }
-            res.json({ message: 'Compte créé avec succès', userId: this.lastID });
+    try {
+        const sql = db.isPostgres ? 
+            `INSERT INTO users (email, password, nom, prenom, licence_type) VALUES ($1, $2, $3, $4, $5) RETURNING id` :
+            `INSERT INTO users (email, password, nom, prenom, licence_type) VALUES (?, ?, ?, ?, ?)`;
+        
+        const result = await db.run(sql, [email, hashedPassword, nom, prenom, licence_type]);
+        
+        res.json({ 
+            message: 'Compte créé avec succès', 
+            userId: result.lastID || result.id 
         });
+    } catch (err) {
+        if (err.message.includes('UNIQUE constraint failed') || err.message.includes('duplicate key')) {
+            return res.status(400).json({ error: 'Email déjà utilisé' });
+        }
+        console.error('Erreur création compte:', err);
+        return res.status(500).json({ error: 'Erreur lors de la création du compte' });
+    }
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     
     console.log('Tentative de connexion pour:', email);
@@ -289,11 +297,13 @@ app.post('/api/login', (req, res) => {
         return res.status(400).json({ error: 'Email et mot de passe requis' });
     }
     
-    db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, user) => {
-        if (err) {
-            console.error('Erreur base de données:', err);
-            return res.status(500).json({ error: 'Erreur de base de données' });
-        }
+    try {
+        // Utiliser la syntaxe PostgreSQL avec $1 au lieu de ?
+        const sql = db.isPostgres ? 
+            `SELECT * FROM users WHERE email = $1` : 
+            `SELECT * FROM users WHERE email = ?`;
+        
+        const user = await db.get(sql, [email]);
         
         if (!user) {
             console.log('Utilisateur non trouvé:', email);
@@ -317,7 +327,10 @@ app.post('/api/login', (req, res) => {
             console.log('Mot de passe incorrect pour:', email);
             res.status(401).json({ error: 'Email ou mot de passe incorrect' });
         }
-    });
+    } catch (err) {
+        console.error('Erreur base de données:', err);
+        return res.status(500).json({ error: 'Erreur de base de données' });
+    }
 });
 
 app.post('/api/logout', (req, res) => {
@@ -325,18 +338,27 @@ app.post('/api/logout', (req, res) => {
     res.json({ message: 'Déconnexion réussie' });
 });
 
-app.get('/api/auth-status', (req, res) => {
+app.get('/api/auth-status', async (req, res) => {
     if (req.session.userId) {
-        db.get(`SELECT id, nom, prenom, role, licence_type FROM users WHERE id = ?`, 
-            [req.session.userId], (err, user) => {
-                if (err || !user) {
-                    return res.status(401).json({ authenticated: false });
-                }
-                res.json({ 
-                    authenticated: true, 
-                    user: { id: user.id, nom: user.nom, prenom: user.prenom, role: user.role, licence_type: user.licence_type }
-                });
+        try {
+            const sql = db.isPostgres ? 
+                `SELECT id, nom, prenom, role, licence_type FROM users WHERE id = $1` :
+                `SELECT id, nom, prenom, role, licence_type FROM users WHERE id = ?`;
+            
+            const user = await db.get(sql, [req.session.userId]);
+            
+            if (!user) {
+                return res.status(401).json({ authenticated: false });
+            }
+            
+            res.json({ 
+                authenticated: true, 
+                user: { id: user.id, nom: user.nom, prenom: user.prenom, role: user.role, licence_type: user.licence_type }
             });
+        } catch (err) {
+            console.error('Erreur auth-status:', err);
+            return res.status(401).json({ authenticated: false });
+        }
     } else {
         res.json({ authenticated: false });
     }
