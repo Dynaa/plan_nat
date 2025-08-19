@@ -405,29 +405,29 @@ app.get('/api/creneaux/:creneauId', (req, res) => {
 });
 
 // Route pour les inscriptions de l'utilisateur
-app.get('/api/mes-inscriptions', requireAuth, (req, res) => {
+app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     
     const query = `
         SELECT i.*, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin
         FROM inscriptions i
         JOIN creneaux c ON i.creneau_id = c.id
-        WHERE i.user_id = ?
+        WHERE i.user_id = ${db.isPostgres ? '$1' : '?'}
         ORDER BY c.jour_semaine, c.heure_debut
     `;
     
     console.log('Requête mes-inscriptions pour userId:', userId);
     
-    db.all(query, [userId], (err, rows) => {
-        if (err) {
-            console.error('Erreur SQL mes-inscriptions:', err.message);
-            return res.status(500).json({ 
-                error: 'Erreur lors de la récupération des inscriptions'
-            });
-        }
+    try {
+        const rows = await db.query(query, [userId]);
         console.log('Inscriptions trouvées:', rows.length);
         res.json(rows);
-    });
+    } catch (err) {
+        console.error('Erreur SQL mes-inscriptions:', err.message);
+        return res.status(500).json({ 
+            error: 'Erreur lors de la récupération des inscriptions'
+        });
+    }
 });
 
 // Health check
@@ -662,7 +662,7 @@ app.delete('/api/creneaux/:creneauId/force', requireAdmin, (req, res) => {
 });
 
 // Routes d'administration des utilisateurs
-app.get('/api/admin/users', requireAdmin, (req, res) => {
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
     const query = `
         SELECT id, email, nom, prenom, role, licence_type, created_at,
                (SELECT COUNT(*) FROM inscriptions WHERE user_id = users.id) as nb_inscriptions
@@ -670,13 +670,13 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
         ORDER BY created_at DESC
     `;
     
-    db.all(query, [], (err, rows) => {
-        if (err) {
-            console.error('Erreur lors de la récupération des utilisateurs:', err);
-            return res.status(500).json({ error: 'Erreur lors de la récupération des utilisateurs' });
-        }
+    try {
+        const rows = await db.query(query, []);
         res.json(rows);
-    });
+    } catch (err) {
+        console.error('Erreur lors de la récupération des utilisateurs:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des utilisateurs' });
+    }
 });
 
 app.put('/api/admin/users/:userId/role', requireAdmin, (req, res) => {
@@ -746,17 +746,6 @@ app.delete('/api/admin/users/:userId', requireAdmin, (req, res) => {
             console.log('Utilisateur supprimé avec succès:', userId);
             res.json({ message: 'Utilisateur supprimé avec succès' });
         });
-    });
-});
-
-// Routes pour les limites de séances
-app.get('/api/admin/licence-limits', requireAdmin, (req, res) => {
-    db.all(`SELECT * FROM licence_limits ORDER BY licence_type`, [], (err, rows) => {
-        if (err) {
-            console.error('Erreur lors de la récupération des limites:', err);
-            return res.status(500).json({ error: 'Erreur lors de la récupération des limites' });
-        }
-        res.json(rows);
     });
 });
 
@@ -1091,14 +1080,14 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, (req, res) => {
 });
 
 // Routes d'administration des limites de licence
-app.get('/api/admin/licence-limits', requireAdmin, (req, res) => {
-    db.all(`SELECT * FROM licence_limits ORDER BY licence_type`, [], (err, rows) => {
-        if (err) {
-            console.error('Erreur récupération limites:', err);
-            return res.status(500).json({ error: 'Erreur lors de la récupération des limites' });
-        }
+app.get('/api/admin/licence-limits', requireAdmin, async (req, res) => {
+    try {
+        const rows = await db.query(`SELECT * FROM licence_limits ORDER BY licence_type`, []);
         res.json(rows);
-    });
+    } catch (err) {
+        console.error('Erreur récupération limites:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des limites' });
+    }
 });
 
 app.put('/api/admin/licence-limits/:licenceType', requireAdmin, (req, res) => {
