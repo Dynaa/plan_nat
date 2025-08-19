@@ -8,7 +8,9 @@
     "dev": "nodemon --experimental-fetch server.js",
     "build": "echo 'No build step required'",
     "test": "echo 'No tests specified'",
-    "deploy": "echo 'Déploiement en cours...'"
+    "deploy": "echo 'Déploiement en cours...'",
+    "init-postgres": "node init-postgres.js",
+    "migrate": "node migrate-to-postgres.js"
   },
   "engines": {
     "node": ">=18.0.0",

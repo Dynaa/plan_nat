@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
-const sqlite3 = require('sqlite3').verbose();
+const DatabaseAdapter = require('./database');
 const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
@@ -81,22 +81,23 @@ const initEmailTransporter = async () => {
 // Initialiser le transporteur email
 initEmailTransporter();
 
-// Base de données SQLite simple
-const dbPath = process.env.RAILWAY_VOLUME_MOUNT_PATH ? 
-    `${process.env.RAILWAY_VOLUME_MOUNT_PATH}/natation.db` : './natation.db';
-console.log('📁 Base de données SQLite:', dbPath);
-
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('❌ Erreur de connexion à la base de données:', err.message);
-    } else {
-        console.log('✅ Connexion à la base de données réussie');
-    }
-});
+// Initialisation de la base de données (SQLite ou PostgreSQL)
+const db = new DatabaseAdapter();
+const initPostgres = require('./init-postgres');
 
 // Initialisation de la base de données
 console.log('🔄 Initialisation de la base de données...');
-db.serialize(() => {
+
+// Si PostgreSQL, utiliser le script d'initialisation dédié
+if (db.isPostgres) {
+    initPostgres().then(() => {
+        console.log('✅ Base de données PostgreSQL initialisée');
+    }).catch(err => {
+        console.error('❌ Erreur initialisation PostgreSQL:', err);
+    });
+} else {
+    // Initialisation SQLite (code existant)
+    db.serialize(() => {
     // Table des utilisateurs
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,10 +194,11 @@ db.serialize(() => {
                     [licenceType, maxSeances]);
             });
         }
+        });
     });
-});
 
-console.log('✅ Base de données initialisée');
+    console.log('✅ Base de données SQLite initialisée');
+}
 
 // Fonctions d'envoi d'email (simplifiées)
 const sendEmail = async (to, subject, htmlContent) => {
