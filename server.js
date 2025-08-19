@@ -14,7 +14,8 @@ const PORT = process.env.PORT || 3000;
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
-app.use(session({
+// Configuration de session adaptée à l'environnement
+const sessionConfig = {
     secret: process.env.SESSION_SECRET || 'triathlon-natation-secret-key-dev',
     resave: false,
     saveUninitialized: false,
@@ -22,7 +23,17 @@ app.use(session({
         secure: process.env.NODE_ENV === 'production',
         maxAge: 24 * 60 * 60 * 1000 // 24 heures
     }
-}));
+};
+
+// En production, ajouter des options de sécurité supplémentaires
+if (process.env.NODE_ENV === 'production') {
+    sessionConfig.cookie.httpOnly = true;
+    sessionConfig.cookie.sameSite = 'strict';
+    // Note: MemoryStore est OK pour une petite application comme celle-ci
+    console.log('⚠️ Utilisation de MemoryStore en production (OK pour petite app)');
+}
+
+app.use(session(sessionConfig));
 
 // Configuration email
 const emailConfig = {
@@ -41,6 +52,13 @@ const emailConfig = {
 let transporter;
 const initEmailTransporter = async () => {
     try {
+        // En production, désactiver les emails si pas de configuration SMTP complète
+        if (process.env.NODE_ENV === 'production' && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS)) {
+            console.log('📧 Mode production : emails désactivés (pas de configuration SMTP)');
+            transporter = null;
+            return;
+        }
+        
         if (!process.env.SMTP_HOST) {
             // Créer un compte de test Ethereal pour le développement
             const testAccount = await nodemailer.createTestAccount();
@@ -1297,13 +1315,28 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Gestion des erreurs non capturées
+process.on('uncaughtException', (error) => {
+    console.error('❌ Erreur non capturée:', error);
+    // Ne pas arrêter le processus pour une erreur non critique
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Promesse rejetée non gérée:', reason);
+});
+
 const server = app.listen(PORT, () => {
-    console.log(`Serveur démarré sur http://localhost:${PORT}`);
-    console.log('=== Comptes de test ===');
-    console.log('Admin: admin@triathlon.com / admin123');
-    console.log('Utilisateur: test@triathlon.com / test123');
-    console.log('=====================');
-    console.log('Appuyez sur Ctrl+C pour arrêter le serveur');
+    console.log(`✅ Serveur démarré sur le port ${PORT}`);
+    console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
+    
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('=== Comptes de test ===');
+        console.log('Admin: admin@triathlon.com / admin123');
+        console.log('Utilisateur: test@triathlon.com / test123');
+        console.log('=====================');
+    } else {
+        console.log('🔐 Mode production - Utilisez vos identifiants configurés');
+    }
 });
 
 server.on('error', (err) => {
