@@ -68,12 +68,26 @@ const initEmailTransporter = async () => {
 // Initialiser le transporteur email
 initEmailTransporter();
 
-// Base de données SQLite
-const db = new sqlite3.Database('natation.db');
+// Base de données SQLite avec gestion d'erreurs améliorée
+const dbPath = process.env.DATABASE_URL || './natation.db';
+console.log('Tentative de connexion à la base de données:', dbPath);
+
+const db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+        console.error('Erreur de connexion à la base de données:', err.message);
+        console.error('Chemin de la base:', dbPath);
+        console.error('Répertoire de travail:', process.cwd());
+        console.error('Permissions du répertoire:', process.getuid ? process.getuid() : 'N/A');
+    } else {
+        console.log('✅ Connexion à la base de données réussie');
+    }
+});
 
 // Initialisation de la base de données
+console.log('🔄 Initialisation de la base de données...');
 db.serialize(() => {
     // Table des utilisateurs
+    console.log('📋 Création de la table users...');
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,
@@ -1030,10 +1044,19 @@ app.get('/api/mes-inscriptions', requireAuth, (req, res) => {
         ORDER BY c.jour_semaine, c.heure_debut
     `;
 
+    console.log('Requête mes-inscriptions pour userId:', userId);
+    
     db.all(query, [userId], (err, rows) => {
         if (err) {
-            return res.status(500).json({ error: 'Erreur lors de la récupération des inscriptions' });
+            console.error('Erreur SQL mes-inscriptions:', err.message);
+            console.error('Query:', query);
+            console.error('UserId:', userId);
+            return res.status(500).json({ 
+                error: 'Erreur lors de la récupération des inscriptions',
+                details: process.env.NODE_ENV === 'development' ? err.message : undefined
+            });
         }
+        console.log('Inscriptions trouvées:', rows.length);
         res.json(rows);
     });
 });
@@ -1216,12 +1239,25 @@ app.get('/health', (req, res) => {
 // Page de statut publique
 app.get('/status', (req, res) => {
     db.get(`SELECT COUNT(*) as users FROM users`, [], (err, userCount) => {
+        if (err) {
+            return res.json({
+                status: 'Erreur',
+                error: 'Problème de base de données',
+                details: err.message,
+                timestamp: new Date().toISOString()
+            });
+        }
+        
         db.get(`SELECT COUNT(*) as creneaux FROM creneaux WHERE actif = 1`, [], (err2, creneauCount) => {
             db.get(`SELECT COUNT(*) as inscriptions FROM inscriptions`, [], (err3, inscriptionCount) => {
                 res.json({
                     status: 'Opérationnel',
                     version: '1.0.0',
                     environment: process.env.NODE_ENV || 'development',
+                    database: {
+                        path: process.env.DATABASE_URL || './natation.db',
+                        writable: true
+                    },
                     stats: {
                         utilisateurs: userCount ? userCount.users : 0,
                         creneaux_actifs: creneauCount ? creneauCount.creneaux : 0,
@@ -1231,6 +1267,28 @@ app.get('/status', (req, res) => {
                 });
             });
         });
+    });
+});
+
+// Route de diagnostic détaillé
+app.get('/debug', (req, res) => {
+    const diagnostics = {
+        environment: process.env.NODE_ENV,
+        cwd: process.cwd(),
+        platform: process.platform,
+        nodeVersion: process.version,
+        databasePath: process.env.DATABASE_URL || './natation.db'
+    };
+    
+    // Test de la base de données
+    db.get(`SELECT name FROM sqlite_master WHERE type='table'`, [], (err, tables) => {
+        if (err) {
+            diagnostics.database = { error: err.message };
+        } else {
+            diagnostics.database = { status: 'OK', tables: 'found' };
+        }
+        
+        res.json(diagnostics);
     });
 });
 
