@@ -81,6 +81,21 @@ const initEmailTransporter = async () => {
 // Initialiser le transporteur email
 initEmailTransporter();
 
+// Debug des variables d'environnement (seulement en production pour diagnostiquer)
+if (process.env.NODE_ENV === 'production') {
+    console.log('🔍 Variables d\'environnement Railway:');
+    console.log('- NODE_ENV:', process.env.NODE_ENV);
+    console.log('- PORT:', process.env.PORT);
+    console.log('- DATABASE_URL présente:', !!process.env.DATABASE_URL);
+    console.log('- RAILWAY_ENVIRONMENT:', process.env.RAILWAY_ENVIRONMENT);
+    
+    // Afficher le début de DATABASE_URL sans exposer les credentials
+    if (process.env.DATABASE_URL) {
+        const dbUrl = process.env.DATABASE_URL;
+        console.log('- DATABASE_URL commence par:', dbUrl.substring(0, 15) + '...');
+    }
+}
+
 // Initialisation de la base de données (SQLite ou PostgreSQL)
 const db = new DatabaseAdapter();
 const initPostgres = require('./init-postgres');

@@ -4,10 +4,17 @@ const { Pool } = require('pg');
 
 class DatabaseAdapter {
     constructor() {
-        this.isPostgres = !!process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('postgres');
+        // Détection PostgreSQL plus robuste
+        this.isPostgres = !!process.env.DATABASE_URL && 
+                         (process.env.DATABASE_URL.startsWith('postgres') || 
+                          process.env.DATABASE_URL.startsWith('postgresql'));
+        
+        console.log('🔍 DATABASE_URL détectée:', !!process.env.DATABASE_URL);
+        console.log('🔍 Type de base:', this.isPostgres ? 'PostgreSQL' : 'SQLite');
         
         if (this.isPostgres) {
             console.log('🐘 Utilisation de PostgreSQL');
+            console.log('🔗 URL de connexion:', process.env.DATABASE_URL ? 'Configurée' : 'Manquante');
             this.pool = new Pool({
                 connectionString: process.env.DATABASE_URL,
                 ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
