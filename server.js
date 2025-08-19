@@ -365,24 +365,25 @@ app.get('/api/auth-status', async (req, res) => {
 });
 
 // Routes des créneaux
-app.get('/api/creneaux', (req, res) => {
+app.get('/api/creneaux', async (req, res) => {
     const query = `
         SELECT c.*, 
                COUNT(CASE WHEN i.statut = 'inscrit' THEN 1 END) as inscrits,
                COUNT(CASE WHEN i.statut = 'attente' THEN 1 END) as en_attente
         FROM creneaux c
         LEFT JOIN inscriptions i ON c.id = i.creneau_id
-        WHERE c.actif = 1
+        WHERE c.actif = ${db.isPostgres ? 'true' : '1'}
         GROUP BY c.id
         ORDER BY c.jour_semaine, c.heure_debut
     `;
     
-    db.all(query, [], (err, rows) => {
-        if (err) {
-            console.error('Erreur récupération créneaux:', err);
-            return res.status(500).json({ error: 'Erreur lors de la récupération des créneaux' });
-        }
+    try {
+        const rows = await db.query(query, []);
         res.json(rows);
+    } catch (err) {
+        console.error('Erreur récupération créneaux:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des créneaux' });
+    }
     });
 });
 
