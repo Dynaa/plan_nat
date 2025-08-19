@@ -1118,8 +1118,8 @@ app.put('/api/admin/licence-limits/:licenceType', requireAdmin, (req, res) => {
             res.json({ message: 'Limite modifiée avec succès' });
         });
 });
-// R
-oute temporaire pour promouvoir un utilisateur en admin (À SUPPRIMER APRÈS USAGE)
+
+// Route temporaire pour promouvoir un utilisateur en admin (À SUPPRIMER APRÈS USAGE)
 app.post('/api/temp-promote-admin', async (req, res) => {
     const { email, secret } = req.body;
     
