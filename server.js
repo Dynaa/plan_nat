@@ -1118,3 +1118,31 @@ app.put('/api/admin/licence-limits/:licenceType', requireAdmin, (req, res) => {
             res.json({ message: 'Limite modifiée avec succès' });
         });
 });
+// R
+oute temporaire pour promouvoir un utilisateur en admin (À SUPPRIMER APRÈS USAGE)
+app.post('/api/temp-promote-admin', async (req, res) => {
+    const { email, secret } = req.body;
+    
+    // Mot de passe secret pour sécuriser cette route temporaire
+    if (secret !== 'promote-me-to-admin-2024') {
+        return res.status(403).json({ error: 'Secret incorrect' });
+    }
+    
+    try {
+        const sql = db.isPostgres ? 
+            `UPDATE users SET role = 'admin' WHERE email = $1` :
+            `UPDATE users SET role = 'admin' WHERE email = ?`;
+        
+        const result = await db.run(sql, [email]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+        
+        console.log(`🔑 Utilisateur ${email} promu administrateur`);
+        res.json({ message: `Utilisateur ${email} promu administrateur avec succès` });
+    } catch (err) {
+        console.error('Erreur promotion admin:', err);
+        return res.status(500).json({ error: 'Erreur lors de la promotion' });
+    }
+});
