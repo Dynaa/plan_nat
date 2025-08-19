@@ -384,24 +384,27 @@ app.get('/api/creneaux', async (req, res) => {
         console.error('Erreur récupération créneaux:', err);
         return res.status(500).json({ error: 'Erreur lors de la récupération des créneaux' });
     }
-    });
 });
 
-app.get('/api/creneaux/:creneauId', (req, res) => {
+app.get('/api/creneaux/:creneauId', async (req, res) => {
     const creneauId = req.params.creneauId;
     
-    db.get(`SELECT * FROM creneaux WHERE id = ?`, [creneauId], (err, creneau) => {
-        if (err) {
-            console.error('Erreur récupération créneau:', err);
-            return res.status(500).json({ error: 'Erreur lors de la récupération du créneau' });
-        }
+    try {
+        const sql = db.isPostgres ? 
+            `SELECT * FROM creneaux WHERE id = $1` :
+            `SELECT * FROM creneaux WHERE id = ?`;
+        
+        const creneau = await db.get(sql, [creneauId]);
         
         if (!creneau) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
         }
         
         res.json(creneau);
-    });
+    } catch (err) {
+        console.error('Erreur récupération créneau:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération du créneau' });
+    }
 });
 
 // Route pour les inscriptions de l'utilisateur
