@@ -722,38 +722,8 @@ app.delete('/api/admin/users/:userId', requireAdmin, (req, res) => {
     });
 });
 
-app.put('/api/admin/licence-limits/:licenceType', requireAdmin, (req, res) => {
-    const licenceType = req.params.licenceType;
-    const { max_seances_semaine } = req.body;
-    
-    if (!max_seances_semaine || max_seances_semaine < 1 || max_seances_semaine > 10) {
-        return res.status(400).json({ error: 'Le nombre de séances doit être entre 1 et 10' });
-    }
-    
-    db.run(`UPDATE licence_limits SET max_seances_semaine = ? WHERE licence_type = ?`,
-        [max_seances_semaine, licenceType], function(err) {
-            if (err) {
-                console.error('Erreur lors de la mise à jour:', err);
-                return res.status(500).json({ error: 'Erreur lors de la mise à jour' });
-            }
-            
-            if (this.changes === 0) {
-                // Créer la limite si elle n'existe pas
-                db.run(`INSERT INTO licence_limits (licence_type, max_seances_semaine) VALUES (?, ?)`,
-                    [licenceType, max_seances_semaine], (err) => {
-                        if (err) {
-                            return res.status(500).json({ error: 'Erreur lors de la création' });
-                        }
-                        res.json({ message: 'Limite créée avec succès' });
-                    });
-            } else {
-                res.json({ message: 'Limite mise à jour avec succès' });
-            }
-        });
-});
-
 // Fonction pour vérifier les limites de séances par semaine
-const verifierLimitesSeances = (userId, callback) => {
+const verifierLimitesSeances = async (userId) => {
     // Calculer le début et la fin de la semaine courante (lundi à dimanche)
     const maintenant = new Date();
     const jourSemaine = maintenant.getDay(); // 0 = dimanche, 1 = lundi, etc.
@@ -767,7 +737,20 @@ const verifierLimitesSeances = (userId, callback) => {
     finSemaine.setDate(debutSemaine.getDate() + 6);
     finSemaine.setHours(23, 59, 59, 999);
 
-    const query = `
+    const query = db.isPostgres ? `
+        SELECT 
+            u.licence_type,
+            ll.max_seances_semaine,
+            COUNT(i.id) as seances_cette_semaine
+        FROM users u
+        LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
+        LEFT JOIN inscriptions i ON u.id = i.user_id 
+            AND i.statut = 'inscrit'
+            AND i.created_at >= $1 
+            AND i.created_at <= $2
+        WHERE u.id = $3
+        GROUP BY u.id, u.licence_type, ll.max_seances_semaine
+    ` : `
         SELECT 
             u.licence_type,
             ll.max_seances_semaine,
@@ -782,37 +765,38 @@ const verifierLimitesSeances = (userId, callback) => {
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     `;
 
-    db.get(query, [debutSemaine.toISOString(), finSemaine.toISOString(), userId], (err, result) => {
-        if (err) {
-            console.error('Erreur lors de la vérification des limites:', err);
-            return callback(err, null);
-        }
+    try {
+        const result = await db.get(query, [debutSemaine.toISOString(), finSemaine.toISOString(), userId]);
 
         if (!result) {
-            return callback(new Error('Utilisateur non trouvé'), null);
+            throw new Error('Utilisateur non trouvé');
         }
 
         const limiteAtteinte = result.seances_cette_semaine >= (result.max_seances_semaine || 3);
         
-        callback(null, {
+        return {
             licenceType: result.licence_type,
             maxSeances: result.max_seances_semaine || 3,
-            seancesActuelles: result.seances_cette_semaine,
+            seancesActuelles: parseInt(result.seances_cette_semaine) || 0,
             limiteAtteinte: limiteAtteinte,
-            seancesRestantes: Math.max(0, (result.max_seances_semaine || 3) - result.seances_cette_semaine)
-        });
-    });
+            seancesRestantes: Math.max(0, (result.max_seances_semaine || 3) - (parseInt(result.seances_cette_semaine) || 0))
+        };
+    } catch (err) {
+        console.error('Erreur lors de la vérification des limites:', err);
+        throw err;
+    }
 };
 
-app.get('/api/mes-limites', requireAuth, (req, res) => {
+app.get('/api/mes-limites', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     
-    verifierLimitesSeances(userId, (err, limites) => {
-        if (err) {
-            return res.status(500).json({ error: 'Erreur lors de la vérification des limites' });
-        }
+    try {
+        const limites = await verifierLimitesSeances(userId);
         res.json(limites);
-    });
+    } catch (err) {
+        console.error('Erreur vérification limites:', err);
+        return res.status(500).json({ error: 'Erreur lors de la vérification des limites' });
+    }
 });
 
 // Routes d'administration des créneaux
@@ -861,17 +845,27 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau' });
         }
         
-        // Pour l'instant, inscription simple (à améliorer plus tard)
+        // Vérifier les limites de séances
+        const limites = await verifierLimitesSeances(userId);
+        
+        if (limites.limiteAtteinte) {
+            return res.status(400).json({ 
+                error: `Vous avez atteint votre limite de ${limites.maxSeances} séances par semaine (${limites.seancesActuelles}/${limites.maxSeances})` 
+            });
+        }
+        
+        // Inscription avec vérification des limites
         const insertSql = db.isPostgres ?
             `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES ($1, $2, 'inscrit') RETURNING id` :
             `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES (?, ?, 'inscrit')`;
         
         const result = await db.run(insertSql, [userId, creneauId]);
         
-        console.log('Inscription réussie:', { userId, creneauId });
+        console.log('Inscription réussie:', { userId, creneauId, limites });
         res.json({ 
-            message: 'Inscription réussie', 
-            inscriptionId: result.lastID || result.id 
+            message: `Inscription réussie ! Il vous reste ${limites.seancesRestantes - 1} séance(s) cette semaine.`, 
+            inscriptionId: result.lastID || result.id,
+            seancesRestantes: limites.seancesRestantes - 1
         });
     } catch (err) {
         console.error('Erreur inscription:', err);
@@ -924,7 +918,7 @@ app.get('/api/admin/licence-limits', requireAdmin, async (req, res) => {
     }
 });
 
-app.put('/api/admin/licence-limits/:licenceType', requireAdmin, (req, res) => {
+app.put('/api/admin/licence-limits/:licenceType', requireAdmin, async (req, res) => {
     const licenceType = req.params.licenceType;
     const { max_seances_semaine } = req.body;
     
@@ -934,20 +928,23 @@ app.put('/api/admin/licence-limits/:licenceType', requireAdmin, (req, res) => {
         return res.status(400).json({ error: 'Le nombre de séances doit être entre 1 et 10' });
     }
     
-    db.run(`UPDATE licence_limits SET max_seances_semaine = ? WHERE licence_type = ?`,
-        [max_seances_semaine, licenceType], function(err) {
-            if (err) {
-                console.error('Erreur modification limite:', err);
-                return res.status(500).json({ error: 'Erreur lors de la modification' });
-            }
-            
-            if (this.changes === 0) {
-                return res.status(404).json({ error: 'Type de licence non trouvé' });
-            }
-            
-            console.log('Limite modifiée avec succès:', licenceType);
-            res.json({ message: 'Limite modifiée avec succès' });
-        });
+    try {
+        const sql = db.isPostgres ?
+            `UPDATE licence_limits SET max_seances_semaine = $1 WHERE licence_type = $2` :
+            `UPDATE licence_limits SET max_seances_semaine = ? WHERE licence_type = ?`;
+        
+        const result = await db.run(sql, [max_seances_semaine, licenceType]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Type de licence non trouvé' });
+        }
+        
+        console.log('Limite modifiée avec succès:', licenceType);
+        res.json({ message: 'Limite modifiée avec succès' });
+    } catch (err) {
+        console.error('Erreur modification limite:', err);
+        return res.status(500).json({ error: 'Erreur lors de la modification' });
+    }
 });
 
 // Route temporaire pour promouvoir un utilisateur en admin (À SUPPRIMER APRÈS USAGE)
