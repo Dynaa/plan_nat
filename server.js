@@ -561,86 +561,6 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
         console.error('Erreur modification créneau:', err);
         return res.status(500).json({ error: 'Erreur lors de la modification du créneau' });
     }
-            
-            const inscritActuels = result.inscrits;
-            const nouvelleCapacite = parseInt(capacite_max);
-            
-            console.log(`Inscrits actuels: ${inscritActuels}, Nouvelle capacité: ${nouvelleCapacite}`);
-            
-            // Mettre à jour le créneau
-            db.run(`UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, capacite_max = ?, licences_autorisees = ? 
-                    WHERE id = ?`,
-                [nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', creneauId], 
-                function(err) {
-                    if (err) {
-                        console.error('Erreur lors de la mise à jour:', err);
-                        return res.status(500).json({ error: 'Erreur lors de la modification du créneau' });
-                    }
-                    
-                    if (this.changes === 0) {
-                        return res.status(404).json({ error: 'Créneau non trouvé' });
-                    }
-                    
-                    // Si la nouvelle capacité est inférieure au nombre d'inscrits actuels
-                    if (inscritActuels > nouvelleCapacite) {
-                        const aMettreSurListeAttente = inscritActuels - nouvelleCapacite;
-                        
-                        console.log(`Mise sur liste d'attente de ${aMettreSurListeAttente} personne(s)`);
-                        
-                        // Récupérer les derniers inscrits pour les mettre en attente
-                        db.all(`SELECT id FROM inscriptions 
-                                WHERE creneau_id = ? AND statut = 'inscrit' 
-                                ORDER BY created_at DESC 
-                                LIMIT ?`,
-                            [creneauId, aMettreSurListeAttente], (err, derniers) => {
-                                if (err) {
-                                    console.error('Erreur lors de la récupération des derniers inscrits:', err);
-                                    return res.status(500).json({ error: 'Erreur lors de la gestion des inscriptions' });
-                                }
-                                
-                                if (derniers.length > 0) {
-                                    const ids = derniers.map(d => d.id);
-                                    const placeholders = ids.map(() => '?').join(',');
-                                    
-                                    // Obtenir la position maximale actuelle sur la liste d'attente
-                                    db.get(`SELECT COALESCE(MAX(position_attente), 0) as max_pos 
-                                            FROM inscriptions 
-                                            WHERE creneau_id = ? AND statut = 'attente'`,
-                                        [creneauId], (err, maxResult) => {
-                                            if (err) {
-                                                console.error('Erreur lors de la récupération de la position max:', err);
-                                                return res.status(500).json({ error: 'Erreur lors de la gestion des inscriptions' });
-                                            }
-                                            
-                                            let startPos = maxResult.max_pos + 1;
-                                            
-                                            // Mettre à jour chaque inscription
-                                            let completed = 0;
-                                            ids.forEach((id, index) => {
-                                                db.run(`UPDATE inscriptions 
-                                                        SET statut = 'attente', position_attente = ?
-                                                        WHERE id = ?`,
-                                                    [startPos + index, id], (err) => {
-                                                        completed++;
-                                                        if (completed === ids.length) {
-                                                            console.log('Créneau modifié avec succès, inscriptions ajustées');
-                                                            res.json({ 
-                                                                message: `Créneau modifié avec succès. ${aMettreSurListeAttente} personne(s) mise(s) sur liste d'attente.`,
-                                                                ajustements: aMettreSurListeAttente
-                                                            });
-                                                        }
-                                                    });
-                                            });
-                                        });
-                                } else {
-                                    res.json({ message: 'Créneau modifié avec succès' });
-                                }
-                            });
-                    } else {
-                        res.json({ message: 'Créneau modifié avec succès' });
-                    }
-                });
-        });
 });
 
 // Route de suppression de créneaux (ADMIN)
@@ -760,14 +680,6 @@ app.put('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
         console.error('Erreur modification rôle:', err);
         return res.status(500).json({ error: 'Erreur lors de la modification du rôle' });
     }
-        
-        if (this.changes === 0) {
-            return res.status(404).json({ error: 'Utilisateur non trouvé' });
-        }
-        
-        console.log('Rôle modifié avec succès pour l\'utilisateur:', userId);
-        res.json({ message: `Rôle modifié vers "${role}" avec succès` });
-    });
 });
 
 app.delete('/api/admin/users/:userId', requireAdmin, (req, res) => {
@@ -999,65 +911,6 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
         console.error('Erreur désinscription:', err);
         return res.status(500).json({ error: 'Erreur lors de la désinscription' });
     }
-                    
-                    console.log('Désinscription réussie:', { userId, creneauId });
-                    
-                    // Si c'était un inscrit (pas en attente), promouvoir le premier de la liste d'attente
-                    if (inscription.statut === 'inscrit') {
-                        db.get(`SELECT * FROM inscriptions 
-                                WHERE creneau_id = ? AND statut = 'attente' 
-                                ORDER BY position_attente ASC LIMIT 1`,
-                            [creneauId], (err, premierEnAttente) => {
-                                if (err) {
-                                    console.error('Erreur recherche premier en attente:', err);
-                                    return res.json({ message: 'Désinscription réussie' });
-                                }
-                                
-                                if (premierEnAttente) {
-                                    // Promouvoir le premier de la liste d'attente
-                                    db.run(`UPDATE inscriptions 
-                                            SET statut = 'inscrit', position_attente = NULL 
-                                            WHERE id = ?`,
-                                        [premierEnAttente.id], (err) => {
-                                            if (err) {
-                                                console.error('Erreur promotion:', err);
-                                                return res.json({ message: 'Désinscription réussie' });
-                                            }
-                                            
-                                            // Réorganiser les positions d'attente
-                                            db.run(`UPDATE inscriptions 
-                                                    SET position_attente = position_attente - 1 
-                                                    WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?`,
-                                                [creneauId, premierEnAttente.position_attente], (err) => {
-                                                    if (err) {
-                                                        console.error('Erreur réorganisation:', err);
-                                                    }
-                                                    
-                                                    console.log('Promotion réussie pour:', premierEnAttente.user_id);
-                                                    res.json({ 
-                                                        message: 'Désinscription réussie. Une personne a été promue de la liste d\'attente.',
-                                                        promotion: true
-                                                    });
-                                                });
-                                        });
-                                } else {
-                                    res.json({ message: 'Désinscription réussie' });
-                                }
-                            });
-                    } else {
-                        // Si c'était quelqu'un en attente, réorganiser les positions
-                        db.run(`UPDATE inscriptions 
-                                SET position_attente = position_attente - 1 
-                                WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?`,
-                            [creneauId, inscription.position_attente], (err) => {
-                                if (err) {
-                                    console.error('Erreur réorganisation attente:', err);
-                                }
-                                res.json({ message: 'Désinscription réussie' });
-                            });
-                    }
-                });
-        });
 });
 
 // Routes d'administration des limites de licence
