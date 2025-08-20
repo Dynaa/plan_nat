@@ -524,8 +524,8 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
     }
 });
 
-// Route de modification de créneaux (ADMIN)
-app.put('/api/creneaux/:creneauId', requireAdmin, (req, res) => {
+// Route de modification de créneaux (ADMIN) - Version simplifiée
+app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
     const { nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees } = req.body;
     
@@ -535,13 +535,32 @@ app.put('/api/creneaux/:creneauId', requireAdmin, (req, res) => {
         return res.status(400).json({ error: 'Tous les champs sont requis' });
     }
     
-    // Vérifier d'abord le nombre d'inscrits actuels
-    db.get(`SELECT COUNT(*) as inscrits FROM inscriptions WHERE creneau_id = ? AND statut = 'inscrit'`,
-        [creneauId], (err, result) => {
-            if (err) {
-                console.error('Erreur lors de la vérification des inscrits:', err);
-                return res.status(500).json({ error: 'Erreur de base de données' });
-            }
+    try {
+        // Mise à jour simplifiée (sans gestion avancée des capacités pour l'instant)
+        const sql = db.isPostgres ?
+            `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, capacite_max = $5, licences_autorisees = $6 WHERE id = $7` :
+            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, capacite_max = ?, licences_autorisees = ? WHERE id = ?`;
+        
+        const result = await db.run(sql, [
+            nom, 
+            jour_semaine, 
+            heure_debut, 
+            heure_fin, 
+            capacite_max, 
+            licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
+            creneauId
+        ]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Créneau non trouvé' });
+        }
+        
+        console.log('Créneau modifié avec succès:', creneauId);
+        res.json({ message: 'Créneau modifié avec succès' });
+    } catch (err) {
+        console.error('Erreur modification créneau:', err);
+        return res.status(500).json({ error: 'Erreur lors de la modification du créneau' });
+    }
             
             const inscritActuels = result.inscrits;
             const nouvelleCapacite = parseInt(capacite_max);
@@ -709,7 +728,7 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
     }
 });
 
-app.put('/api/admin/users/:userId/role', requireAdmin, (req, res) => {
+app.put('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
     const userId = req.params.userId;
     const { role } = req.body;
     
@@ -724,11 +743,23 @@ app.put('/api/admin/users/:userId/role', requireAdmin, (req, res) => {
         return res.status(400).json({ error: 'Vous ne pouvez pas retirer vos propres droits administrateur' });
     }
     
-    db.run(`UPDATE users SET role = ? WHERE id = ?`, [role, userId], function(err) {
-        if (err) {
-            console.error('Erreur lors de la modification du rôle:', err);
-            return res.status(500).json({ error: 'Erreur lors de la modification du rôle' });
+    try {
+        const sql = db.isPostgres ?
+            `UPDATE users SET role = $1 WHERE id = $2` :
+            `UPDATE users SET role = ? WHERE id = ?`;
+        
+        const result = await db.run(sql, [role, userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
+        
+        console.log('Rôle modifié avec succès pour l\'utilisateur:', userId);
+        res.json({ message: `Rôle modifié vers "${role}" avec succès` });
+    } catch (err) {
+        console.error('Erreur modification rôle:', err);
+        return res.status(500).json({ error: 'Erreur lors de la modification du rôle' });
+    }
         
         if (this.changes === 0) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
@@ -937,31 +968,37 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
 });
 
 // Route de désinscription
-app.delete('/api/inscriptions/:creneauId', requireAuth, (req, res) => {
+app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
     const creneauId = req.params.creneauId;
     const userId = req.session.userId;
     
     console.log('Tentative de désinscription:', { userId, creneauId });
     
-    // Vérifier l'inscription existante
-    db.get(`SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`,
-        [userId, creneauId], (err, inscription) => {
-            if (err) {
-                console.error('Erreur vérification inscription:', err);
-                return res.status(500).json({ error: 'Erreur de base de données' });
-            }
-            
-            if (!inscription) {
-                return res.status(404).json({ error: 'Inscription non trouvée' });
-            }
-            
-            // Supprimer l'inscription
-            db.run(`DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ?`,
-                [userId, creneauId], function(err) {
-                    if (err) {
-                        console.error('Erreur suppression inscription:', err);
-                        return res.status(500).json({ error: 'Erreur lors de la désinscription' });
-                    }
+    try {
+        // Vérifier l'inscription existante
+        const checkSql = db.isPostgres ? 
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+        
+        const inscription = await db.get(checkSql, [userId, creneauId]);
+        
+        if (!inscription) {
+            return res.status(404).json({ error: 'Inscription non trouvée' });
+        }
+        
+        // Supprimer l'inscription
+        const deleteSql = db.isPostgres ?
+            `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
+            `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+        
+        await db.run(deleteSql, [userId, creneauId]);
+        
+        console.log('Désinscription réussie:', { userId, creneauId });
+        res.json({ message: 'Désinscription réussie' });
+    } catch (err) {
+        console.error('Erreur désinscription:', err);
+        return res.status(500).json({ error: 'Erreur lors de la désinscription' });
+    }
                     
                     console.log('Désinscription réussie:', { userId, creneauId });
                     
