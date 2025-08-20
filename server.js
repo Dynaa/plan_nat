@@ -21,15 +21,19 @@ const sessionConfig = {
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 24 * 60 * 60 * 1000 // 24 heures
+        secure: false, // Désactivé pour Railway (HTTPS mais proxy)
+        httpOnly: true,
+        maxAge: 24 * 60 * 60 * 1000, // 24 heures
+        sameSite: 'lax' // Plus permissif que 'strict'
     }
 };
 
-// En production, ajouter des options de sécurité supplémentaires
+// Configuration spéciale pour Railway
 if (process.env.NODE_ENV === 'production') {
-    sessionConfig.cookie.httpOnly = true;
-    sessionConfig.cookie.sameSite = 'strict';
+    console.log('🔧 Configuration session pour Railway (production)');
+    // Railway utilise un proxy, donc secure: false même en HTTPS
+    sessionConfig.cookie.secure = false;
+    sessionConfig.cookie.sameSite = 'lax';
     console.log('⚠️ Utilisation de MemoryStore en production (OK pour petite app)');
 }
 
@@ -240,9 +244,18 @@ const sendEmail = async (to, subject, htmlContent) => {
 
 // Middleware d'authentification
 const requireAuth = (req, res, next) => {
+    console.log('🔐 Vérification auth - Session:', {
+        userId: req.session.userId,
+        userRole: req.session.userRole,
+        sessionID: req.sessionID
+    });
+    
     if (!req.session.userId) {
+        console.log('❌ Authentification échouée - Pas de userId dans la session');
         return res.status(401).json({ error: 'Non authentifié' });
     }
+    
+    console.log('✅ Authentification réussie pour userId:', req.session.userId);
     next();
 };
 
@@ -883,7 +896,7 @@ app.get('/api/admin/inscriptions/:creneauId', requireAdmin, (req, res) => {
 });
 
 // Route d'inscription à un créneau
-app.post('/api/inscriptions', requireAuth, (req, res) => {
+app.post('/api/inscriptions', requireAuth, async (req, res) => {
     const { creneauId } = req.body;
     const userId = req.session.userId;
     
@@ -893,17 +906,34 @@ app.post('/api/inscriptions', requireAuth, (req, res) => {
         return res.status(400).json({ error: 'ID du créneau requis' });
     }
     
-    // Vérifier si l'utilisateur est déjà inscrit
-    db.get(`SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`, 
-        [userId, creneauId], (err, existingInscription) => {
-            if (err) {
-                console.error('Erreur vérification inscription:', err);
-                return res.status(500).json({ error: 'Erreur de base de données' });
-            }
-            
-            if (existingInscription) {
-                return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau' });
-            }
+    try {
+        // Vérifier si l'utilisateur est déjà inscrit
+        const sql = db.isPostgres ? 
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+        
+        const existingInscription = await db.get(sql, [userId, creneauId]);
+        
+        if (existingInscription) {
+            return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau' });
+        }
+        
+        // Pour l'instant, inscription simple (à améliorer plus tard)
+        const insertSql = db.isPostgres ?
+            `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES ($1, $2, 'inscrit') RETURNING id` :
+            `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES (?, ?, 'inscrit')`;
+        
+        const result = await db.run(insertSql, [userId, creneauId]);
+        
+        console.log('Inscription réussie:', { userId, creneauId });
+        res.json({ 
+            message: 'Inscription réussie', 
+            inscriptionId: result.lastID || result.id 
+        });
+    } catch (err) {
+        console.error('Erreur inscription:', err);
+        return res.status(500).json({ error: 'Erreur lors de l\'inscription' });
+    }
             
             // Vérifier les limites de séances
             verifierLimitesSeances(userId, (err, limites) => {
