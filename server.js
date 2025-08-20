@@ -998,10 +998,19 @@ app.put('/api/changer-mot-de-passe', requireAuth, async (req, res) => {
 });
 
 // Routes d'administration des créneaux
-app.get('/api/admin/inscriptions/:creneauId', requireAdmin, (req, res) => {
+app.get('/api/admin/inscriptions/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
     
-    const query = `
+    const query = db.isPostgres ? `
+        SELECT i.*, u.nom, u.prenom, u.email
+        FROM inscriptions i
+        JOIN users u ON i.user_id = u.id
+        WHERE i.creneau_id = $1
+        ORDER BY 
+            CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+            i.position_attente ASC,
+            i.created_at ASC
+    ` : `
         SELECT i.*, u.nom, u.prenom, u.email
         FROM inscriptions i
         JOIN users u ON i.user_id = u.id
@@ -1012,12 +1021,127 @@ app.get('/api/admin/inscriptions/:creneauId', requireAdmin, (req, res) => {
             i.created_at ASC
     `;
     
-    db.all(query, [creneauId], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: 'Erreur lors de la récupération des inscriptions' });
-        }
+    try {
+        const rows = await db.query(query, [creneauId]);
         res.json(rows);
-    });
+    } catch (err) {
+        console.error('Erreur récupération inscriptions:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des inscriptions' });
+    }
+});
+
+// Route pour inscrire un utilisateur à un créneau (ADMIN)
+app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
+    const { email, creneauId } = req.body;
+    
+    console.log('Admin inscription:', { email, creneauId });
+    
+    if (!email || !creneauId) {
+        return res.status(400).json({ error: 'Email et ID du créneau requis' });
+    }
+    
+    try {
+        // Trouver l'utilisateur par email
+        const userSql = db.isPostgres ?
+            `SELECT id FROM users WHERE email = $1` :
+            `SELECT id FROM users WHERE email = ?`;
+        
+        const user = await db.get(userSql, [email]);
+        
+        if (!user) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé avec cet email' });
+        }
+        
+        // Vérifier si déjà inscrit
+        const checkSql = db.isPostgres ?
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+        
+        const existingInscription = await db.get(checkSql, [user.id, creneauId]);
+        
+        if (existingInscription) {
+            return res.status(400).json({ error: 'Cet utilisateur est déjà inscrit à ce créneau' });
+        }
+        
+        // Inscrire l'utilisateur (inscription directe par l'admin)
+        const insertSql = db.isPostgres ?
+            `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES ($1, $2, 'inscrit') RETURNING id` :
+            `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES (?, ?, 'inscrit')`;
+        
+        await db.run(insertSql, [user.id, creneauId]);
+        
+        console.log('Inscription admin réussie:', { email, creneauId });
+        res.json({ message: `Utilisateur ${email} inscrit avec succès` });
+    } catch (err) {
+        console.error('Erreur inscription admin:', err);
+        return res.status(500).json({ error: 'Erreur lors de l\'inscription' });
+    }
+});
+
+// Route pour désinscrire un utilisateur d'un créneau (ADMIN)
+app.delete('/api/admin/inscriptions/:userId/:creneauId', requireAdmin, async (req, res) => {
+    const { userId, creneauId } = req.params;
+    
+    console.log('Admin désinscription:', { userId, creneauId });
+    
+    try {
+        // Vérifier l'inscription existante
+        const checkSql = db.isPostgres ?
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+        
+        const inscription = await db.get(checkSql, [userId, creneauId]);
+        
+        if (!inscription) {
+            return res.status(404).json({ error: 'Inscription non trouvée' });
+        }
+        
+        // Supprimer l'inscription
+        const deleteSql = db.isPostgres ?
+            `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
+            `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+        
+        await db.run(deleteSql, [userId, creneauId]);
+        
+        console.log('Désinscription admin réussie:', { userId, creneauId });
+        res.json({ message: 'Utilisateur désinscrit avec succès' });
+    } catch (err) {
+        console.error('Erreur désinscription admin:', err);
+        return res.status(500).json({ error: 'Erreur lors de la désinscription' });
+    }
+});
+
+// Route pour promouvoir un utilisateur de la liste d'attente (ADMIN)
+app.put('/api/admin/inscriptions/:userId/:creneauId/promote', requireAdmin, async (req, res) => {
+    const { userId, creneauId } = req.params;
+    
+    console.log('Admin promotion:', { userId, creneauId });
+    
+    try {
+        // Vérifier que l'utilisateur est en attente
+        const checkSql = db.isPostgres ?
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND statut = 'attente'` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND statut = 'attente'`;
+        
+        const inscription = await db.get(checkSql, [userId, creneauId]);
+        
+        if (!inscription) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé en liste d\'attente' });
+        }
+        
+        // Promouvoir l'utilisateur
+        const promoteSql = db.isPostgres ?
+            `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = $1 AND creneau_id = $2` :
+            `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = ? AND creneau_id = ?`;
+        
+        await db.run(promoteSql, [userId, creneauId]);
+        
+        console.log('Promotion admin réussie:', { userId, creneauId });
+        res.json({ message: 'Utilisateur promu avec succès' });
+    } catch (err) {
+        console.error('Erreur promotion admin:', err);
+        return res.status(500).json({ error: 'Erreur lors de la promotion' });
+    }
 });
 
 // Route d'inscription à un créneau

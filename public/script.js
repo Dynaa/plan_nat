@@ -610,7 +610,7 @@ async function voirInscriptions(creneauId) {
         const data = await response.json();
         
         if (response.ok) {
-            displayInscriptionsModal(data);
+            displayInscriptionsModal(data, creneauId);
         } else {
             showMessage('Erreur lors du chargement des inscriptions', 'error');
         }
@@ -619,7 +619,7 @@ async function voirInscriptions(creneauId) {
     }
 }
 
-function displayInscriptionsModal(inscriptions) {
+function displayInscriptionsModal(inscriptions, creneauId) {
     const modal = document.createElement('div');
     modal.style.cssText = `
         position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -639,29 +639,60 @@ function displayInscriptionsModal(inscriptions) {
     content.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
             <h3>Inscriptions au créneau</h3>
-            <button onclick="this.closest('.modal').remove()" style="background: #e53e3e;">Fermer</button>
+            <button onclick="this.closest('div').remove()" style="background: #e53e3e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Fermer</button>
         </div>
         
         <div style="margin-bottom: 2rem;">
-            <h4 style="color: #38a169; margin-bottom: 1rem;">Inscrits (${inscritsList.length})</h4>
-            ${inscritsList.length === 0 ? '<p>Aucun inscrit</p>' : 
+            <h4 style="color: #38a169; margin-bottom: 1rem;">✅ Inscrits (${inscritsList.length})</h4>
+            ${inscritsList.length === 0 ? '<p style="color: #718096;">Aucun inscrit</p>' : 
                 inscritsList.map(i => `
-                    <div style="padding: 0.5rem 0; border-bottom: 1px solid #e2e8f0;">
-                        ${i.prenom} ${i.nom} (${i.email})
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 0.5rem; background: #f7fafc;">
+                        <div>
+                            <strong>${i.prenom} ${i.nom}</strong><br>
+                            <small style="color: #718096;">${i.email}</small>
+                        </div>
+                        <button onclick="desinscrireUtilisateur(${i.user_id}, ${creneauId}, '${i.prenom} ${i.nom}')" 
+                                style="background: #e53e3e; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
+                            🗑️ Désinscrire
+                        </button>
                     </div>
-                `).join('')
-            }
+                `).join('')}
         </div>
         
-        <div>
-            <h4 style="color: #ed8936; margin-bottom: 1rem;">Liste d'attente (${attentsList.length})</h4>
-            ${attentsList.length === 0 ? '<p>Aucune personne en attente</p>' : 
-                attentsList.map(i => `
-                    <div style="padding: 0.5rem 0; border-bottom: 1px solid #e2e8f0;">
-                        ${i.position_attente}. ${i.prenom} ${i.nom} (${i.email})
+        ${attentsList.length > 0 ? `
+        <div style="margin-bottom: 2rem;">
+            <h4 style="color: #ed8936; margin-bottom: 1rem;">⏳ Liste d'attente (${attentsList.length})</h4>
+            ${attentsList.map(i => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid #fed7aa; border-radius: 6px; margin-bottom: 0.5rem; background: #fffbeb;">
+                    <div>
+                        <strong>${i.prenom} ${i.nom}</strong> <span style="color: #ed8936;">(Position ${i.position_attente})</span><br>
+                        <small style="color: #718096;">${i.email}</small>
                     </div>
-                `).join('')
-            }
+                    <div style="display: flex; gap: 0.25rem;">
+                        <button onclick="promouvoirUtilisateur(${i.user_id}, ${creneauId}, '${i.prenom} ${i.nom}')" 
+                                style="background: #38a169; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
+                            ⬆️ Promouvoir
+                        </button>
+                        <button onclick="desinscrireUtilisateur(${i.user_id}, ${creneauId}, '${i.prenom} ${i.nom}')" 
+                                style="background: #e53e3e; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
+                            🗑️ Retirer
+                        </button>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+        ` : ''}
+        
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 1rem;">
+            <h4 style="margin-bottom: 1rem;">➕ Inscrire un utilisateur</h4>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="email" id="email-inscription" placeholder="Email de l'utilisateur" 
+                       style="flex: 1; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px;">
+                <button onclick="inscrireUtilisateur(${creneauId})" 
+                        style="background: #4299e1; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
+                    Inscrire
+                </button>
+            </div>
         </div>
     `;
     
@@ -674,6 +705,91 @@ function displayInscriptionsModal(inscriptions) {
             modal.remove();
         }
     });
+}
+
+// Fonctions de gestion des inscriptions par les admins
+async function desinscrireUtilisateur(userId, creneauId, nomUtilisateur) {
+    const confirmation = confirm(`Désinscrire ${nomUtilisateur} de ce créneau ?`);
+    if (!confirmation) return;
+    
+    try {
+        const response = await fetch(`/api/admin/inscriptions/${userId}/${creneauId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(data.message, 'success');
+            // Recharger la modal des inscriptions
+            voirInscriptions(creneauId);
+            // Recharger les listes
+            loadAdminCreneaux();
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Erreur désinscription:', error);
+        showMessage('Erreur lors de la désinscription', 'error');
+    }
+}
+
+async function inscrireUtilisateur(creneauId) {
+    const email = document.getElementById('email-inscription').value;
+    if (!email) {
+        showMessage('Veuillez saisir un email', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/admin/inscriptions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, creneauId })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(data.message, 'success');
+            document.getElementById('email-inscription').value = '';
+            // Recharger la modal des inscriptions
+            voirInscriptions(creneauId);
+            // Recharger les listes
+            loadAdminCreneaux();
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Erreur inscription:', error);
+        showMessage('Erreur lors de l\'inscription', 'error');
+    }
+}
+
+async function promouvoirUtilisateur(userId, creneauId, nomUtilisateur) {
+    const confirmation = confirm(`Promouvoir ${nomUtilisateur} de la liste d'attente vers les inscrits ?`);
+    if (!confirmation) return;
+    
+    try {
+        const response = await fetch(`/api/admin/inscriptions/${userId}/${creneauId}/promote`, {
+            method: 'PUT'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(data.message, 'success');
+            // Recharger la modal des inscriptions
+            voirInscriptions(creneauId);
+            // Recharger les listes
+            loadAdminCreneaux();
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Erreur promotion:', error);
+        showMessage('Erreur lors de la promotion', 'error');
+    }
 }
 
 async function supprimerCreneau(creneauId, nomCreneau, nbInscrits) {
@@ -935,18 +1051,31 @@ function displayAdminUsers(users) {
                     <span class="user-role ${roleClass}">
                         ${user.role === 'admin' ? '👑 Administrateur' : '👤 Membre'}
                     </span>
-                    <select onchange="changerRoleUtilisateur(${user.id}, this.value)" 
-                            ${isCurrentUser ? 'disabled title="Vous ne pouvez pas modifier votre propre rôle"' : ''}>
-                        <option value="">Changer le rôle</option>
-                        <option value="membre" ${user.role === 'membre' ? 'selected' : ''}>👤 Membre</option>
-                        <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>👑 Admin</option>
-                    </select>
-                    <button onclick="supprimerUtilisateur(${user.id}, '${user.prenom} ${user.nom}', ${user.nb_inscriptions})" 
-                            class="btn-danger"
-                            ${isCurrentUser ? 'disabled title="Vous ne pouvez pas supprimer votre propre compte"' : ''}
-                            ${user.nb_inscriptions > 0 ? 'title="Cet utilisateur a des inscriptions actives"' : ''}>
-                        🗑️ Supprimer
-                    </button>
+                    <div class="user-controls">
+                        <select onchange="changerRoleUtilisateur(${user.id}, this.value)" 
+                                ${isCurrentUser ? 'disabled title="Vous ne pouvez pas modifier votre propre rôle"' : ''}>
+                            <option value="">Changer le rôle</option>
+                            <option value="membre" ${user.role === 'membre' ? 'selected' : ''}>👤 Membre</option>
+                            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>👑 Admin</option>
+                        </select>
+                        <select onchange="changerLicenceUtilisateur(${user.id}, this.value)">
+                            <option value="">Changer la licence</option>
+                            <option value="Compétition" ${user.licence_type === 'Compétition' ? 'selected' : ''}>🏆 Compétition</option>
+                            <option value="Loisir/Senior" ${user.licence_type === 'Loisir/Senior' ? 'selected' : ''}>🏊‍♂️ Loisir/Senior</option>
+                            <option value="Benjamins/Junior" ${user.licence_type === 'Benjamins/Junior' ? 'selected' : ''}>🧒 Benjamins/Junior</option>
+                            <option value="Poussins/Pupilles" ${user.licence_type === 'Poussins/Pupilles' ? 'selected' : ''}>👶 Poussins/Pupilles</option>
+                        </select>
+                        <button onclick="reinitialiserMotDePasse(${user.id}, '${user.prenom} ${user.nom}')" 
+                                class="btn-warning" title="Réinitialiser le mot de passe">
+                            🔑 Reset MDP
+                        </button>
+                        <button onclick="supprimerUtilisateur(${user.id}, '${user.prenom} ${user.nom}', ${user.nb_inscriptions})" 
+                                class="btn-danger"
+                                ${isCurrentUser ? 'disabled title="Vous ne pouvez pas supprimer votre propre compte"' : ''}
+                                ${user.nb_inscriptions > 0 ? 'title="Cet utilisateur a des inscriptions actives"' : ''}>
+                            🗑️ Supprimer
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -986,6 +1115,82 @@ async function changerRoleUtilisateur(userId, nouveauRole) {
         console.error('Erreur lors du changement de rôle:', error);
         showMessage('Erreur lors du changement de rôle', 'error');
         loadAdminUsers();
+    }
+}
+
+async function changerLicenceUtilisateur(userId, nouvelleLicence) {
+    if (!nouvelleLicence) return;
+    
+    const confirmation = confirm(
+        `Êtes-vous sûr de vouloir changer le type de licence vers "${nouvelleLicence}" ?\n\n` +
+        `Cela modifiera immédiatement les limites de séances de cet utilisateur.`
+    );
+    
+    if (!confirmation) {
+        loadAdminUsers();
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/licence`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ licence_type: nouvelleLicence })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(data.message, 'success');
+            loadAdminUsers();
+        } else {
+            showMessage(data.error, 'error');
+            loadAdminUsers();
+        }
+    } catch (error) {
+        console.error('Erreur lors du changement de licence:', error);
+        showMessage('Erreur lors du changement de licence', 'error');
+        loadAdminUsers();
+    }
+}
+
+async function reinitialiserMotDePasse(userId, nomUtilisateur) {
+    const nouveauMotDePasse = prompt(
+        `Réinitialisation du mot de passe pour ${nomUtilisateur}\n\n` +
+        `Entrez le nouveau mot de passe (minimum 6 caractères) :`
+    );
+    
+    if (!nouveauMotDePasse) return;
+    
+    if (nouveauMotDePasse.length < 6) {
+        showMessage('Le mot de passe doit contenir au moins 6 caractères', 'error');
+        return;
+    }
+    
+    const confirmation = confirm(
+        `Confirmer la réinitialisation du mot de passe pour ${nomUtilisateur} ?\n\n` +
+        `Nouveau mot de passe : ${nouveauMotDePasse}`
+    );
+    
+    if (!confirmation) return;
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/reset-password`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nouveauMotDePasse })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(`${data.message} - Nouveau mot de passe : ${nouveauMotDePasse}`, 'success');
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Erreur lors de la réinitialisation:', error);
+        showMessage('Erreur lors de la réinitialisation du mot de passe', 'error');
     }
 }
 
