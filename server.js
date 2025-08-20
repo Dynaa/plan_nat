@@ -1176,18 +1176,67 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
             });
         }
         
-        // Inscription avec vérification des limites
+        // Vérifier la capacité du créneau et les inscriptions actuelles
+        const creneauSql = db.isPostgres ?
+            `SELECT c.capacite_max, c.nom, COUNT(i.id) as inscrits_actuels
+             FROM creneaux c
+             LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit'
+             WHERE c.id = $1
+             GROUP BY c.id, c.capacite_max, c.nom` :
+            `SELECT c.capacite_max, c.nom, COUNT(i.id) as inscrits_actuels
+             FROM creneaux c
+             LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit'
+             WHERE c.id = ?
+             GROUP BY c.id, c.capacite_max, c.nom`;
+        
+        const creneauInfo = await db.get(creneauSql, [creneauId]);
+        
+        if (!creneauInfo) {
+            return res.status(404).json({ error: 'Créneau non trouvé' });
+        }
+        
+        const inscritActuels = parseInt(creneauInfo.inscrits_actuels) || 0;
+        const capaciteMax = creneauInfo.capacite_max;
+        
+        // Déterminer le statut d'inscription
+        let statut = 'inscrit';
+        let positionAttente = null;
+        let message = `Inscription réussie au créneau "${creneauInfo.nom}" ! Il vous reste ${limites.seancesRestantes - 1} séance(s) cette semaine.`;
+        
+        if (inscritActuels >= capaciteMax) {
+            // Créneau complet, mettre en liste d'attente
+            statut = 'attente';
+            
+            // Obtenir la prochaine position sur la liste d'attente
+            const positionSql = db.isPostgres ?
+                `SELECT COALESCE(MAX(position_attente), 0) + 1 as next_pos 
+                 FROM inscriptions 
+                 WHERE creneau_id = $1 AND statut = 'attente'` :
+                `SELECT COALESCE(MAX(position_attente), 0) + 1 as next_pos 
+                 FROM inscriptions 
+                 WHERE creneau_id = ? AND statut = 'attente'`;
+            
+            const posResult = await db.get(positionSql, [creneauId]);
+            positionAttente = posResult.next_pos;
+            
+            message = `Créneau complet ! Vous avez été ajouté à la liste d'attente (position ${positionAttente}).`;
+        }
+        
+        // Insérer l'inscription avec le bon statut
         const insertSql = db.isPostgres ?
-            `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES ($1, $2, 'inscrit') RETURNING id` :
-            `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES (?, ?, 'inscrit')`;
+            `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente) VALUES ($1, $2, $3, $4) RETURNING id` :
+            `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente) VALUES (?, ?, ?, ?)`;
         
-        const result = await db.run(insertSql, [userId, creneauId]);
+        const result = await db.run(insertSql, [userId, creneauId, statut, positionAttente]);
         
-        console.log('Inscription réussie:', { userId, creneauId, limites });
+        console.log('Inscription réussie:', { userId, creneauId, statut, positionAttente, inscritActuels, capaciteMax });
+        
         res.json({ 
-            message: `Inscription réussie ! Il vous reste ${limites.seancesRestantes - 1} séance(s) cette semaine.`, 
+            message,
+            statut,
+            positionAttente,
             inscriptionId: result.lastID || result.id,
-            seancesRestantes: limites.seancesRestantes - 1
+            seancesRestantes: statut === 'inscrit' ? limites.seancesRestantes - 1 : limites.seancesRestantes
         });
     } catch (err) {
         console.error('Erreur inscription:', err);
@@ -1222,7 +1271,65 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
         await db.run(deleteSql, [userId, creneauId]);
         
         console.log('Désinscription réussie:', { userId, creneauId });
-        res.json({ message: 'Désinscription réussie' });
+        
+        // Si c'était un inscrit (pas en attente), promouvoir le premier de la liste d'attente
+        if (inscription.statut === 'inscrit') {
+            const premierEnAttenteSql = db.isPostgres ?
+                `SELECT * FROM inscriptions 
+                 WHERE creneau_id = $1 AND statut = 'attente' 
+                 ORDER BY position_attente ASC LIMIT 1` :
+                `SELECT * FROM inscriptions 
+                 WHERE creneau_id = ? AND statut = 'attente' 
+                 ORDER BY position_attente ASC LIMIT 1`;
+            
+            const premierEnAttente = await db.get(premierEnAttenteSql, [creneauId]);
+            
+            if (premierEnAttente) {
+                // Promouvoir le premier de la liste d'attente
+                const promoteSql = db.isPostgres ?
+                    `UPDATE inscriptions 
+                     SET statut = 'inscrit', position_attente = NULL 
+                     WHERE id = $1` :
+                    `UPDATE inscriptions 
+                     SET statut = 'inscrit', position_attente = NULL 
+                     WHERE id = ?`;
+                
+                await db.run(promoteSql, [premierEnAttente.id]);
+                
+                // Réorganiser les positions d'attente
+                const reorganiserSql = db.isPostgres ?
+                    `UPDATE inscriptions 
+                     SET position_attente = position_attente - 1 
+                     WHERE creneau_id = $1 AND statut = 'attente' AND position_attente > $2` :
+                    `UPDATE inscriptions 
+                     SET position_attente = position_attente - 1 
+                     WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?`;
+                
+                await db.run(reorganiserSql, [creneauId, premierEnAttente.position_attente]);
+                
+                console.log('Promotion automatique réussie pour:', premierEnAttente.user_id);
+                res.json({ 
+                    message: 'Désinscription réussie. Une personne a été promue de la liste d\'attente.',
+                    promotion: true
+                });
+            } else {
+                res.json({ message: 'Désinscription réussie' });
+            }
+        } else {
+            // Si c'était quelqu'un en attente, réorganiser les positions
+            if (inscription.position_attente) {
+                const reorganiserSql = db.isPostgres ?
+                    `UPDATE inscriptions 
+                     SET position_attente = position_attente - 1 
+                     WHERE creneau_id = $1 AND statut = 'attente' AND position_attente > $2` :
+                    `UPDATE inscriptions 
+                     SET position_attente = position_attente - 1 
+                     WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?`;
+                
+                await db.run(reorganiserSql, [creneauId, inscription.position_attente]);
+            }
+            res.json({ message: 'Désinscription réussie' });
+        }
     } catch (err) {
         console.error('Erreur désinscription:', err);
         return res.status(500).json({ error: 'Erreur lors de la désinscription' });
