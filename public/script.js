@@ -42,10 +42,27 @@ function setupEventListeners() {
     // Formulaires
     document.getElementById('login-form').addEventListener('submit', handleLogin);
     document.getElementById('register-form').addEventListener('submit', handleRegister);
-    document.getElementById('create-creneau-form').addEventListener('submit', handleCreateCreneau);
-    document.getElementById('profile-form').addEventListener('submit', handleUpdateProfile);
-    document.getElementById('password-form').addEventListener('submit', handleChangePassword);
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
+    
+    // Event listeners pour les formulaires qui n'existent que quand connecté
+    // Ils seront ajoutés dans setupMainEventListeners()
+}
+
+function setupMainEventListeners() {
+    // Event listeners pour l'interface principale (après connexion)
+    const createCreneauForm = document.getElementById('create-creneau-form');
+    const profileForm = document.getElementById('profile-form');
+    const passwordForm = document.getElementById('password-form');
+    
+    if (createCreneauForm) {
+        createCreneauForm.addEventListener('submit', handleCreateCreneau);
+    }
+    if (profileForm) {
+        profileForm.addEventListener('submit', handleUpdateProfile);
+    }
+    if (passwordForm) {
+        passwordForm.addEventListener('submit', handleChangePassword);
+    }
 }
 
 function switchAuthTab(tab) {
@@ -220,6 +237,9 @@ function showMainInterface() {
     if (currentUser.licence_type) {
         userName.textContent += ` (${currentUser.licence_type})`;
     }
+    
+    // Configurer les event listeners pour l'interface principale
+    setupMainEventListeners();
     
     // Gérer l'affichage de l'onglet admin
     const adminTab = document.querySelector('[data-tab="admin"]');
@@ -1118,8 +1138,9 @@ function showMessage(text, type) {
     setTimeout(() => {
         message.classList.remove('show');
     }, 4000);
-}//
- Fonctions pour l'onglet Mon Profil
+}
+
+// Fonctions pour l'onglet Mon Profil
 async function loadMonProfil() {
     try {
         // Charger les informations du profil
