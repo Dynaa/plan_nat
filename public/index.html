@@ -195,6 +195,23 @@
 
                     <div class="admin-section">
                         <h3>Gestion des créneaux</h3>
+                        
+                        <!-- Section de remise à zéro hebdomadaire -->
+                        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 1rem; margin-bottom: 2rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <h4 style="margin: 0 0 0.5rem 0; color: #856404;">🔄 Remise à zéro hebdomadaire</h4>
+                                    <p style="margin: 0; color: #856404; font-size: 0.9rem;">
+                                        Désinscrire tous les utilisateurs de tous les créneaux pour commencer une nouvelle semaine
+                                    </p>
+                                </div>
+                                <button onclick="remiseAZeroHebdomadaire()" 
+                                        style="background: #dc3545; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap;">
+                                    🗑️ Vider tous les créneaux
+                                </button>
+                            </div>
+                        </div>
+                        
                         <div id="admin-creneaux-list"></div>
                     </div>
                 </div>

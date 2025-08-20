@@ -1334,6 +1334,70 @@ async function modifierLimite(licenceType, nouvelleValeur) {
     }
 }
 
+// Fonction de remise à zéro hebdomadaire
+async function remiseAZeroHebdomadaire() {
+    const confirmation = confirm(
+        '⚠️ ATTENTION - REMISE À ZÉRO HEBDOMADAIRE ⚠️\n\n' +
+        'Cette action va :\n' +
+        '• Désinscrire TOUS les utilisateurs de TOUS les créneaux\n' +
+        '• Vider toutes les listes d\'attente\n' +
+        '• Remettre les compteurs à zéro\n\n' +
+        'Cette action est IRRÉVERSIBLE !\n\n' +
+        'Êtes-vous absolument sûr de vouloir continuer ?'
+    );
+    
+    if (!confirmation) return;
+    
+    // Double confirmation pour éviter les erreurs
+    const doubleConfirmation = confirm(
+        'DERNIÈRE CONFIRMATION\n\n' +
+        'Vous allez supprimer TOUTES les inscriptions de TOUS les créneaux.\n' +
+        'Tous les utilisateurs devront se réinscrire.\n\n' +
+        'Tapez "CONFIRMER" dans la prochaine boîte de dialogue pour procéder.'
+    );
+    
+    if (!doubleConfirmation) return;
+    
+    const motConfirmation = prompt(
+        'Pour confirmer définitivement, tapez exactement : VIDER TOUT'
+    );
+    
+    if (motConfirmation !== 'VIDER TOUT') {
+        showMessage('Remise à zéro annulée - mot de confirmation incorrect', 'error');
+        return;
+    }
+    
+    try {
+        console.log('🔄 Début de la remise à zéro hebdomadaire...');
+        
+        const response = await fetch('/api/admin/reset-weekly', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(
+                `✅ Remise à zéro réussie ! ${data.inscriptionsSupprimes} inscription(s) supprimée(s). ` +
+                `Tous les créneaux sont maintenant vides.`, 
+                'success'
+            );
+            
+            // Recharger toutes les listes pour refléter les changements
+            loadAdminCreneaux();
+            loadCreneaux(); // Mettre à jour la vue utilisateur aussi
+            
+            console.log('✅ Remise à zéro hebdomadaire terminée');
+        } else {
+            showMessage(`Erreur lors de la remise à zéro : ${data.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Erreur remise à zéro:', error);
+        showMessage('Erreur de connexion lors de la remise à zéro', 'error');
+    }
+}
+
 function showMessage(text, type) {
     const message = document.getElementById('message');
     message.textContent = text;

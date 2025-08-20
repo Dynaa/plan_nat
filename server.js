@@ -1376,6 +1376,42 @@ app.put('/api/admin/licence-limits/:licenceType', requireAdmin, async (req, res)
     }
 });
 
+// Route de remise à zéro hebdomadaire (ADMIN)
+app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
+    console.log('🔄 Début de la remise à zéro hebdomadaire par admin:', req.session.userId);
+    
+    try {
+        // Compter le nombre d'inscriptions avant suppression
+        const countSql = `SELECT COUNT(*) as total FROM inscriptions`;
+        const countResult = await db.get(countSql, []);
+        const inscriptionsAvant = countResult.total || 0;
+        
+        console.log(`📊 Inscriptions à supprimer: ${inscriptionsAvant}`);
+        
+        // Supprimer toutes les inscriptions de tous les créneaux
+        const deleteSql = `DELETE FROM inscriptions`;
+        await db.run(deleteSql, []);
+        
+        // Vérifier que toutes les inscriptions ont été supprimées
+        const verificationResult = await db.get(countSql, []);
+        const inscriptionsApres = verificationResult.total || 0;
+        
+        console.log(`✅ Remise à zéro terminée: ${inscriptionsAvant} inscription(s) supprimée(s), ${inscriptionsApres} restante(s)`);
+        
+        // Log de sécurité
+        console.log(`🔒 Remise à zéro hebdomadaire effectuée par l'admin ${req.session.userId} le ${new Date().toISOString()}`);
+        
+        res.json({ 
+            message: 'Remise à zéro hebdomadaire réussie',
+            inscriptionsSupprimes: inscriptionsAvant,
+            inscriptionsRestantes: inscriptionsApres
+        });
+    } catch (err) {
+        console.error('❌ Erreur lors de la remise à zéro hebdomadaire:', err);
+        return res.status(500).json({ error: 'Erreur lors de la remise à zéro hebdomadaire' });
+    }
+});
+
 // Route temporaire pour promouvoir un utilisateur en admin (À SUPPRIMER APRÈS USAGE)
 app.post('/api/temp-promote-admin', async (req, res) => {
     const { email, secret } = req.body;
