@@ -43,7 +43,7 @@ function setupEventListeners() {
     document.getElementById('login-form').addEventListener('submit', handleLogin);
     document.getElementById('register-form').addEventListener('submit', handleRegister);
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
-    
+
     // Event listeners pour les formulaires qui n'existent que quand connecté
     // Ils seront ajoutés dans setupMainEventListeners()
 }
@@ -53,7 +53,7 @@ function setupMainEventListeners() {
     const createCreneauForm = document.getElementById('create-creneau-form');
     const profileForm = document.getElementById('profile-form');
     const passwordForm = document.getElementById('password-form');
-    
+
     if (createCreneauForm) {
         createCreneauForm.addEventListener('submit', handleCreateCreneau);
     }
@@ -68,7 +68,7 @@ function setupMainEventListeners() {
 function switchAuthTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.auth-form').forEach(form => form.classList.remove('active'));
-    
+
     document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
     document.getElementById(`${tab}-form`).classList.add('active');
 }
@@ -80,18 +80,18 @@ function switchMainTab(tab) {
         // Rediriger vers l'onglet créneaux
         tab = 'creneaux';
     }
-    
+
     document.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    
+
     const tabButton = document.querySelector(`[data-tab="${tab}"]`);
     const tabContent = document.getElementById(`${tab}-tab`);
-    
+
     if (tabButton && tabContent) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
     }
-    
+
     // Charger les données selon l'onglet
     if (tab === 'creneaux') {
         loadCreneaux();
@@ -116,17 +116,17 @@ function switchMainTab(tab) {
 
 async function handleLogin(e) {
     e.preventDefault();
-    
+
     const email = document.getElementById('login-email').value;
     const password = document.getElementById('login-password').value;
-    
+
     console.log('Tentative de connexion avec:', email);
-    
+
     if (!email || !password) {
         showMessage('Veuillez remplir tous les champs', 'error');
         return;
     }
-    
+
     try {
         console.log('Envoi de la requête de connexion...');
         const response = await fetch('/api/login', {
@@ -134,11 +134,11 @@ async function handleLogin(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
         });
-        
+
         console.log('Réponse reçue:', response.status);
         const data = await response.json();
         console.log('Données reçues:', data);
-        
+
         if (response.ok) {
             currentUser = data.user;
             console.log('Utilisateur connecté:', currentUser);
@@ -156,22 +156,22 @@ async function handleLogin(e) {
 
 async function handleRegister(e) {
     e.preventDefault();
-    
+
     const prenom = document.getElementById('register-prenom').value;
     const nom = document.getElementById('register-nom').value;
     const email = document.getElementById('register-email').value;
     const password = document.getElementById('register-password').value;
     const licence_type = document.getElementById('register-licence').value;
-    
+
     try {
         const response = await fetch('/api/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prenom, nom, email, password, licence_type })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage('Compte créé avec succès. Vous pouvez maintenant vous connecter.', 'success');
             switchAuthTab('login');
@@ -188,10 +188,10 @@ async function handleLogout() {
     try {
         await fetch('/api/logout', { method: 'POST' });
         currentUser = null;
-        
+
         // Réinitialiser l'interface aux onglets par défaut
         resetToDefaultTabs();
-        
+
         showAuthInterface();
         showMessage('Déconnexion réussie', 'success');
     } catch (error) {
@@ -203,15 +203,15 @@ function resetToDefaultTabs() {
     // Réinitialiser les onglets principaux
     document.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    
+
     // Activer l'onglet créneaux par défaut
     document.querySelector('[data-tab="creneaux"]').classList.add('active');
     document.getElementById('creneaux-tab').classList.add('active');
-    
+
     // Réinitialiser les sous-onglets d'administration
     document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.admin-tab-content').forEach(content => content.classList.remove('active'));
-    
+
     // Activer le sous-onglet créneaux par défaut dans l'admin
     const firstAdminTab = document.querySelector('.admin-tab-btn[data-admin-tab="creneaux"]');
     const firstAdminContent = document.getElementById('admin-creneaux-section');
@@ -232,22 +232,22 @@ function showMainInterface() {
     mainSection.style.display = 'block';
     navMenu.style.display = 'flex';
     userName.textContent = `${currentUser.prenom} ${currentUser.nom}`;
-    
+
     // Afficher la licence de l'utilisateur (temporaire pour debug)
     if (currentUser.licence_type) {
         userName.textContent += ` (${currentUser.licence_type})`;
     }
-    
+
     // Configurer les event listeners pour l'interface principale
     setupMainEventListeners();
-    
+
     // Gérer l'affichage de l'onglet admin
     const adminTab = document.querySelector('[data-tab="admin"]');
     if (currentUser.role === 'admin') {
         adminTab.style.display = 'block';
     } else {
         adminTab.style.display = 'none';
-        
+
         // Si l'onglet admin était actif et que l'utilisateur n'est pas admin,
         // rediriger vers l'onglet créneaux
         const activeTab = document.querySelector('.main-tab-btn.active');
@@ -256,7 +256,7 @@ function showMainInterface() {
             return; // switchMainTab va déjà charger les créneaux
         }
     }
-    
+
     // Forcer l'affichage de l'onglet créneaux par défaut si aucun onglet n'est actif
     const activeTab = document.querySelector('.main-tab-btn.active');
     if (!activeTab || (activeTab.dataset.tab === 'admin' && currentUser.role !== 'admin')) {
@@ -272,7 +272,7 @@ async function checkAuthStatus() {
     try {
         const response = await fetch('/api/auth-status');
         const data = await response.json();
-        
+
         if (data.authenticated) {
             currentUser = data.user;
             // Réinitialiser aux onglets par défaut avant d'afficher l'interface
@@ -291,7 +291,7 @@ async function loadCreneaux() {
     try {
         const response = await fetch('/api/creneaux');
         const data = await response.json();
-        
+
         if (response.ok) {
             creneaux = data;
             displayCreneaux();
@@ -305,33 +305,33 @@ async function loadCreneaux() {
 
 function displayCreneaux() {
     const container = document.getElementById('creneaux-list');
-    
+
     if (creneaux.length === 0) {
         container.innerHTML = '<p>Aucun créneau disponible pour le moment.</p>';
         return;
     }
-    
+
     const joursMap = {
         0: 'Dimanche', 1: 'Lundi', 2: 'Mardi', 3: 'Mercredi',
         4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi'
     };
-    
+
     container.innerHTML = creneaux.map(creneau => {
         const disponible = creneau.inscrits < creneau.capacite_max;
         const statusClass = disponible ? 'available' : 'full';
         const statusText = disponible ? 'Places disponibles' : 'Complet';
-        
+
         // Vérifier si l'utilisateur peut s'inscrire (licence compatible)
         const licencesAutorisees = creneau.licences_autorisees ? creneau.licences_autorisees.split(',') : [];
         const userLicence = currentUser ? currentUser.licence_type : null;
         const peutSinscrire = !currentUser || !userLicence || licencesAutorisees.includes(userLicence);
         const licencesText = licencesAutorisees.length > 0 ? licencesAutorisees.join(', ') : 'Toutes licences';
-        
+
         // Debug pour identifier le problème
         if (currentUser && userLicence) {
             console.log(`Créneau: ${creneau.nom}, Licences autorisées: [${licencesAutorisees.join(', ')}], Licence utilisateur: ${userLicence}, Peut s'inscrire: ${peutSinscrire}`);
         }
-        
+
         return `
             <div class="creneau-card">
                 <div class="creneau-info">
@@ -368,9 +368,9 @@ async function inscrireCreneau(creneauId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ creneauId })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             loadCreneaux(); // Recharger pour mettre à jour les compteurs
@@ -387,7 +387,7 @@ async function loadMesInscriptions() {
         // Charger les inscriptions
         const response = await fetch('/api/mes-inscriptions');
         const data = await response.json();
-        
+
         if (response.ok) {
             displayMesInscriptions(data);
         } else {
@@ -397,7 +397,7 @@ async function loadMesInscriptions() {
         // Charger les limites de l'utilisateur
         const limitesResponse = await fetch('/api/mes-limites');
         const limitesData = await limitesResponse.json();
-        
+
         if (limitesResponse.ok) {
             displayMesLimites(limitesData);
         }
@@ -409,26 +409,26 @@ async function loadMesInscriptions() {
 function displayMesLimites(limites) {
     const quotaDetails = document.getElementById('quota-details');
     const quotaVisual = document.getElementById('quota-visual');
-    
+
     if (!limites) {
         quotaDetails.textContent = 'Informations non disponibles';
         return;
     }
-    
+
     const pourcentage = Math.round((limites.seancesActuelles / limites.maxSeances) * 100);
     const couleur = pourcentage >= 100 ? '#e53e3e' : pourcentage >= 80 ? '#ed8936' : '#38a169';
-    
+
     quotaDetails.innerHTML = `
         Licence <strong>${limites.licenceType}</strong> • 
         <span style="color: ${couleur}; font-weight: 500;">
             ${limites.seancesActuelles}/${limites.maxSeances} séances cette semaine
         </span>
-        ${limites.seancesRestantes > 0 ? 
-            `• <span style="color: #38a169;">${limites.seancesRestantes} séance(s) restante(s)</span>` : 
+        ${limites.seancesRestantes > 0 ?
+            `• <span style="color: #38a169;">${limites.seancesRestantes} séance(s) restante(s)</span>` :
             `• <span style="color: #e53e3e;">Limite atteinte !</span>`
         }
     `;
-    
+
     // Indicateur visuel
     if (limites.limiteAtteinte) {
         quotaVisual.innerHTML = '🚫';
@@ -444,22 +444,22 @@ function displayMesLimites(limites) {
 
 function displayMesInscriptions(inscriptions) {
     const container = document.getElementById('mes-inscriptions-list');
-    
+
     if (inscriptions.length === 0) {
         container.innerHTML = '<p>Vous n\'êtes inscrit à aucun créneau.</p>';
         return;
     }
-    
+
     const joursMap = {
         0: 'Dimanche', 1: 'Lundi', 2: 'Mardi', 3: 'Mercredi',
         4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi'
     };
-    
+
     container.innerHTML = inscriptions.map(inscription => {
         const statutClass = inscription.statut === 'inscrit' ? 'statut-inscrit' : 'statut-attente';
-        const statutText = inscription.statut === 'inscrit' ? 'Inscrit' : 
+        const statutText = inscription.statut === 'inscrit' ? 'Inscrit' :
             `Liste d'attente (${inscription.position_attente})`;
-        
+
         return `
             <div class="inscription-item">
                 <div>
@@ -484,14 +484,14 @@ async function desinscrireCreneau(creneauId) {
     if (!confirm('Êtes-vous sûr de vouloir vous désinscrire de ce créneau ?')) {
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/inscriptions/${creneauId}`, {
             method: 'DELETE'
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             loadMesInscriptions(); // Recharger la liste
@@ -506,26 +506,26 @@ async function desinscrireCreneau(creneauId) {
 
 async function handleCreateCreneau(e) {
     e.preventDefault();
-    
+
     const nom = document.getElementById('creneau-nom').value;
     const jour_semaine = document.getElementById('creneau-jour').value;
     const heure_debut = document.getElementById('creneau-debut').value;
     const heure_fin = document.getElementById('creneau-fin').value;
     const capacite_max = document.getElementById('creneau-capacite').value;
-    
+
     // Récupérer les licences sélectionnées
     const licencesCheckboxes = document.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked');
     const licences_autorisees = Array.from(licencesCheckboxes).map(cb => cb.value).join(',');
-    
+
     try {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage('Créneau créé avec succès', 'success');
             document.getElementById('create-creneau-form').reset();
@@ -542,7 +542,7 @@ async function loadAdminCreneaux() {
     try {
         const response = await fetch('/api/creneaux');
         const data = await response.json();
-        
+
         if (response.ok) {
             displayAdminCreneaux(data);
         } else {
@@ -555,20 +555,20 @@ async function loadAdminCreneaux() {
 
 function displayAdminCreneaux(creneaux) {
     const container = document.getElementById('admin-creneaux-list');
-    
+
     if (creneaux.length === 0) {
         container.innerHTML = '<p>Aucun créneau créé.</p>';
         return;
     }
-    
+
     const joursMap = {
         0: 'Dimanche', 1: 'Lundi', 2: 'Mardi', 3: 'Mercredi',
         4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi'
     };
-    
+
     container.innerHTML = creneaux.map(creneau => {
         const licencesText = creneau.licences_autorisees ? creneau.licences_autorisees.split(',').join(', ') : 'Toutes licences';
-        
+
         return `
             <div class="creneau-card">
                 <div class="creneau-info">
@@ -608,7 +608,7 @@ async function voirInscriptions(creneauId) {
     try {
         const response = await fetch(`/api/admin/inscriptions/${creneauId}`);
         const data = await response.json();
-        
+
         if (response.ok) {
             displayInscriptionsModal(data, creneauId);
         } else {
@@ -626,16 +626,16 @@ function displayInscriptionsModal(inscriptions, creneauId) {
         background: rgba(0,0,0,0.5); display: flex; align-items: center;
         justify-content: center; z-index: 1000;
     `;
-    
+
     const content = document.createElement('div');
     content.style.cssText = `
         background: white; border-radius: 12px; padding: 2rem;
         max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;
     `;
-    
+
     const inscritsList = inscriptions.filter(i => i.statut === 'inscrit');
     const attentsList = inscriptions.filter(i => i.statut === 'attente');
-    
+
     content.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
             <h3>Inscriptions au créneau</h3>
@@ -644,8 +644,8 @@ function displayInscriptionsModal(inscriptions, creneauId) {
         
         <div style="margin-bottom: 2rem;">
             <h4 style="color: #38a169; margin-bottom: 1rem;">✅ Inscrits (${inscritsList.length})</h4>
-            ${inscritsList.length === 0 ? '<p style="color: #718096;">Aucun inscrit</p>' : 
-                inscritsList.map(i => `
+            ${inscritsList.length === 0 ? '<p style="color: #718096;">Aucun inscrit</p>' :
+            inscritsList.map(i => `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 0.5rem; background: #f7fafc;">
                         <div>
                             <strong>${i.prenom} ${i.nom}</strong><br>
@@ -695,11 +695,11 @@ function displayInscriptionsModal(inscriptions, creneauId) {
             </div>
         </div>
     `;
-    
+
     modal.className = 'modal';
     modal.appendChild(content);
     document.body.appendChild(modal);
-    
+
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
             modal.remove();
@@ -711,14 +711,14 @@ function displayInscriptionsModal(inscriptions, creneauId) {
 async function desinscrireUtilisateur(userId, creneauId, nomUtilisateur) {
     const confirmation = confirm(`Désinscrire ${nomUtilisateur} de ce créneau ?`);
     if (!confirmation) return;
-    
+
     try {
         const response = await fetch(`/api/admin/inscriptions/${userId}/${creneauId}`, {
             method: 'DELETE'
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             // Recharger la modal des inscriptions
@@ -740,16 +740,16 @@ async function inscrireUtilisateur(creneauId) {
         showMessage('Veuillez saisir un email', 'error');
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/admin/inscriptions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, creneauId })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             document.getElementById('email-inscription').value = '';
@@ -769,14 +769,14 @@ async function inscrireUtilisateur(creneauId) {
 async function promouvoirUtilisateur(userId, creneauId, nomUtilisateur) {
     const confirmation = confirm(`Promouvoir ${nomUtilisateur} de la liste d'attente vers les inscrits ?`);
     if (!confirmation) return;
-    
+
     try {
         const response = await fetch(`/api/admin/inscriptions/${userId}/${creneauId}/promote`, {
             method: 'PUT'
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             // Recharger la modal des inscriptions
@@ -794,7 +794,7 @@ async function promouvoirUtilisateur(userId, creneauId, nomUtilisateur) {
 
 async function supprimerCreneau(creneauId, nomCreneau, nbInscrits) {
     let forceDelete = false;
-    
+
     // Si il y a des inscrits, proposer la suppression forcée
     if (nbInscrits > 0) {
         const confirmation = confirm(
@@ -803,7 +803,7 @@ async function supprimerCreneau(creneauId, nomCreneau, nbInscrits) {
             `⚠️ ATTENTION : Cela supprimera aussi toutes les inscriptions !\n\n` +
             `Cliquez sur "OK" pour supprimer définitivement, ou "Annuler" pour abandonner.`
         );
-        
+
         if (!confirmation) {
             return;
         }
@@ -814,17 +814,17 @@ async function supprimerCreneau(creneauId, nomCreneau, nbInscrits) {
             return;
         }
     }
-    
+
     try {
         console.log('Suppression du créneau:', creneauId, forceDelete ? '(forcée)' : '');
-        
+
         const url = forceDelete ? `/api/creneaux/${creneauId}/force` : `/api/creneaux/${creneauId}`;
         const response = await fetch(url, {
             method: 'DELETE'
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             loadAdminCreneaux(); // Recharger la liste
@@ -843,12 +843,12 @@ async function editerCreneau(creneauId) {
         // Récupérer les détails du créneau
         const response = await fetch(`/api/creneaux/${creneauId}`);
         const creneau = await response.json();
-        
+
         if (!response.ok) {
             showMessage('Erreur lors du chargement du créneau', 'error');
             return;
         }
-        
+
         // Créer le modal d'édition
         const modal = document.createElement('div');
         modal.style.cssText = `
@@ -856,13 +856,13 @@ async function editerCreneau(creneauId) {
             background: rgba(0,0,0,0.5); display: flex; align-items: center;
             justify-content: center; z-index: 1000;
         `;
-        
+
         const content = document.createElement('div');
         content.style.cssText = `
             background: white; border-radius: 12px; padding: 2rem;
             max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;
         `;
-        
+
         content.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <h3>Modifier le créneau</h3>
@@ -915,10 +915,10 @@ async function editerCreneau(creneauId) {
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
                     <div id="edit-licences-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
                         ${['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'].map(licence => {
-                            const isChecked = creneau.licences_autorisees && creneau.licences_autorisees.includes(licence);
-                            const emoji = licence === 'Compétition' ? '🏆' : licence === 'Loisir/Senior' ? '🏊‍♂️' : licence === 'Benjamins/Junior' ? '🧒' : '👶';
-                            return `<label><input type="checkbox" value="${licence}" ${isChecked ? 'checked' : ''}> ${emoji} ${licence}</label>`;
-                        }).join('')}
+            const isChecked = creneau.licences_autorisees && creneau.licences_autorisees.includes(licence);
+            const emoji = licence === 'Compétition' ? '🏆' : licence === 'Loisir/Senior' ? '🏊‍♂️' : licence === 'Benjamins/Junior' ? '🧒' : '👶';
+            return `<label><input type="checkbox" value="${licence}" ${isChecked ? 'checked' : ''}> ${emoji} ${licence}</label>`;
+        }).join('')}
                     </div>
                 </div>
                 
@@ -934,19 +934,19 @@ async function editerCreneau(creneauId) {
                 </div>
             </form>
         `;
-        
+
         modal.className = 'edit-modal';
         modal.appendChild(content);
         document.body.appendChild(modal);
-        
+
         // Gérer la soumission du formulaire
         document.getElementById('edit-creneau-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             // Récupérer les licences sélectionnées
             const editLicencesCheckboxes = document.querySelectorAll('#edit-licences-checkboxes input[type="checkbox"]:checked');
             const licences_autorisees = Array.from(editLicencesCheckboxes).map(cb => cb.value).join(',');
-            
+
             const formData = {
                 nom: document.getElementById('edit-nom').value,
                 jour_semaine: document.getElementById('edit-jour').value,
@@ -955,16 +955,16 @@ async function editerCreneau(creneauId) {
                 capacite_max: document.getElementById('edit-capacite').value,
                 licences_autorisees: licences_autorisees
             };
-            
+
             try {
                 const updateResponse = await fetch(`/api/creneaux/${creneauId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
-                
+
                 const result = await updateResponse.json();
-                
+
                 if (updateResponse.ok) {
                     showMessage(result.message, 'success');
                     modal.remove();
@@ -978,14 +978,14 @@ async function editerCreneau(creneauId) {
                 showMessage('Erreur lors de la modification du créneau', 'error');
             }
         });
-        
+
         // Fermer le modal en cliquant à l'extérieur
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
                 modal.remove();
             }
         });
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement du créneau:', error);
         showMessage('Erreur lors du chargement du créneau', 'error');
@@ -995,10 +995,10 @@ async function editerCreneau(creneauId) {
 function switchAdminTab(tab) {
     document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.admin-tab-content').forEach(content => content.classList.remove('active'));
-    
+
     document.querySelector(`[data-admin-tab="${tab}"]`).classList.add('active');
     document.getElementById(`admin-${tab}-section`).classList.add('active');
-    
+
     // Charger les données selon l'onglet
     if (tab === 'creneaux') {
         loadAdminCreneaux();
@@ -1013,7 +1013,7 @@ async function loadAdminUsers() {
     try {
         const response = await fetch('/api/admin/users');
         const data = await response.json();
-        
+
         if (response.ok) {
             displayAdminUsers(data);
         } else {
@@ -1026,17 +1026,17 @@ async function loadAdminUsers() {
 
 function displayAdminUsers(users) {
     const container = document.getElementById('admin-users-list');
-    
+
     if (users.length === 0) {
         container.innerHTML = '<p>Aucun utilisateur trouvé.</p>';
         return;
     }
-    
+
     container.innerHTML = users.map(user => {
         const isCurrentUser = currentUser && currentUser.id === user.id;
         const roleClass = user.role === 'admin' ? 'role-admin' : 'role-membre';
         const createdDate = new Date(user.created_at).toLocaleDateString('fr-FR');
-        
+
         return `
             <div class="user-card">
                 <div class="user-info">
@@ -1084,26 +1084,26 @@ function displayAdminUsers(users) {
 
 async function changerRoleUtilisateur(userId, nouveauRole) {
     if (!nouveauRole) return;
-    
+
     const confirmation = confirm(
         `Êtes-vous sûr de vouloir ${nouveauRole === 'admin' ? 'donner les droits administrateur' : 'retirer les droits administrateur'} à cet utilisateur ?`
     );
-    
+
     if (!confirmation) {
         // Recharger pour remettre la valeur précédente
         loadAdminUsers();
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/admin/users/${userId}/role`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ role: nouveauRole })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             loadAdminUsers(); // Recharger la liste
@@ -1120,26 +1120,26 @@ async function changerRoleUtilisateur(userId, nouveauRole) {
 
 async function changerLicenceUtilisateur(userId, nouvelleLicence) {
     if (!nouvelleLicence) return;
-    
+
     const confirmation = confirm(
         `Êtes-vous sûr de vouloir changer le type de licence vers "${nouvelleLicence}" ?\n\n` +
         `Cela modifiera immédiatement les limites de séances de cet utilisateur.`
     );
-    
+
     if (!confirmation) {
         loadAdminUsers();
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/admin/users/${userId}/licence`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ licence_type: nouvelleLicence })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             loadAdminUsers();
@@ -1159,30 +1159,30 @@ async function reinitialiserMotDePasse(userId, nomUtilisateur) {
         `Réinitialisation du mot de passe pour ${nomUtilisateur}\n\n` +
         `Entrez le nouveau mot de passe (minimum 6 caractères) :`
     );
-    
+
     if (!nouveauMotDePasse) return;
-    
+
     if (nouveauMotDePasse.length < 6) {
         showMessage('Le mot de passe doit contenir au moins 6 caractères', 'error');
         return;
     }
-    
+
     const confirmation = confirm(
         `Confirmer la réinitialisation du mot de passe pour ${nomUtilisateur} ?\n\n` +
         `Nouveau mot de passe : ${nouveauMotDePasse}`
     );
-    
+
     if (!confirmation) return;
-    
+
     try {
         const response = await fetch(`/api/admin/users/${userId}/reset-password`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nouveauMotDePasse })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(`${data.message} - Nouveau mot de passe : ${nouveauMotDePasse}`, 'success');
         } else {
@@ -1199,20 +1199,20 @@ async function supprimerUtilisateur(userId, nomUtilisateur, nbInscriptions) {
         showMessage(`Impossible de supprimer ${nomUtilisateur} : ${nbInscriptions} inscription(s) active(s)`, 'error');
         return;
     }
-    
+
     const confirmation = confirm(
         `Êtes-vous sûr de vouloir supprimer définitivement l'utilisateur "${nomUtilisateur}" ?\n\n⚠️ Cette action est irréversible !`
     );
-    
+
     if (!confirmation) return;
-    
+
     try {
         const response = await fetch(`/api/admin/users/${userId}`, {
             method: 'DELETE'
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             loadAdminUsers(); // Recharger la liste
@@ -1229,7 +1229,7 @@ async function loadAdminLimites() {
     try {
         const response = await fetch('/api/admin/licence-limits');
         const data = await response.json();
-        
+
         if (response.ok) {
             displayAdminLimites(data);
         } else {
@@ -1242,25 +1242,25 @@ async function loadAdminLimites() {
 
 function displayAdminLimites(limites) {
     const container = document.getElementById('admin-limites-list');
-    
+
     // Créer un objet pour faciliter la recherche
     const limitesMap = {};
     limites.forEach(limite => {
         limitesMap[limite.licence_type] = limite.max_seances_semaine;
     });
-    
+
     // Types de licences disponibles
     const typesLicences = ['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'];
-    
+
     container.innerHTML = `
         <div style="display: grid; gap: 1rem;">
             ${typesLicences.map(licenceType => {
-                const emoji = licenceType === 'Compétition' ? '🏆' : 
-                             licenceType === 'Loisir/Senior' ? '🏊‍♂️' : 
-                             licenceType === 'Benjamins/Junior' ? '🧒' : '👶';
-                const maxSeances = limitesMap[licenceType] || 3;
-                
-                return `
+        const emoji = licenceType === 'Compétition' ? '🏆' :
+            licenceType === 'Loisir/Senior' ? '🏊‍♂️' :
+                licenceType === 'Benjamins/Junior' ? '🧒' : '👶';
+        const maxSeances = limitesMap[licenceType] || 3;
+
+        return `
                     <div class="limite-card" style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
                         <div class="limite-info">
                             <h4 style="margin: 0 0 0.5rem 0; color: #2d3748;">${emoji} ${licenceType}</h4>
@@ -1287,7 +1287,7 @@ function displayAdminLimites(limites) {
                         </div>
                     </div>
                 `;
-            }).join('')}
+    }).join('')}
         </div>
         
         <div style="margin-top: 2rem; padding: 1rem; background: #e6fffa; border: 1px solid #81e6d9; border-radius: 8px;">
@@ -1304,21 +1304,21 @@ function displayAdminLimites(limites) {
 
 async function modifierLimite(licenceType, nouvelleValeur) {
     const valeur = parseInt(nouvelleValeur);
-    
+
     if (!valeur || valeur < 1 || valeur > 10) {
         showMessage('La limite doit être entre 1 et 10 séances', 'error');
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/admin/licence-limits/${encodeURIComponent(licenceType)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ max_seances_semaine: valeur })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(`Limite mise à jour : ${licenceType} = ${valeur} séances/semaine`, 'success');
             // Pas besoin de recharger, la valeur est déjà à jour dans l'interface
@@ -1345,49 +1345,49 @@ async function remiseAZeroHebdomadaire() {
         'Cette action est IRRÉVERSIBLE !\n\n' +
         'Êtes-vous absolument sûr de vouloir continuer ?'
     );
-    
+
     if (!confirmation) return;
-    
+
     // Double confirmation pour éviter les erreurs
     const doubleConfirmation = confirm(
         'DERNIÈRE CONFIRMATION\n\n' +
         'Vous allez supprimer TOUTES les inscriptions de TOUS les créneaux.\n' +
         'Tous les utilisateurs devront se réinscrire.\n\n' +
-        'Tapez "CONFIRMER" dans la prochaine boîte de dialogue pour procéder.'
+        'Tapez "VIDER TOUT" dans la prochaine boîte de dialogue pour procéder.'
     );
-    
+
     if (!doubleConfirmation) return;
-    
+
     const motConfirmation = prompt(
         'Pour confirmer définitivement, tapez exactement : VIDER TOUT'
     );
-    
+
     if (motConfirmation !== 'VIDER TOUT') {
         showMessage('Remise à zéro annulée - mot de confirmation incorrect', 'error');
         return;
     }
-    
+
     try {
         console.log('🔄 Début de la remise à zéro hebdomadaire...');
-        
+
         const response = await fetch('/api/admin/reset-weekly', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(
                 `✅ Remise à zéro réussie ! ${data.inscriptionsSupprimes} inscription(s) supprimée(s). ` +
-                `Tous les créneaux sont maintenant vides.`, 
+                `Tous les créneaux sont maintenant vides.`,
                 'success'
             );
-            
+
             // Recharger toutes les listes pour refléter les changements
             loadAdminCreneaux();
             loadCreneaux(); // Mettre à jour la vue utilisateur aussi
-            
+
             console.log('✅ Remise à zéro hebdomadaire terminée');
         } else {
             showMessage(`Erreur lors de la remise à zéro : ${data.error}`, 'error');
@@ -1403,7 +1403,7 @@ function showMessage(text, type) {
     message.textContent = text;
     message.className = `message ${type}`;
     message.classList.add('show');
-    
+
     setTimeout(() => {
         message.classList.remove('show');
     }, 4000);
@@ -1416,14 +1416,14 @@ async function loadMonProfil() {
         const response = await fetch('/api/mon-profil');
         if (response.ok) {
             const profil = await response.json();
-            
+
             // Remplir le formulaire
             document.getElementById('profile-prenom').value = profil.prenom;
             document.getElementById('profile-nom').value = profil.nom;
             document.getElementById('profile-email').value = profil.email;
             document.getElementById('profile-licence').value = profil.licence_type;
         }
-        
+
         // Charger les statistiques
         await loadProfileStats();
     } catch (error) {
@@ -1441,7 +1441,7 @@ async function loadProfileStats() {
             document.getElementById('stat-seances').textContent = limites.seancesActuelles;
             document.getElementById('stat-limite').textContent = limites.maxSeances;
         }
-        
+
         // Charger les inscriptions
         const inscriptionsResponse = await fetch('/api/mes-inscriptions');
         if (inscriptionsResponse.ok) {
@@ -1455,11 +1455,11 @@ async function loadProfileStats() {
 
 async function handleUpdateProfile(e) {
     e.preventDefault();
-    
+
     const prenom = document.getElementById('profile-prenom').value;
     const nom = document.getElementById('profile-nom').value;
     const email = document.getElementById('profile-email').value;
-    
+
     try {
         const response = await fetch('/api/mon-profil', {
             method: 'PUT',
@@ -1468,9 +1468,9 @@ async function handleUpdateProfile(e) {
             },
             body: JSON.stringify({ nom, prenom, email })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             // Mettre à jour le nom affiché dans la navigation
@@ -1486,16 +1486,16 @@ async function handleUpdateProfile(e) {
 
 async function handleChangePassword(e) {
     e.preventDefault();
-    
+
     const motDePasseActuel = document.getElementById('current-password').value;
     const nouveauMotDePasse = document.getElementById('new-password').value;
     const confirmerMotDePasse = document.getElementById('confirm-password').value;
-    
+
     if (nouveauMotDePasse !== confirmerMotDePasse) {
         showMessage('Les nouveaux mots de passe ne correspondent pas', 'error');
         return;
     }
-    
+
     try {
         const response = await fetch('/api/changer-mot-de-passe', {
             method: 'PUT',
@@ -1504,9 +1504,9 @@ async function handleChangePassword(e) {
             },
             body: JSON.stringify({ motDePasseActuel, nouveauMotDePasse, confirmerMotDePasse })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             showMessage(data.message, 'success');
             // Réinitialiser le formulaire
