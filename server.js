@@ -682,6 +682,77 @@ app.put('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
     }
 });
 
+// Route pour modifier le type de licence d'un utilisateur (ADMIN)
+app.put('/api/admin/users/:userId/licence', requireAdmin, async (req, res) => {
+    const userId = req.params.userId;
+    const { licence_type } = req.body;
+    
+    console.log('Modification du type de licence utilisateur:', userId, 'vers', licence_type);
+    
+    const licencesValides = ['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'];
+    if (!licence_type || !licencesValides.includes(licence_type)) {
+        return res.status(400).json({ 
+            error: 'Type de licence invalide. Doit être: ' + licencesValides.join(', ') 
+        });
+    }
+    
+    try {
+        const sql = db.isPostgres ?
+            `UPDATE users SET licence_type = $1 WHERE id = $2` :
+            `UPDATE users SET licence_type = ? WHERE id = ?`;
+        
+        const result = await db.run(sql, [licence_type, userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+        
+        console.log('Type de licence modifié avec succès pour l\'utilisateur:', userId);
+        res.json({ message: `Type de licence modifié vers "${licence_type}" avec succès` });
+    } catch (err) {
+        console.error('Erreur modification licence:', err);
+        return res.status(500).json({ error: 'Erreur lors de la modification du type de licence' });
+    }
+});
+
+// Route pour réinitialiser le mot de passe d'un utilisateur (ADMIN)
+app.put('/api/admin/users/:userId/reset-password', requireAdmin, async (req, res) => {
+    const userId = req.params.userId;
+    const { nouveauMotDePasse } = req.body;
+    
+    console.log('Réinitialisation mot de passe pour utilisateur:', userId);
+    
+    if (!nouveauMotDePasse) {
+        return res.status(400).json({ error: 'Nouveau mot de passe requis' });
+    }
+    
+    if (nouveauMotDePasse.length < 6) {
+        return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
+    }
+    
+    try {
+        // Hasher le nouveau mot de passe
+        const hashedPassword = bcrypt.hashSync(nouveauMotDePasse, 10);
+        
+        // Mettre à jour le mot de passe
+        const sql = db.isPostgres ?
+            `UPDATE users SET password = $1 WHERE id = $2` :
+            `UPDATE users SET password = ? WHERE id = ?`;
+        
+        const result = await db.run(sql, [hashedPassword, userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+        
+        console.log('Mot de passe réinitialisé avec succès pour l\'utilisateur:', userId);
+        res.json({ message: 'Mot de passe réinitialisé avec succès' });
+    } catch (err) {
+        console.error('Erreur réinitialisation mot de passe:', err);
+        return res.status(500).json({ error: 'Erreur lors de la réinitialisation du mot de passe' });
+    }
+});
+
 app.delete('/api/admin/users/:userId', requireAdmin, (req, res) => {
     const userId = req.params.userId;
     
@@ -796,6 +867,133 @@ app.get('/api/mes-limites', requireAuth, async (req, res) => {
     } catch (err) {
         console.error('Erreur vérification limites:', err);
         return res.status(500).json({ error: 'Erreur lors de la vérification des limites' });
+    }
+});
+
+// Route pour récupérer le profil utilisateur
+app.get('/api/mon-profil', requireAuth, async (req, res) => {
+    const userId = req.session.userId;
+    
+    try {
+        const sql = db.isPostgres ?
+            `SELECT id, email, nom, prenom, licence_type, created_at FROM users WHERE id = $1` :
+            `SELECT id, email, nom, prenom, licence_type, created_at FROM users WHERE id = ?`;
+        
+        const user = await db.get(sql, [userId]);
+        
+        if (!user) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+        
+        res.json(user);
+    } catch (err) {
+        console.error('Erreur récupération profil:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération du profil' });
+    }
+});
+
+// Route pour modifier le profil utilisateur
+app.put('/api/mon-profil', requireAuth, async (req, res) => {
+    const userId = req.session.userId;
+    const { nom, prenom, email } = req.body;
+    
+    console.log('Modification profil utilisateur:', userId, { nom, prenom, email });
+    
+    if (!nom || !prenom || !email) {
+        return res.status(400).json({ error: 'Nom, prénom et email sont requis' });
+    }
+    
+    // Validation email basique
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: 'Format d\'email invalide' });
+    }
+    
+    try {
+        // Vérifier si l'email n'est pas déjà utilisé par un autre utilisateur
+        const checkEmailSql = db.isPostgres ?
+            `SELECT id FROM users WHERE email = $1 AND id != $2` :
+            `SELECT id FROM users WHERE email = ? AND id != ?`;
+        
+        const existingUser = await db.get(checkEmailSql, [email, userId]);
+        
+        if (existingUser) {
+            return res.status(400).json({ error: 'Cet email est déjà utilisé par un autre utilisateur' });
+        }
+        
+        // Mettre à jour le profil
+        const updateSql = db.isPostgres ?
+            `UPDATE users SET nom = $1, prenom = $2, email = $3 WHERE id = $4` :
+            `UPDATE users SET nom = ?, prenom = ?, email = ? WHERE id = ?`;
+        
+        const result = await db.run(updateSql, [nom, prenom, email, userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+        
+        // Mettre à jour le nom dans la session
+        req.session.userName = `${prenom} ${nom}`;
+        
+        console.log('Profil modifié avec succès:', userId);
+        res.json({ message: 'Profil modifié avec succès' });
+    } catch (err) {
+        console.error('Erreur modification profil:', err);
+        return res.status(500).json({ error: 'Erreur lors de la modification du profil' });
+    }
+});
+
+// Route pour changer le mot de passe
+app.put('/api/changer-mot-de-passe', requireAuth, async (req, res) => {
+    const userId = req.session.userId;
+    const { motDePasseActuel, nouveauMotDePasse, confirmerMotDePasse } = req.body;
+    
+    console.log('Changement mot de passe pour utilisateur:', userId);
+    
+    if (!motDePasseActuel || !nouveauMotDePasse || !confirmerMotDePasse) {
+        return res.status(400).json({ error: 'Tous les champs sont requis' });
+    }
+    
+    if (nouveauMotDePasse !== confirmerMotDePasse) {
+        return res.status(400).json({ error: 'Les nouveaux mots de passe ne correspondent pas' });
+    }
+    
+    if (nouveauMotDePasse.length < 6) {
+        return res.status(400).json({ error: 'Le nouveau mot de passe doit contenir au moins 6 caractères' });
+    }
+    
+    try {
+        // Récupérer le mot de passe actuel
+        const sql = db.isPostgres ?
+            `SELECT password FROM users WHERE id = $1` :
+            `SELECT password FROM users WHERE id = ?`;
+        
+        const user = await db.get(sql, [userId]);
+        
+        if (!user) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+        
+        // Vérifier le mot de passe actuel
+        if (!bcrypt.compareSync(motDePasseActuel, user.password)) {
+            return res.status(400).json({ error: 'Mot de passe actuel incorrect' });
+        }
+        
+        // Hasher le nouveau mot de passe
+        const hashedPassword = bcrypt.hashSync(nouveauMotDePasse, 10);
+        
+        // Mettre à jour le mot de passe
+        const updateSql = db.isPostgres ?
+            `UPDATE users SET password = $1 WHERE id = $2` :
+            `UPDATE users SET password = ? WHERE id = ?`;
+        
+        await db.run(updateSql, [hashedPassword, userId]);
+        
+        console.log('Mot de passe changé avec succès:', userId);
+        res.json({ message: 'Mot de passe changé avec succès' });
+    } catch (err) {
+        console.error('Erreur changement mot de passe:', err);
+        return res.status(500).json({ error: 'Erreur lors du changement de mot de passe' });
     }
 });
 
