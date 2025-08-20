@@ -54,6 +54,7 @@
             <div class="tabs">
                 <button class="main-tab-btn active" data-tab="creneaux">Créneaux disponibles</button>
                 <button class="main-tab-btn" data-tab="mes-inscriptions">Mes inscriptions</button>
+                <button class="main-tab-btn" data-tab="mon-profil">Mon profil</button>
                 <button class="main-tab-btn admin-only" data-tab="admin" style="display: none;">Administration</button>
             </div>
 
@@ -76,6 +77,78 @@
                     </div>
                 </div>
                 <div id="mes-inscriptions-list"></div>
+            </div>
+
+            <!-- Onglet Mon Profil -->
+            <div id="mon-profil-tab" class="tab-content">
+                <h2>Mon profil</h2>
+                
+                <div class="profile-sections">
+                    <!-- Section Informations personnelles -->
+                    <div class="profile-section">
+                        <h3>📝 Informations personnelles</h3>
+                        <form id="profile-form">
+                            <div class="form-group">
+                                <label for="profile-prenom">Prénom</label>
+                                <input type="text" id="profile-prenom" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-nom">Nom</label>
+                                <input type="text" id="profile-nom" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-email">Email</label>
+                                <input type="email" id="profile-email" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-licence">Type de licence</label>
+                                <input type="text" id="profile-licence" readonly style="background: #f7fafc; color: #718096;">
+                                <small style="color: #718096;">Contactez un administrateur pour modifier votre type de licence</small>
+                            </div>
+                            <button type="submit">Mettre à jour mes informations</button>
+                        </form>
+                    </div>
+
+                    <!-- Section Changement de mot de passe -->
+                    <div class="profile-section">
+                        <h3>🔒 Changer mon mot de passe</h3>
+                        <form id="password-form">
+                            <div class="form-group">
+                                <label for="current-password">Mot de passe actuel</label>
+                                <input type="password" id="current-password" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="new-password">Nouveau mot de passe</label>
+                                <input type="password" id="new-password" minlength="6" required>
+                                <small style="color: #718096;">Minimum 6 caractères</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="confirm-password">Confirmer le nouveau mot de passe</label>
+                                <input type="password" id="confirm-password" minlength="6" required>
+                            </div>
+                            <button type="submit">Changer le mot de passe</button>
+                        </form>
+                    </div>
+
+                    <!-- Section Statistiques -->
+                    <div class="profile-section">
+                        <h3>📊 Mes statistiques</h3>
+                        <div id="profile-stats" class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-inscriptions">-</div>
+                                <div class="stat-label">Inscriptions actives</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-seances">-</div>
+                                <div class="stat-label">Séances cette semaine</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-limite">-</div>
+                                <div class="stat-label">Limite hebdomadaire</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Onglet Administration -->
