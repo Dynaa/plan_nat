@@ -817,9 +817,8 @@ const verifierLimitesSeances = async (userId) => {
         LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
         LEFT JOIN inscriptions i ON u.id = i.user_id 
             AND i.statut = 'inscrit'
-            AND i.created_at >= $1 
-            AND i.created_at <= $2
-        WHERE u.id = $3
+        LEFT JOIN creneaux c ON i.creneau_id = c.id
+        WHERE u.id = $1
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     ` : `
         SELECT 
@@ -830,14 +829,13 @@ const verifierLimitesSeances = async (userId) => {
         LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
         LEFT JOIN inscriptions i ON u.id = i.user_id 
             AND i.statut = 'inscrit'
-            AND i.created_at >= ? 
-            AND i.created_at <= ?
+        LEFT JOIN creneaux c ON i.creneau_id = c.id
         WHERE u.id = ?
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     `;
 
     try {
-        const result = await db.get(query, [debutSemaine.toISOString(), finSemaine.toISOString(), userId]);
+        const result = await db.get(query, [userId]);
 
         if (!result) {
             throw new Error('Utilisateur non trouvé');
