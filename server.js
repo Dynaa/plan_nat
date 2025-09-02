@@ -163,6 +163,29 @@ if (db.isPostgres) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    // Table de configuration des méta-règles
+    db.run(`CREATE TABLE IF NOT EXISTS meta_rules_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        enabled BOOLEAN DEFAULT FALSE,
+        description TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_by INTEGER,
+        FOREIGN KEY (updated_by) REFERENCES users(id)
+    )`);
+
+    // Table des méta-règles par licence
+    db.run(`CREATE TABLE IF NOT EXISTS meta_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        licence_type TEXT NOT NULL,
+        jour_source INTEGER NOT NULL, -- Jour d'inscription (0=dimanche, 1=lundi, etc.)
+        jours_interdits TEXT NOT NULL, -- Jours interdits séparés par des virgules (ex: "2,3,4")
+        description TEXT,
+        active BOOLEAN DEFAULT TRUE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_by INTEGER,
+        FOREIGN KEY (created_by) REFERENCES users(id)
+    )`);
+
     // Créer admin par défaut
     const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
     const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
@@ -213,10 +236,18 @@ if (db.isPostgres) {
                     [licenceType, maxSeances]);
             });
         }
-        });
+    });
+
+    // Initialiser la configuration des méta-règles
+    db.get(`SELECT COUNT(*) as count FROM meta_rules_config`, [], (err, result) => {
+        if (!err && result.count === 0) {
+            db.run(`INSERT INTO meta_rules_config (enabled, description) VALUES (?, ?)`,
+                [false, 'Configuration des méta-règles d\'inscription par licence']);
+        }
     });
 
     console.log('✅ Base de données SQLite initialisée');
+    });
 }
 
 // Fonctions d'envoi d'email (simplifiées)
@@ -491,6 +522,179 @@ server.on('error', (err) => {
         server.listen(PORT + 1);
     } else {
         console.error('Erreur serveur:', err);
+    }
+});
+
+// ===== ENDPOINTS MÉTA-RÈGLES =====
+
+// Récupérer la configuration des méta-règles
+app.get('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
+    try {
+        const config = await new Promise((resolve, reject) => {
+            db.get(`SELECT * FROM meta_rules_config ORDER BY id DESC LIMIT 1`, [], (err, result) => {
+                if (err) reject(err);
+                else resolve(result);
+            });
+        });
+        console.log('📋 Config méta-règles récupérée:', config);
+        res.json(config || { enabled: false });
+    } catch (err) {
+        console.error('Erreur récupération config méta-règles:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Mettre à jour la configuration des méta-règles
+app.put('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
+    const { enabled, description } = req.body;
+    const userId = req.session.userId;
+
+    console.log('🔧 Mise à jour config méta-règles:', { enabled, description, userId });
+
+    try {
+        // Vérifier s'il y a déjà une config
+        const existingConfig = await new Promise((resolve, reject) => {
+            db.get(`SELECT * FROM meta_rules_config LIMIT 1`, [], (err, result) => {
+                if (err) reject(err);
+                else resolve(result);
+            });
+        });
+        
+        if (existingConfig) {
+            await new Promise((resolve, reject) => {
+                db.run(`UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`,
+                    [enabled, description, userId], (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    });
+            });
+        } else {
+            await new Promise((resolve, reject) => {
+                db.run(`INSERT INTO meta_rules_config (enabled, description, updated_by) VALUES (?, ?, ?)`,
+                    [enabled, description, userId], (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    });
+            });
+        }
+        
+        console.log('✅ Config méta-règles mise à jour');
+        res.json({ message: 'Configuration mise à jour' });
+    } catch (err) {
+        console.error('Erreur mise à jour config méta-règles:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Récupérer toutes les méta-règles
+app.get('/api/admin/meta-rules', requireAdmin, async (req, res) => {
+    try {
+        const rules = await new Promise((resolve, reject) => {
+            db.all(`
+                SELECT mr.*, u.nom, u.prenom 
+                FROM meta_rules mr 
+                LEFT JOIN users u ON mr.created_by = u.id 
+                ORDER BY mr.licence_type, mr.jour_source
+            `, [], (err, results) => {
+                if (err) reject(err);
+                else resolve(results);
+            });
+        });
+        res.json(rules);
+    } catch (err) {
+        console.error('Erreur récupération méta-règles:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Créer une nouvelle méta-règle
+app.post('/api/admin/meta-rules', requireAdmin, async (req, res) => {
+    const { licence_type, jour_source, jours_interdits, description } = req.body;
+    const userId = req.session.userId;
+
+    if (!licence_type || jour_source === undefined || !jours_interdits) {
+        return res.status(400).json({ error: 'Tous les champs sont requis' });
+    }
+
+    try {
+        await new Promise((resolve, reject) => {
+            db.run(`
+                INSERT INTO meta_rules (licence_type, jour_source, jours_interdits, description, created_by) 
+                VALUES (?, ?, ?, ?, ?)
+            `, [licence_type, jour_source, jours_interdits, description, userId], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+        
+        res.json({ message: 'Méta-règle créée avec succès' });
+    } catch (err) {
+        console.error('Erreur création méta-règle:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Modifier une méta-règle
+app.put('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { licence_type, jour_source, jours_interdits, description } = req.body;
+
+    if (!licence_type || jour_source === undefined || !jours_interdits) {
+        return res.status(400).json({ error: 'Tous les champs sont requis' });
+    }
+
+    try {
+        await new Promise((resolve, reject) => {
+            db.run(`
+                UPDATE meta_rules 
+                SET licence_type = ?, jour_source = ?, jours_interdits = ?, description = ?
+                WHERE id = ?
+            `, [licence_type, jour_source, jours_interdits, description, id], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+        
+        res.json({ message: 'Méta-règle modifiée avec succès' });
+    } catch (err) {
+        console.error('Erreur modification méta-règle:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Supprimer une méta-règle
+app.delete('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        await new Promise((resolve, reject) => {
+            db.run(`DELETE FROM meta_rules WHERE id = ?`, [id], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+        res.json({ message: 'Méta-règle supprimée' });
+    } catch (err) {
+        console.error('Erreur suppression méta-règle:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Activer/désactiver une méta-règle
+app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        await new Promise((resolve, reject) => {
+            db.run(`UPDATE meta_rules SET active = NOT active WHERE id = ?`, [id], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+        res.json({ message: 'Statut de la règle mis à jour' });
+    } catch (err) {
+        console.error('Erreur toggle méta-règle:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
     }
 });
 
