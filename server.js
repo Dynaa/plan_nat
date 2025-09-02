@@ -1,9 +1,3 @@
-// Configuration de l'environnement pour Railway
-if (!process.env.NODE_ENV && (process.env.RAILWAY_ENVIRONMENT || process.env.PORT)) {
-    process.env.NODE_ENV = 'production';
-    console.log('🚂 Railway détecté - NODE_ENV forcé en production');
-}
-
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -169,29 +163,6 @@ if (db.isPostgres) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Table de configuration des méta-règles
-    db.run(`CREATE TABLE IF NOT EXISTS meta_rules_config (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        enabled BOOLEAN DEFAULT FALSE,
-        description TEXT,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_by INTEGER,
-        FOREIGN KEY (updated_by) REFERENCES users(id)
-    )`);
-
-    // Table des méta-règles par licence
-    db.run(`CREATE TABLE IF NOT EXISTS meta_rules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        licence_type TEXT NOT NULL,
-        jour_source INTEGER NOT NULL, -- Jour d'inscription (0=dimanche, 1=lundi, etc.)
-        jours_interdits TEXT NOT NULL, -- Jours interdits séparés par des virgules (ex: "2,3,4")
-        description TEXT,
-        active BOOLEAN DEFAULT TRUE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        created_by INTEGER,
-        FOREIGN KEY (created_by) REFERENCES users(id)
-    )`);
-
     // Créer admin par défaut
     const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
     const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
@@ -242,18 +213,11 @@ if (db.isPostgres) {
                     [licenceType, maxSeances]);
             });
         }
-    });
-
-    // Initialiser la configuration des méta-règles
-    db.get(`SELECT COUNT(*) as count FROM meta_rules_config`, [], (err, result) => {
-        if (!err && result.count === 0) {
-            db.run(`INSERT INTO meta_rules_config (enabled, description) VALUES (?, ?)`,
-                [false, 'Configuration des méta-règles d\'inscription par licence']);
-        }
+        });
     });
 
     console.log('✅ Base de données SQLite initialisée');
-});
+}
 
 // Fonctions d'envoi d'email (simplifiées)
 const sendEmail = async (to, subject, htmlContent) => {
@@ -482,44 +446,21 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
     }
 });
 
-// Health check ultra-simple pour Railway
+// Health check
 app.get('/health', (req, res) => {
-    console.log('🔍 Health check appelé depuis:', req.ip || 'unknown');
-    console.log('🔍 Headers:', JSON.stringify(req.headers, null, 2));
-    
-    const healthStatus = {
+    res.json({
         status: 'OK',
         timestamp: new Date().toISOString(),
         version: '1.0.0',
         environment: process.env.NODE_ENV || 'development',
-        port: process.env.PORT || 3000,
-        railway: !!process.env.RAILWAY_ENVIRONMENT,
-        database: 'skipped' // On skip le test DB pour l'instant
-    };
-    
-    console.log('✅ Health check response:', healthStatus);
-    res.status(200).json(healthStatus);
+        database: 'SQLite'
+    });
 });
 
-// Health check encore plus simple
-app.get('/ping', (req, res) => {
-    console.log('🏓 Ping reçu');
-    res.status(200).send('pong');
-});
-
-// Health check alternatif pour Railway
+// Servir les fichiers statiques
 app.get('/', (req, res) => {
-    // Si c'est un health check de Railway, répondre directement
-    if (req.headers['user-agent'] && req.headers['user-agent'].includes('Railway')) {
-        console.log('🚂 Health check Railway détecté');
-        return res.status(200).json({ status: 'OK', service: 'triathlon-natation' });
-    }
-    
-    // Sinon, servir la page normale
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-
-// Route supprimée - maintenant gérée dans le health check ci-dessus
 
 // Gestion des erreurs non capturées
 process.on('uncaughtException', (error) => {
@@ -530,225 +471,26 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('❌ Promesse rejetée non gérée:', reason);
 });
 
-// ===== FONCTIONS MÉTA-RÈGLES =====
-
-const verifierMetaRegles = async (userId, creneauId) => {
-    try {
-        // Vérifier si les méta-règles sont activées
-        const config = await db.get(`SELECT enabled FROM meta_rules_config ORDER BY id DESC LIMIT 1`);
-        if (process.env.NODE_ENV !== 'production') {
-            console.log('🔍 Méta-règles config:', config);
-        }
-        
-        if (!config || !config.enabled) {
-            if (process.env.NODE_ENV !== 'production') {
-                console.log('⚠️ Méta-règles désactivées ou config non trouvée');
-            }
-            return { autorise: true }; // Méta-règles désactivées
-        }
-
-        // Récupérer les infos de l'utilisateur et du créneau
-        const user = await db.get(`SELECT licence_type FROM users WHERE id = ?`, [userId]);
-        const creneau = await db.get(`SELECT jour_semaine FROM creneaux WHERE id = ?`, [creneauId]);
-        
-        if (process.env.NODE_ENV !== 'production') {
-            console.log('👤 User:', user);
-            console.log('📅 Créneau:', creneau);
-        }
-        
-        if (!user || !creneau) {
-            if (process.env.NODE_ENV !== 'production') {
-                console.log('❌ Utilisateur ou créneau introuvable');
-            }
-            return { autorise: false, raison: 'Utilisateur ou créneau introuvable' };
-        }
-
-        // Récupérer les inscriptions actuelles de l'utilisateur
-        const inscriptions = await db.query(`
-            SELECT c.jour_semaine 
-            FROM inscriptions i 
-            JOIN creneaux c ON i.creneau_id = c.id 
-            WHERE i.user_id = ? AND i.statut = 'inscrit'
-        `, [userId]);
-
-        // Récupérer les méta-règles pour ce type de licence
-        const metaRules = await db.query(`
-            SELECT jour_source, jours_interdits, description 
-            FROM meta_rules 
-            WHERE licence_type = ? AND active = TRUE
-        `, [user.licence_type]);
-        
-        if (process.env.NODE_ENV !== 'production') {
-            console.log('📋 Inscriptions actuelles:', inscriptions);
-            console.log('📏 Méta-règles trouvées:', metaRules);
-        }
-
-        // Vérifier chaque règle
-        for (const inscription of inscriptions) {
-            const jourInscrit = inscription.jour_semaine;
-            
-            for (const rule of metaRules) {
-                if (rule.jour_source === jourInscrit) {
-                    const joursInterdits = rule.jours_interdits.split(',').map(j => parseInt(j.trim()));
-                    
-                    if (joursInterdits.includes(creneau.jour_semaine)) {
-                        const joursNoms = {
-                            0: 'Dimanche', 1: 'Lundi', 2: 'Mardi', 3: 'Mercredi',
-                            4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi'
-                        };
-                        
-                        if (process.env.NODE_ENV !== 'production') {
-                            console.log('🚫 RÈGLE VIOLÉE!', {
-                                jourInscrit: joursNoms[jourInscrit],
-                                jourCible: joursNoms[creneau.jour_semaine],
-                                rule: rule
-                            });
-                        }
-                        
-                        return {
-                            autorise: false,
-                            raison: `Restriction de licence ${user.licence_type}: Vous êtes déjà inscrit le ${joursNoms[jourInscrit]}, vous ne pouvez pas vous inscrire le ${joursNoms[creneau.jour_semaine]}. ${rule.description || ''}`
-                        };
-                    }
-                }
-            }
-        }
-
-        if (process.env.NODE_ENV !== 'production') {
-            console.log('✅ Aucune règle violée, inscription autorisée');
-        }
-        return { autorise: true };
-    } catch (err) {
-        console.error('Erreur vérification méta-règles:', err);
-        return { autorise: true }; // En cas d'erreur, on autorise pour ne pas bloquer
-    }
-};
-
-// ===== ENDPOINTS MÉTA-RÈGLES =====
-
-// Récupérer la configuration des méta-règles
-app.get('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
-    try {
-        const config = await db.get(`SELECT * FROM meta_rules_config ORDER BY id DESC LIMIT 1`);
-        console.log('📋 Config méta-règles récupérée:', config);
-        res.json(config || { enabled: false });
-    } catch (err) {
-        console.error('Erreur récupération config méta-règles:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
+const server = app.listen(PORT, () => {
+    console.log(`✅ Serveur démarré sur le port ${PORT}`);
+    console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
+    
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('=== Comptes de test ===');
+        console.log('Admin: admin@triathlon.com / admin123');
+        console.log('Utilisateur: test@triathlon.com / test123');
+        console.log('=====================');
+    } else {
+        console.log('🔐 Mode production - Utilisez vos identifiants configurés');
     }
 });
 
-// Mettre à jour la configuration des méta-règles
-app.put('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
-    const { enabled, description } = req.body;
-    const userId = req.session.userId;
-
-    console.log('🔧 Mise à jour config méta-règles:', { enabled, description, userId });
-
-    try {
-        // Vérifier s'il y a déjà une config
-        const existingConfig = await db.get(`SELECT * FROM meta_rules_config LIMIT 1`);
-        
-        if (existingConfig) {
-            await db.run(`UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`,
-                [enabled, description, userId]);
-        } else {
-            await db.run(`INSERT INTO meta_rules_config (enabled, description, updated_by) VALUES (?, ?, ?)`,
-                [enabled, description, userId]);
-        }
-        
-        console.log('✅ Config méta-règles mise à jour');
-        res.json({ message: 'Configuration mise à jour' });
-    } catch (err) {
-        console.error('Erreur mise à jour config méta-règles:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
-    }
-});
-
-// Récupérer toutes les méta-règles
-app.get('/api/admin/meta-rules', requireAdmin, async (req, res) => {
-    try {
-        const rules = await db.query(`
-            SELECT mr.*, u.nom, u.prenom 
-            FROM meta_rules mr 
-            LEFT JOIN users u ON mr.created_by = u.id 
-            ORDER BY mr.licence_type, mr.jour_source
-        `);
-        res.json(rules);
-    } catch (err) {
-        console.error('Erreur récupération méta-règles:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
-    }
-});
-
-// Créer une nouvelle méta-règle
-app.post('/api/admin/meta-rules', requireAdmin, async (req, res) => {
-    const { licence_type, jour_source, jours_interdits, description } = req.body;
-    const userId = req.session.userId;
-
-    if (!licence_type || jour_source === undefined || !jours_interdits) {
-        return res.status(400).json({ error: 'Tous les champs sont requis' });
-    }
-
-    try {
-        await db.run(`
-            INSERT INTO meta_rules (licence_type, jour_source, jours_interdits, description, created_by) 
-            VALUES (?, ?, ?, ?, ?)
-        `, [licence_type, jour_source, jours_interdits, description, userId]);
-        
-        res.json({ message: 'Méta-règle créée avec succès' });
-    } catch (err) {
-        console.error('Erreur création méta-règle:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
-    }
-});
-
-// Modifier une méta-règle
-app.put('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
-    const { id } = req.params;
-    const { licence_type, jour_source, jours_interdits, description } = req.body;
-
-    if (!licence_type || jour_source === undefined || !jours_interdits) {
-        return res.status(400).json({ error: 'Tous les champs sont requis' });
-    }
-
-    try {
-        await db.run(`
-            UPDATE meta_rules 
-            SET licence_type = ?, jour_source = ?, jours_interdits = ?, description = ?
-            WHERE id = ?
-        `, [licence_type, jour_source, jours_interdits, description, id]);
-        
-        res.json({ message: 'Méta-règle modifiée avec succès' });
-    } catch (err) {
-        console.error('Erreur modification méta-règle:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
-    }
-});
-
-// Supprimer une méta-règle
-app.delete('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
-    const { id } = req.params;
-
-    try {
-        await db.run(`DELETE FROM meta_rules WHERE id = ?`, [id]);
-        res.json({ message: 'Méta-règle supprimée' });
-    } catch (err) {
-        console.error('Erreur suppression méta-règle:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
-    }
-});
-
-// Activer/désactiver une méta-règle
-app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
-    const { id } = req.params;
-
-    try {
-        await db.run(`UPDATE meta_rules SET active = NOT active WHERE id = ?`, [id]);
-        res.json({ message: 'Statut de la règle mis à jour' });
-    } catch (err) {
-        console.error('Erreur toggle méta-règle:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.log(`Port ${PORT} occupé, tentative sur le port ${PORT + 1}...`);
+        server.listen(PORT + 1);
+    } else {
+        console.error('Erreur serveur:', err);
     }
 });
 
@@ -1075,8 +817,9 @@ const verifierLimitesSeances = async (userId) => {
         LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
         LEFT JOIN inscriptions i ON u.id = i.user_id 
             AND i.statut = 'inscrit'
-        LEFT JOIN creneaux c ON i.creneau_id = c.id
-        WHERE u.id = $1
+            AND i.created_at >= $1 
+            AND i.created_at <= $2
+        WHERE u.id = $3
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     ` : `
         SELECT 
@@ -1087,13 +830,14 @@ const verifierLimitesSeances = async (userId) => {
         LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
         LEFT JOIN inscriptions i ON u.id = i.user_id 
             AND i.statut = 'inscrit'
-        LEFT JOIN creneaux c ON i.creneau_id = c.id
+            AND i.created_at >= ? 
+            AND i.created_at <= ?
         WHERE u.id = ?
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     `;
 
     try {
-        const result = await db.get(query, [userId]);
+        const result = await db.get(query, [debutSemaine.toISOString(), finSemaine.toISOString(), userId]);
 
         if (!result) {
             throw new Error('Utilisateur non trouvé');
@@ -1431,18 +1175,6 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
                 error: `Vous avez atteint votre limite de ${limites.maxSeances} séances par semaine (${limites.seancesActuelles}/${limites.maxSeances})` 
             });
         }
-
-        // Vérifier les méta-règles
-        console.log('🔍 Vérification méta-règles pour userId:', userId, 'creneauId:', creneauId);
-        const metaRulesCheck = await verifierMetaRegles(userId, creneauId);
-        console.log('📋 Résultat méta-règles:', metaRulesCheck);
-        
-        if (!metaRulesCheck.autorise) {
-            console.log('🚫 Inscription bloquée par méta-règle:', metaRulesCheck.raison);
-            return res.status(400).json({ 
-                error: metaRulesCheck.raison 
-            });
-        }
         
         // Vérifier la capacité du créneau et les inscriptions actuelles
         const creneauSql = db.isPostgres ?
@@ -1680,76 +1412,30 @@ app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
     }
 });
 
-// Démarrage du serveur
-const PORT = process.env.PORT || 3000;
-console.log(`🚀 Tentative de démarrage du serveur sur le port ${PORT}`);
-console.log(`🌍 Variables d'environnement Railway:`);
-console.log(`- NODE_ENV: ${process.env.NODE_ENV}`);
-console.log(`- PORT: ${process.env.PORT}`);
-console.log(`- DATABASE_URL présente: ${!!process.env.DATABASE_URL}`);
-console.log(`- RAILWAY_ENVIRONMENT: ${process.env.RAILWAY_ENVIRONMENT}`);
-
-// Afficher toutes les variables Railway pour debug
-console.log('🚂 Variables Railway détectées:');
-Object.keys(process.env).filter(key => key.startsWith('RAILWAY')).forEach(key => {
-    console.log(`- ${key}: ${process.env[key]}`);
-});
-
-const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Serveur démarré avec succès !`);
-    console.log(`📡 Écoute sur 0.0.0.0:${PORT}`);
-    console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔍 Health check disponible sur: /health`);
-    console.log(`🚂 Railway health check: GET /health`);
-    console.log(`🏠 Page d'accueil: GET /`);
+// Route temporaire pour promouvoir un utilisateur en admin (À SUPPRIMER APRÈS USAGE)
+app.post('/api/temp-promote-admin', async (req, res) => {
+    const { email, secret } = req.body;
     
-    // Test immédiat du health check
-    setTimeout(() => {
-        console.log('🧪 Test du health check interne...');
-        const http = require('http');
-        const options = {
-            hostname: 'localhost',
-            port: PORT,
-            path: '/health',
-            method: 'GET'
-        };
-        
-        const req = http.request(options, (res) => {
-            console.log(`✅ Health check interne OK: ${res.statusCode}`);
-        });
-        
-        req.on('error', (err) => {
-            console.log(`⚠️ Health check interne échoué: ${err.message}`);
-        });
-        
-        req.end();
-    }, 1000);
+    // Mot de passe secret pour sécuriser cette route temporaire
+    if (secret !== 'promote-me-to-admin-2024') {
+        return res.status(403).json({ error: 'Secret incorrect' });
+    }
     
-    if (process.env.NODE_ENV !== 'production') {
-        console.log('=== Comptes de test ===');
-        console.log('Admin: admin@triathlon.com / admin123');
-        console.log('Utilisateur: test@triathlon.com / test123');
-        console.log('=====================');
+    try {
+        const sql = db.isPostgres ? 
+            `UPDATE users SET role = 'admin' WHERE email = $1` :
+            `UPDATE users SET role = 'admin' WHERE email = ?`;
+        
+        const result = await db.run(sql, [email]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+        
+        console.log(`🔑 Utilisateur ${email} promu administrateur`);
+        res.json({ message: `Utilisateur ${email} promu administrateur avec succès` });
+    } catch (err) {
+        console.error('Erreur promotion admin:', err);
+        return res.status(500).json({ error: 'Erreur lors de la promotion' });
     }
 });
-
-// Gestion des erreurs de serveur
-server.on('error', (err) => {
-    console.error('❌ Erreur serveur:', err);
-    if (err.code === 'EADDRINUSE') {
-        console.error(`❌ Port ${PORT} déjà utilisé`);
-        process.exit(1);
-    }
-});
-
-// Gestion des erreurs non capturées
-process.on('uncaughtException', (err) => {
-    console.error('❌ Erreur non capturée:', err);
-    process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Promesse rejetée non gérée:', reason);
-    process.exit(1);
-});
-}
