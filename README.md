@@ -1,118 +1,128 @@
-# Application de Gestion des Créneaux Natation - Club de Triathlon
+# Système de Gestion des Créneaux de Triathlon
 
-## Fonctionnalités
-- Création de comptes utilisateurs
-- Inscription/désinscription aux créneaux
-- Limitation du nombre de participants par créneau
-- Liste d'attente automatique
-- Interface d'administration pour gérer les inscriptions
-- Rôles utilisateur (membre/administrateur)
+## 🏊‍♂️ Description
+Application web pour la gestion des inscriptions aux créneaux d'entraînement de triathlon avec système de méta-règles avancé.
 
-## Technologies
-- Frontend: HTML, CSS, JavaScript (Vanilla)
-- Backend: Node.js avec Express
-- Base de données: SQLite (simple et portable)
-- Authentification: Sessions simples
+## ✨ Fonctionnalités
 
-## Installation
+### Pour les utilisateurs
+- **Inscription aux créneaux** avec gestion des listes d'attente
+- **Gestion du profil** (nom, prénom, email, mot de passe)
+- **Visualisation des inscriptions** en cours
+- **Respect des limites** de séances par semaine selon le type de licence
+
+### Pour les administrateurs
+- **Gestion des créneaux** (création, modification, suppression)
+- **Gestion des utilisateurs** (rôles, types de licence, réinitialisation mot de passe)
+- **Méta-règles** : système avancé de restrictions d'inscription
+- **Indicateur de statut** des méta-règles en temps réel
+- **Limites de séances** configurables par type de licence
+- **Remise à zéro hebdomadaire** des inscriptions
+
+### Système de méta-règles
+- **Règles conditionnelles** : "Si inscrit le jour X, alors interdire les jours Y, Z..."
+- **Par type de licence** : règles spécifiques selon Compétition, Loisir/Senior, etc.
+- **Activation/désactivation** globale avec indicateur visuel
+- **Logs de débogage** détaillés pour le diagnostic
+
+## 🚀 Déploiement
+
+### Variables d'environnement requises
+
 ```bash
-npm install
-npm start
-```
+# Base de données (optionnel - utilise SQLite par défaut)
+DATABASE_URL=postgresql://user:password@host:port/database
 
-L'application sera accessible sur http://localhost:3000
+# Session (recommandé en production)
+SESSION_SECRET=your-super-secret-session-key
 
-## Déploiement
-
-Voir le fichier [DEPLOYMENT.md](DEPLOYMENT.md) pour les instructions de déploiement sur Railway, Render ou Heroku.
-
-### Déploiement rapide sur Railway
-
-1. Fork ce repository sur GitHub
-2. Créez un compte sur [railway.app](https://railway.app)
-3. Connectez votre repository GitHub
-4. Déployez en un clic !
-
-L'application sera automatiquement accessible avec une URL publique.
-
-## Comptes de test
-
-**Administrateur :**
-- Email : admin@triathlon.com
-- Mot de passe : admin123
-
-**Utilisateur membre :**
-- Email : test@triathlon.com
-- Mot de passe : test123
-
-## Créneaux de test
-
-L'application créera automatiquement quelques créneaux d'exemple :
-- Natation Débutants (Lundi 18h-19h, 8 places)
-- Natation Confirmés (Lundi 19h-20h, 6 places)
-- Natation Technique (Mercredi 12h-13h, 10 places)
-- Natation Endurance (Vendredi 18h30-19h30, 12 places)
-- Natation Libre (Samedi 10h-11h, 15 places)
-
-## Notifications par email
-
-L'application envoie automatiquement des emails pour :
-- ✅ **Confirmation d'inscription** : Quand un utilisateur s'inscrit à un créneau
-- ⏳ **Mise en liste d'attente** : Quand un créneau est complet
-- 🎉 **Promotion** : Quand une place se libère et qu'on passe de la liste d'attente aux inscrits
-- 📝 **Changements de statut** : Lors de modifications de créneaux par les admins
-
-### Configuration email
-
-**Mode développement :** L'application utilise automatiquement Ethereal Email (emails de test)
-- Les emails ne sont pas vraiment envoyés
-- Vous pouvez les prévisualiser via les liens affichés dans la console
-
-**Mode production :** Pour recevoir de vrais emails :
-
-1. **Modifiez le fichier `.env`** et décommentez les lignes Gmail :
-```bash
+# Email (optionnel)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=votre-email@gmail.com
-SMTP_PASS=votre-mot-de-passe-app
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+
+# Environnement
+NODE_ENV=production
+PORT=3000
 ```
 
-2. **Configuration Gmail** :
-   - Activez l'authentification à 2 facteurs
-   - Générez un "mot de passe d'application" dans les paramètres Google
-   - Utilisez ce mot de passe dans SMTP_PASS
+### Déploiement sur Railway
 
-3. **Redémarrez l'application** pour appliquer la configuration
+1. **Connecter le repository** à Railway
+2. **Configurer les variables d'environnement** dans le dashboard Railway
+3. **Déployer** - Railway détecte automatiquement Node.js
 
-## Développement
+### Déploiement local
 
-### Lancement en mode développement
 ```bash
-npm run dev
+# Installation
+npm install
+
+# Développement
+npm start
+
+# Production
+NODE_ENV=production npm start
 ```
 
-### Structure du projet
-```
-├── public/           # Fichiers statiques (HTML, CSS, JS)
-├── server.js         # Serveur Express principal
-├── natation.db       # Base de données SQLite (créée automatiquement)
-├── package.json      # Dépendances et scripts
-└── README.md         # Documentation
-```
+## 🗄️ Base de données
 
-## Contribution
+- **SQLite** par défaut (fichier `database.sqlite`)
+- **PostgreSQL** supporté via `DATABASE_URL`
+- **Auto-migration** au démarrage
+- **Données de test** créées automatiquement en développement
 
-1. Fork le projet
-2. Créez une branche pour votre fonctionnalité (`git checkout -b feature/nouvelle-fonctionnalite`)
-3. Committez vos changements (`git commit -am 'Ajout nouvelle fonctionnalité'`)
-4. Poussez vers la branche (`git push origin feature/nouvelle-fonctionnalite`)
-5. Ouvrez une Pull Request
+## 🔐 Sécurité
 
-## Licence
+- **Authentification** par session
+- **Hachage des mots de passe** avec bcrypt
+- **Autorisation** par rôles (user/admin)
+- **Protection CSRF** intégrée
+- **Validation** des données côté serveur
 
-Ce projet est sous licence MIT. Voir le fichier LICENSE pour plus de détails.
+## 📊 Monitoring
 
-## Support
+- **Logs structurés** avec emojis pour faciliter le debug
+- **Logs conditionnels** (détaillés en dev, essentiels en prod)
+- **Indicateurs visuels** pour le statut des méta-règles
+- **Gestion d'erreurs** complète
 
-Pour toute question ou problème, ouvrez une issue sur GitHub ou contactez l'équipe de développement.
+## 🛠️ Technologies
+
+- **Backend** : Node.js, Express, SQLite/PostgreSQL
+- **Frontend** : HTML5, CSS3, JavaScript vanilla
+- **Authentification** : express-session, bcrypt
+- **Email** : nodemailer
+- **Base de données** : sqlite3, pg
+
+## 📝 Utilisation
+
+### Premier démarrage
+1. Créer un compte utilisateur
+2. Se connecter en tant qu'admin avec : `admin@triathlon.com` / `admin123`
+3. Configurer les méta-règles dans Administration > Méta-règles
+4. Créer les créneaux d'entraînement
+
+### Gestion quotidienne
+- Les utilisateurs s'inscrivent aux créneaux disponibles
+- Les admins surveillent le statut des méta-règles (indicateur vert/orange/gris)
+- Remise à zéro hebdomadaire via l'interface admin
+
+## 🔧 Maintenance
+
+### Logs importants à surveiller
+- `❌ Erreur` : Erreurs critiques
+- `🚫 RÈGLE VIOLÉE` : Violations des méta-règles (dev uniquement)
+- `✅ Serveur démarré` : Confirmation du démarrage
+
+### Sauvegarde
+- **SQLite** : sauvegarder le fichier `database.sqlite`
+- **PostgreSQL** : utiliser `pg_dump`
+
+## 📞 Support
+
+En cas de problème :
+1. Vérifier les logs du serveur
+2. Vérifier l'indicateur de statut des méta-règles
+3. Tester avec les comptes de test (en développement)
