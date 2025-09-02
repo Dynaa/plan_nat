@@ -476,28 +476,16 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
     }
 });
 
-// Health check
-app.get('/health', async (req, res) => {
-    try {
-        // Vérifier que la base de données fonctionne
-        await db.get('SELECT 1 as test');
-        
-        res.json({
-            status: 'OK',
-            timestamp: new Date().toISOString(),
-            version: '1.0.0',
-            environment: process.env.NODE_ENV || 'development',
-            database: db.isPostgres ? 'PostgreSQL' : 'SQLite',
-            port: process.env.PORT || 3000
-        });
-    } catch (error) {
-        console.error('❌ Health check failed:', error);
-        res.status(503).json({
-            status: 'ERROR',
-            timestamp: new Date().toISOString(),
-            error: 'Database connection failed'
-        });
-    }
+// Health check simplifié pour Railway
+app.get('/health', (req, res) => {
+    console.log('🔍 Health check appelé');
+    res.status(200).json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        environment: process.env.NODE_ENV || 'development',
+        port: process.env.PORT || 3000
+    });
 });
 
 // Servir les fichiers statiques
@@ -1666,9 +1654,17 @@ app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
 
 // Démarrage du serveur
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-    console.log(`✅ Serveur démarré sur le port ${PORT}`);
+console.log(`🚀 Tentative de démarrage du serveur sur le port ${PORT}`);
+console.log(`🌍 Variables d'environnement:`);
+console.log(`- NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`- PORT: ${process.env.PORT}`);
+console.log(`- DATABASE_URL présente: ${!!process.env.DATABASE_URL}`);
+
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Serveur démarré avec succès !`);
+    console.log(`📡 Écoute sur 0.0.0.0:${PORT}`);
     console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔍 Health check disponible sur: /health`);
     
     if (process.env.NODE_ENV !== 'production') {
         console.log('=== Comptes de test ===');

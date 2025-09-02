@@ -88,6 +88,10 @@ NODE_ENV=production npm start
 - **Indicateurs visuels** pour le statut des méta-règles
 - **Gestion d'erreurs** complète
 
+### Notes sur les warnings
+- **MemoryStore warning** : Normal pour une petite application Railway (< 1000 utilisateurs)
+- **npm config warning** : Supprimé via le script `start.js`
+
 ## 🛠️ Technologies
 
 - **Backend** : Node.js, Express, SQLite/PostgreSQL
