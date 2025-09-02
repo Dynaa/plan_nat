@@ -477,14 +477,27 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
 });
 
 // Health check
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0',
-        environment: process.env.NODE_ENV || 'development',
-        database: 'SQLite'
-    });
+app.get('/health', async (req, res) => {
+    try {
+        // Vérifier que la base de données fonctionne
+        await db.get('SELECT 1 as test');
+        
+        res.json({
+            status: 'OK',
+            timestamp: new Date().toISOString(),
+            version: '1.0.0',
+            environment: process.env.NODE_ENV || 'development',
+            database: db.isPostgres ? 'PostgreSQL' : 'SQLite',
+            port: process.env.PORT || 3000
+        });
+    } catch (error) {
+        console.error('❌ Health check failed:', error);
+        res.status(503).json({
+            status: 'ERROR',
+            timestamp: new Date().toISOString(),
+            error: 'Database connection failed'
+        });
+    }
 });
 
 // Servir les fichiers statiques
@@ -1653,7 +1666,7 @@ app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
 
 // Démarrage du serveur
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`✅ Serveur démarré sur le port ${PORT}`);
     console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
     
@@ -1663,4 +1676,25 @@ app.listen(PORT, () => {
         console.log('Utilisateur: test@triathlon.com / test123');
         console.log('=====================');
     }
-});}
+});
+
+// Gestion des erreurs de serveur
+server.on('error', (err) => {
+    console.error('❌ Erreur serveur:', err);
+    if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} déjà utilisé`);
+        process.exit(1);
+    }
+});
+
+// Gestion des erreurs non capturées
+process.on('uncaughtException', (err) => {
+    console.error('❌ Erreur non capturée:', err);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Promesse rejetée non gérée:', reason);
+    process.exit(1);
+});
+}
