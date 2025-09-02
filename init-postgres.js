@@ -64,6 +64,30 @@ async function initializePostgreSQL() {
             )
         `);
 
+        // Tables des méta-règles
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS meta_rules_config (
+                id SERIAL PRIMARY KEY,
+                enabled BOOLEAN DEFAULT FALSE,
+                description TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_by INTEGER REFERENCES users(id)
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS meta_rules (
+                id SERIAL PRIMARY KEY,
+                licence_type VARCHAR(100) NOT NULL,
+                jour_source INTEGER NOT NULL,
+                jours_interdits TEXT NOT NULL,
+                description TEXT,
+                active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by INTEGER REFERENCES users(id)
+            )
+        `);
+
         // Créer admin par défaut
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
         const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
@@ -111,6 +135,15 @@ async function initializePostgreSQL() {
                     ON CONFLICT (licence_type) DO NOTHING
                 `, [licenceType, maxSeances]);
             }
+        }
+
+        // Initialiser la configuration des méta-règles si elle n'existe pas
+        const { rows: existingMetaConfig } = await pool.query('SELECT COUNT(*) as count FROM meta_rules_config');
+        if (existingMetaConfig[0].count == 0) {
+            await pool.query(`
+                INSERT INTO meta_rules_config (enabled, description) 
+                VALUES ($1, $2)
+            `, [false, 'Configuration des méta-règles d\'inscription par licence']);
         }
 
         console.log('✅ PostgreSQL initialisé avec succès');

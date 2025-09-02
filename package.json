@@ -12,7 +12,8 @@
     "test": "echo 'No tests specified'",
     "deploy": "echo 'Déploiement en cours...'",
     "init-postgres": "node init-postgres.js",
-    "migrate": "node migrate-to-postgres.js"
+    "migrate": "node migrate-to-postgres.js",
+    "migrate-meta-rules": "node migrate-meta-rules.js"
   },
   "engines": {
     "node": ">=18.0.0",
