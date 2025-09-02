@@ -31,7 +31,9 @@ class DatabaseAdapter {
     async query(sql, params = []) {
         return new Promise((resolve, reject) => {
             if (this.isPostgres) {
-                this.pool.query(sql, params, (err, result) => {
+                // Convertir les ? en $1, $2, $3 pour PostgreSQL
+                const convertedSQL = this.convertSQLParams(sql);
+                this.pool.query(convertedSQL, params, (err, result) => {
                     if (err) reject(err);
                     else resolve(result.rows);
                 });
@@ -48,7 +50,9 @@ class DatabaseAdapter {
     async get(sql, params = []) {
         return new Promise((resolve, reject) => {
             if (this.isPostgres) {
-                this.pool.query(sql, params, (err, result) => {
+                // Convertir les ? en $1, $2, $3 pour PostgreSQL
+                const convertedSQL = this.convertSQLParams(sql);
+                this.pool.query(convertedSQL, params, (err, result) => {
                     if (err) reject(err);
                     else resolve(result.rows[0] || null);
                 });
@@ -65,7 +69,9 @@ class DatabaseAdapter {
     async run(sql, params = []) {
         return new Promise((resolve, reject) => {
             if (this.isPostgres) {
-                this.pool.query(sql, params, (err, result) => {
+                // Convertir les ? en $1, $2, $3 pour PostgreSQL
+                const convertedSQL = this.convertSQLParams(sql);
+                this.pool.query(convertedSQL, params, (err, result) => {
                     if (err) reject(err);
                     else resolve({ 
                         lastID: result.insertId || null, 
@@ -89,6 +95,14 @@ class DatabaseAdapter {
         } else {
             this.db.serialize(callback);
         }
+    }
+
+    // Convertir les paramètres ? en $1, $2, $3 pour PostgreSQL
+    convertSQLParams(sql) {
+        if (!this.isPostgres) return sql;
+        
+        let paramIndex = 1;
+        return sql.replace(/\?/g, () => `$${paramIndex++}`);
     }
 
     // Adapter les requêtes SQL selon la base
