@@ -310,6 +310,57 @@ async function loadCreneaux() {
     }
 }
 
+function displayMesMetaRegles(metaReglesData) {
+    const metaReglesContainer = document.getElementById('meta-regles-info');
+    
+    if (!metaReglesContainer) {
+        // Créer le conteneur s'il n'existe pas
+        const quotaSection = document.querySelector('.quota-section');
+        if (quotaSection) {
+            const metaReglesDiv = document.createElement('div');
+            metaReglesDiv.id = 'meta-regles-info';
+            metaReglesDiv.className = 'meta-regles-section';
+            quotaSection.appendChild(metaReglesDiv);
+        } else {
+            return; // Pas de section quota, on ne peut pas afficher
+        }
+    }
+
+    const container = document.getElementById('meta-regles-info');
+
+    if (!metaReglesData.enabled || metaReglesData.rules.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let html = `
+        <div class="meta-regles-header">
+            <h4>📋 Règles d'inscription pour votre licence (${metaReglesData.licenceType})</h4>
+        </div>
+        <div class="meta-regles-list">
+    `;
+
+    metaReglesData.rules.forEach(regle => {
+        html += `
+            <div class="meta-regle-item">
+                <div class="regle-condition">
+                    <strong>Si inscrit le ${regle.jourSourceNom}</strong>
+                </div>
+                <div class="regle-interdiction">
+                    → Inscription interdite : ${regle.joursInterditsNoms.join(', ')}
+                </div>
+                ${regle.description ? `<div class="regle-description">${regle.description}</div>` : ''}
+            </div>
+        `;
+    });
+
+    html += `
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
 function displayCreneaux() {
     const container = document.getElementById('creneaux-list');
 
@@ -407,6 +458,14 @@ async function loadMesInscriptions() {
 
         if (limitesResponse.ok) {
             displayMesLimites(limitesData);
+        }
+
+        // Charger les méta-règles de l'utilisateur
+        const metaReglesResponse = await fetch('/api/mes-meta-regles');
+        const metaReglesData = await metaReglesResponse.json();
+
+        if (metaReglesResponse.ok) {
+            displayMesMetaRegles(metaReglesData);
         }
     } catch (error) {
         showMessage('Erreur de connexion', 'error');

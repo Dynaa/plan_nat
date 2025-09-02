@@ -590,3 +590,65 @@ Styles pour l'onglet Mon Profil */
         text-align: center;
     }
 }
+/*
+ Styles pour les méta-règles utilisateur */
+.meta-regles-section {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.meta-regles-header h4 {
+    color: #2d3748;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+}
+
+.meta-regles-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.meta-regle-item {
+    background: #f7fafc;
+    border-left: 4px solid #4299e1;
+    padding: 1rem;
+    border-radius: 6px;
+}
+
+.regle-condition {
+    color: #2d3748;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.regle-interdiction {
+    color: #e53e3e;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.regle-description {
+    color: #718096;
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+/* Responsive pour les méta-règles */
+@media (max-width: 768px) {
+    .meta-regles-section {
+        padding: 1rem;
+        margin-top: 0.5rem;
+    }
+    
+    .meta-regles-header h4 {
+        font-size: 1rem;
+    }
+    
+    .meta-regle-item {
+        padding: 0.75rem;
+    }
+}

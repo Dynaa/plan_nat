@@ -1122,6 +1122,64 @@ const verifierMetaRegles = async (userId, creneauId) => {
     }
 };
 
+// Endpoint pour récupérer les méta-règles applicables à l'utilisateur
+app.get('/api/mes-meta-regles', requireAuth, async (req, res) => {
+    const userId = req.session.userId;
+    
+    try {
+        // Vérifier si les méta-règles sont activées
+        const config = await db.get(`SELECT enabled FROM meta_rules_config ORDER BY id DESC LIMIT 1`);
+        
+        if (!config || !config.enabled) {
+            return res.json({ enabled: false, rules: [] });
+        }
+
+        // Récupérer le type de licence de l'utilisateur
+        const userInfo = await db.get(`SELECT licence_type FROM users WHERE id = ?`, [userId]);
+        
+        if (!userInfo) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+
+        // Récupérer les méta-règles actives pour ce type de licence
+        const metaRegles = await db.query(`
+            SELECT jour_source, jours_interdits, description 
+            FROM meta_rules 
+            WHERE licence_type = ? AND active = true
+            ORDER BY jour_source
+        `, [userInfo.licence_type]);
+
+        // Formater les règles pour l'affichage
+        const reglesFormatees = metaRegles.map(regle => {
+            let joursInterdits;
+            try {
+                joursInterdits = JSON.parse(regle.jours_interdits);
+            } catch (e) {
+                joursInterdits = regle.jours_interdits.split(',').map(j => parseInt(j.trim()));
+            }
+
+            const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+            
+            return {
+                jourSource: regle.jour_source,
+                jourSourceNom: joursNoms[regle.jour_source],
+                joursInterdits: joursInterdits,
+                joursInterditsNoms: joursInterdits.map(j => joursNoms[j]),
+                description: regle.description
+            };
+        });
+
+        res.json({
+            enabled: true,
+            licenceType: userInfo.licence_type,
+            rules: reglesFormatees
+        });
+    } catch (err) {
+        console.error('Erreur récupération méta-règles utilisateur:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
 app.get('/api/mes-limites', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     
