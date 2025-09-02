@@ -1,3 +1,9 @@
+// Configuration de l'environnement pour Railway
+if (!process.env.NODE_ENV && (process.env.RAILWAY_ENVIRONMENT || process.env.PORT)) {
+    process.env.NODE_ENV = 'production';
+    console.log('🚂 Railway détecté - NODE_ENV forcé en production');
+}
+
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -476,36 +482,29 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
     }
 });
 
-// Health check simplifié pour Railway
+// Health check ultra-simple pour Railway
 app.get('/health', (req, res) => {
-    console.log('🔍 Health check appelé depuis:', req.ip);
+    console.log('🔍 Health check appelé depuis:', req.ip || 'unknown');
+    console.log('🔍 Headers:', JSON.stringify(req.headers, null, 2));
     
-    // Test basique de la base de données
     const healthStatus = {
         status: 'OK',
         timestamp: new Date().toISOString(),
         version: '1.0.0',
         environment: process.env.NODE_ENV || 'development',
         port: process.env.PORT || 3000,
-        database: 'connected'
+        railway: !!process.env.RAILWAY_ENVIRONMENT,
+        database: 'skipped' // On skip le test DB pour l'instant
     };
     
-    // Test rapide de la DB
-    try {
-        const testQuery = db.isPostgres ? 'SELECT 1 as test' : 'SELECT 1 as test';
-        db.get(testQuery, [], (err, result) => {
-            if (err) {
-                console.log('⚠️ Health check: DB error:', err.message);
-                healthStatus.database = 'error';
-            }
-            
-            res.status(200).json(healthStatus);
-        });
-    } catch (error) {
-        console.log('⚠️ Health check: DB test failed:', error.message);
-        healthStatus.database = 'error';
-        res.status(200).json(healthStatus);
-    }
+    console.log('✅ Health check response:', healthStatus);
+    res.status(200).json(healthStatus);
+});
+
+// Health check encore plus simple
+app.get('/ping', (req, res) => {
+    console.log('🏓 Ping reçu');
+    res.status(200).send('pong');
 });
 
 // Health check alternatif pour Railway
@@ -1684,10 +1683,17 @@ app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
 // Démarrage du serveur
 const PORT = process.env.PORT || 3000;
 console.log(`🚀 Tentative de démarrage du serveur sur le port ${PORT}`);
-console.log(`🌍 Variables d'environnement:`);
+console.log(`🌍 Variables d'environnement Railway:`);
 console.log(`- NODE_ENV: ${process.env.NODE_ENV}`);
 console.log(`- PORT: ${process.env.PORT}`);
 console.log(`- DATABASE_URL présente: ${!!process.env.DATABASE_URL}`);
+console.log(`- RAILWAY_ENVIRONMENT: ${process.env.RAILWAY_ENVIRONMENT}`);
+
+// Afficher toutes les variables Railway pour debug
+console.log('🚂 Variables Railway détectées:');
+Object.keys(process.env).filter(key => key.startsWith('RAILWAY')).forEach(key => {
+    console.log(`- ${key}: ${process.env[key]}`);
+});
 
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Serveur démarré avec succès !`);
