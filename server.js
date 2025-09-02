@@ -1084,7 +1084,18 @@ const verifierMetaRegles = async (userId, creneauId) => {
 
             if (inscriptionSource) {
                 // L'utilisateur est inscrit au jour source, vérifier les jours interdits
-                const joursInterdits = JSON.parse(regle.jours_interdits);
+                console.log('🔍 Données brutes jours_interdits:', regle.jours_interdits, typeof regle.jours_interdits);
+                
+                let joursInterdits;
+                try {
+                    // Essayer de parser comme JSON d'abord
+                    joursInterdits = JSON.parse(regle.jours_interdits);
+                } catch (e) {
+                    // Si ça échoue, traiter comme une chaîne séparée par des virgules
+                    console.log('⚠️ Parsing JSON échoué, traitement comme chaîne CSV');
+                    joursInterdits = regle.jours_interdits.split(',').map(j => parseInt(j.trim()));
+                }
+                
                 const jourCreneau = creneauInfo.jour_semaine;
                 
                 console.log('⚠️ Vérification interdiction:', {
