@@ -17,5 +17,13 @@ if (process.env.NODE_ENV === 'production') {
     console.log('📦 Variables d\'environnement configurées');
 }
 
+// Forcer NODE_ENV en production si pas défini
+if (!process.env.NODE_ENV) {
+    process.env.NODE_ENV = 'production';
+    console.log('🔧 NODE_ENV forcé en production');
+}
+
+console.log('📡 Démarrage du serveur principal...');
+
 // Démarrer le serveur principal
 require('./server.js');

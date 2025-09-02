@@ -478,20 +478,49 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
 
 // Health check simplifié pour Railway
 app.get('/health', (req, res) => {
-    console.log('🔍 Health check appelé');
-    res.status(200).json({
+    console.log('🔍 Health check appelé depuis:', req.ip);
+    
+    // Test basique de la base de données
+    const healthStatus = {
         status: 'OK',
         timestamp: new Date().toISOString(),
         version: '1.0.0',
         environment: process.env.NODE_ENV || 'development',
-        port: process.env.PORT || 3000
-    });
+        port: process.env.PORT || 3000,
+        database: 'connected'
+    };
+    
+    // Test rapide de la DB
+    try {
+        const testQuery = db.isPostgres ? 'SELECT 1 as test' : 'SELECT 1 as test';
+        db.get(testQuery, [], (err, result) => {
+            if (err) {
+                console.log('⚠️ Health check: DB error:', err.message);
+                healthStatus.database = 'error';
+            }
+            
+            res.status(200).json(healthStatus);
+        });
+    } catch (error) {
+        console.log('⚠️ Health check: DB test failed:', error.message);
+        healthStatus.database = 'error';
+        res.status(200).json(healthStatus);
+    }
 });
 
-// Servir les fichiers statiques
+// Health check alternatif pour Railway
 app.get('/', (req, res) => {
+    // Si c'est un health check de Railway, répondre directement
+    if (req.headers['user-agent'] && req.headers['user-agent'].includes('Railway')) {
+        console.log('🚂 Health check Railway détecté');
+        return res.status(200).json({ status: 'OK', service: 'triathlon-natation' });
+    }
+    
+    // Sinon, servir la page normale
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// Route supprimée - maintenant gérée dans le health check ci-dessus
 
 // Gestion des erreurs non capturées
 process.on('uncaughtException', (error) => {
@@ -1665,6 +1694,30 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`📡 Écoute sur 0.0.0.0:${PORT}`);
     console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔍 Health check disponible sur: /health`);
+    console.log(`🚂 Railway health check: GET /health`);
+    console.log(`🏠 Page d'accueil: GET /`);
+    
+    // Test immédiat du health check
+    setTimeout(() => {
+        console.log('🧪 Test du health check interne...');
+        const http = require('http');
+        const options = {
+            hostname: 'localhost',
+            port: PORT,
+            path: '/health',
+            method: 'GET'
+        };
+        
+        const req = http.request(options, (res) => {
+            console.log(`✅ Health check interne OK: ${res.statusCode}`);
+        });
+        
+        req.on('error', (err) => {
+            console.log(`⚠️ Health check interne échoué: ${err.message}`);
+        });
+        
+        req.end();
+    }, 1000);
     
     if (process.env.NODE_ENV !== 'production') {
         console.log('=== Comptes de test ===');

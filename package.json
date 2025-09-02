@@ -4,7 +4,8 @@
   "description": "Application de gestion des créneaux de natation pour club de triathlon",
   "main": "server.js",
   "scripts": {
-    "start": "node start.js",
+    "start": "NODE_ENV=production node server.js",
+    "start:railway": "node start.js",
     "dev": "nodemon --experimental-fetch server.js",
     "build": "echo 'No build step required'",
     "test": "echo 'No tests specified'",
