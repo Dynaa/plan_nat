@@ -1017,6 +1017,84 @@ const verifierLimitesSeances = async (userId) => {
     }
 };
 
+// Fonction pour vérifier les méta-règles d'inscription
+const verifierMetaRegles = async (userId, creneauId) => {
+    try {
+        // Vérifier si les méta-règles sont activées
+        const config = await db.get(`SELECT enabled FROM meta_rules_config ORDER BY id DESC LIMIT 1`);
+        
+        if (!config || !config.enabled) {
+            return { autorise: true, message: null };
+        }
+
+        // Récupérer les informations de l'utilisateur et du créneau
+        const userInfo = await db.get(`SELECT licence_type FROM users WHERE id = ?`, [userId]);
+        const creneauInfo = await db.get(`SELECT jour_semaine FROM creneaux WHERE id = ?`, [creneauId]);
+        
+        if (!userInfo || !creneauInfo) {
+            return { autorise: false, message: 'Informations utilisateur ou créneau introuvables' };
+        }
+
+        // Récupérer les méta-règles actives pour ce type de licence
+        const metaRegles = await db.query(`
+            SELECT jour_source, jours_interdits, description 
+            FROM meta_rules 
+            WHERE licence_type = ? AND active = true
+        `, [userInfo.licence_type]);
+
+        if (!metaRegles || metaRegles.length === 0) {
+            return { autorise: true, message: null };
+        }
+
+        // Calculer le début et la fin de la semaine courante
+        const maintenant = new Date();
+        const jourSemaine = maintenant.getDay();
+        const joursDepuisLundi = jourSemaine === 0 ? 6 : jourSemaine - 1;
+        
+        const debutSemaine = new Date(maintenant);
+        debutSemaine.setDate(maintenant.getDate() - joursDepuisLundi);
+        debutSemaine.setHours(0, 0, 0, 0);
+        
+        const finSemaine = new Date(debutSemaine);
+        finSemaine.setDate(debutSemaine.getDate() + 6);
+        finSemaine.setHours(23, 59, 59, 999);
+
+        // Vérifier chaque méta-règle
+        for (const regle of metaRegles) {
+            // Vérifier si l'utilisateur est inscrit au jour source cette semaine
+            const inscriptionSource = await db.get(`
+                SELECT i.id 
+                FROM inscriptions i
+                JOIN creneaux c ON i.creneau_id = c.id
+                WHERE i.user_id = ? 
+                AND c.jour_semaine = ? 
+                AND i.statut = 'inscrit'
+                AND i.created_at >= ? 
+                AND i.created_at <= ?
+            `, [userId, regle.jour_source, debutSemaine.toISOString(), finSemaine.toISOString()]);
+
+            if (inscriptionSource) {
+                // L'utilisateur est inscrit au jour source, vérifier les jours interdits
+                const joursInterdits = JSON.parse(regle.jours_interdits);
+                const jourCreneau = creneauInfo.jour_semaine;
+                
+                if (joursInterdits.includes(jourCreneau)) {
+                    const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+                    return {
+                        autorise: false,
+                        message: `Inscription interdite : vous êtes déjà inscrit le ${joursNoms[regle.jour_source]} cette semaine. ${regle.description || ''}`
+                    };
+                }
+            }
+        }
+
+        return { autorise: true, message: null };
+    } catch (err) {
+        console.error('Erreur lors de la vérification des méta-règles:', err);
+        return { autorise: false, message: 'Erreur lors de la vérification des règles d\'inscription' };
+    }
+};
+
 app.get('/api/mes-limites', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     
@@ -1221,6 +1299,14 @@ app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
         if (existingInscription) {
             return res.status(400).json({ error: 'Cet utilisateur est déjà inscrit à ce créneau' });
         }
+
+        // Vérifier les méta-règles (avec avertissement pour l'admin)
+        const metaReglesCheck = await verifierMetaRegles(user.id, creneauId);
+        
+        if (!metaReglesCheck.autorise) {
+            // Pour l'admin, on retourne un avertissement mais on permet l'inscription
+            console.log('⚠️ Admin outrepasse méta-règle:', metaReglesCheck.message);
+        }
         
         // Inscrire l'utilisateur (inscription directe par l'admin)
         const insertSql = db.isPostgres ?
@@ -1230,7 +1316,13 @@ app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
         await db.run(insertSql, [user.id, creneauId]);
         
         console.log('Inscription admin réussie:', { email, creneauId });
-        res.json({ message: `Utilisateur ${email} inscrit avec succès` });
+        
+        let message = `Utilisateur ${email} inscrit avec succès`;
+        if (!metaReglesCheck.autorise) {
+            message += ` (Avertissement: ${metaReglesCheck.message})`;
+        }
+        
+        res.json({ message });
     } catch (err) {
         console.error('Erreur inscription admin:', err);
         return res.status(500).json({ error: 'Erreur lors de l\'inscription' });
@@ -1332,6 +1424,15 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
         if (limites.limiteAtteinte) {
             return res.status(400).json({ 
                 error: `Vous avez atteint votre limite de ${limites.maxSeances} séances par semaine (${limites.seancesActuelles}/${limites.maxSeances})` 
+            });
+        }
+
+        // Vérifier les méta-règles d'inscription
+        const metaReglesCheck = await verifierMetaRegles(userId, creneauId);
+        
+        if (!metaReglesCheck.autorise) {
+            return res.status(400).json({ 
+                error: metaReglesCheck.message 
             });
         }
         
