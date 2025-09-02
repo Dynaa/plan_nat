@@ -530,12 +530,7 @@ server.on('error', (err) => {
 // Récupérer la configuration des méta-règles
 app.get('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
     try {
-        const config = await new Promise((resolve, reject) => {
-            db.get(`SELECT * FROM meta_rules_config ORDER BY id DESC LIMIT 1`, [], (err, result) => {
-                if (err) reject(err);
-                else resolve(result);
-            });
-        });
+        const config = await db.get(`SELECT * FROM meta_rules_config ORDER BY id DESC LIMIT 1`);
         console.log('📋 Config méta-règles récupérée:', config);
         res.json(config || { enabled: false });
     } catch (err) {
@@ -553,29 +548,14 @@ app.put('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
 
     try {
         // Vérifier s'il y a déjà une config
-        const existingConfig = await new Promise((resolve, reject) => {
-            db.get(`SELECT * FROM meta_rules_config LIMIT 1`, [], (err, result) => {
-                if (err) reject(err);
-                else resolve(result);
-            });
-        });
+        const existingConfig = await db.get(`SELECT * FROM meta_rules_config LIMIT 1`);
         
         if (existingConfig) {
-            await new Promise((resolve, reject) => {
-                db.run(`UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`,
-                    [enabled, description, userId], (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-            });
+            await db.run(`UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`,
+                [enabled, description, userId]);
         } else {
-            await new Promise((resolve, reject) => {
-                db.run(`INSERT INTO meta_rules_config (enabled, description, updated_by) VALUES (?, ?, ?)`,
-                    [enabled, description, userId], (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-            });
+            await db.run(`INSERT INTO meta_rules_config (enabled, description, updated_by) VALUES (?, ?, ?)`,
+                [enabled, description, userId]);
         }
         
         console.log('✅ Config méta-règles mise à jour');
@@ -589,17 +569,12 @@ app.put('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
 // Récupérer toutes les méta-règles
 app.get('/api/admin/meta-rules', requireAdmin, async (req, res) => {
     try {
-        const rules = await new Promise((resolve, reject) => {
-            db.all(`
-                SELECT mr.*, u.nom, u.prenom 
-                FROM meta_rules mr 
-                LEFT JOIN users u ON mr.created_by = u.id 
-                ORDER BY mr.licence_type, mr.jour_source
-            `, [], (err, results) => {
-                if (err) reject(err);
-                else resolve(results);
-            });
-        });
+        const rules = await db.query(`
+            SELECT mr.*, u.nom, u.prenom 
+            FROM meta_rules mr 
+            LEFT JOIN users u ON mr.created_by = u.id 
+            ORDER BY mr.licence_type, mr.jour_source
+        `);
         res.json(rules);
     } catch (err) {
         console.error('Erreur récupération méta-règles:', err);
@@ -617,15 +592,10 @@ app.post('/api/admin/meta-rules', requireAdmin, async (req, res) => {
     }
 
     try {
-        await new Promise((resolve, reject) => {
-            db.run(`
-                INSERT INTO meta_rules (licence_type, jour_source, jours_interdits, description, created_by) 
-                VALUES (?, ?, ?, ?, ?)
-            `, [licence_type, jour_source, jours_interdits, description, userId], (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
+        await db.run(`
+            INSERT INTO meta_rules (licence_type, jour_source, jours_interdits, description, created_by) 
+            VALUES (?, ?, ?, ?, ?)
+        `, [licence_type, jour_source, jours_interdits, description, userId]);
         
         res.json({ message: 'Méta-règle créée avec succès' });
     } catch (err) {
@@ -644,16 +614,11 @@ app.put('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
     }
 
     try {
-        await new Promise((resolve, reject) => {
-            db.run(`
-                UPDATE meta_rules 
-                SET licence_type = ?, jour_source = ?, jours_interdits = ?, description = ?
-                WHERE id = ?
-            `, [licence_type, jour_source, jours_interdits, description, id], (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
+        await db.run(`
+            UPDATE meta_rules 
+            SET licence_type = ?, jour_source = ?, jours_interdits = ?, description = ?
+            WHERE id = ?
+        `, [licence_type, jour_source, jours_interdits, description, id]);
         
         res.json({ message: 'Méta-règle modifiée avec succès' });
     } catch (err) {
@@ -667,12 +632,7 @@ app.delete('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
-        await new Promise((resolve, reject) => {
-            db.run(`DELETE FROM meta_rules WHERE id = ?`, [id], (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
+        await db.run(`DELETE FROM meta_rules WHERE id = ?`, [id]);
         res.json({ message: 'Méta-règle supprimée' });
     } catch (err) {
         console.error('Erreur suppression méta-règle:', err);
@@ -685,12 +645,7 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
-        await new Promise((resolve, reject) => {
-            db.run(`UPDATE meta_rules SET active = NOT active WHERE id = ?`, [id], (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
+        await db.run(`UPDATE meta_rules SET active = NOT active WHERE id = ?`, [id]);
         res.json({ message: 'Statut de la règle mis à jour' });
     } catch (err) {
         console.error('Erreur toggle méta-règle:', err);
