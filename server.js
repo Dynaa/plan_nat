@@ -1061,6 +1061,13 @@ const verifierMetaRegles = async (userId, creneauId) => {
 
         // Vérifier chaque méta-règle
         for (const regle of metaRegles) {
+            console.log('🔍 Vérification méta-règle:', {
+                licenceType: userInfo.licence_type,
+                jourSource: regle.jour_source,
+                jourCreneau: creneauInfo.jour_semaine,
+                joursInterdits: regle.jours_interdits
+            });
+
             // Vérifier si l'utilisateur est inscrit au jour source cette semaine
             const inscriptionSource = await db.get(`
                 SELECT i.id 
@@ -1073,13 +1080,22 @@ const verifierMetaRegles = async (userId, creneauId) => {
                 AND i.created_at <= ?
             `, [userId, regle.jour_source, debutSemaine.toISOString(), finSemaine.toISOString()]);
 
+            console.log('📅 Inscription au jour source trouvée:', !!inscriptionSource);
+
             if (inscriptionSource) {
                 // L'utilisateur est inscrit au jour source, vérifier les jours interdits
                 const joursInterdits = JSON.parse(regle.jours_interdits);
                 const jourCreneau = creneauInfo.jour_semaine;
                 
+                console.log('⚠️ Vérification interdiction:', {
+                    jourCreneau,
+                    joursInterdits,
+                    estInterdit: joursInterdits.includes(jourCreneau)
+                });
+                
                 if (joursInterdits.includes(jourCreneau)) {
                     const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+                    console.log('🚫 Inscription bloquée par méta-règle');
                     return {
                         autorise: false,
                         message: `Inscription interdite : vous êtes déjà inscrit le ${joursNoms[regle.jour_source]} cette semaine. ${regle.description || ''}`
