@@ -723,70 +723,59 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
 });
 
 // Route de suppression de créneaux (ADMIN)
-app.delete('/api/creneaux/:creneauId', requireAdmin, (req, res) => {
+app.delete('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
     
     console.log('Tentative de suppression du créneau:', creneauId);
     
-    // Vérifier d'abord s'il y a des inscriptions
-    db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE creneau_id = ?`, 
-        [creneauId], (err, result) => {
-            if (err) {
-                console.error('Erreur lors de la vérification des inscriptions:', err);
-                return res.status(500).json({ error: 'Erreur de base de données' });
-            }
-            
-            if (result.count > 0) {
-                return res.status(400).json({ 
-                    error: `Impossible de supprimer ce créneau car ${result.count} personne(s) y sont inscrites. Veuillez d'abord les désinscrire.` 
-                });
-            }
-            
-            // Supprimer le créneau s'il n'y a pas d'inscriptions
-            db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId], function(err) {
-                if (err) {
-                    console.error('Erreur lors de la suppression:', err);
-                    return res.status(500).json({ error: 'Erreur lors de la suppression du créneau' });
-                }
-                
-                if (this.changes === 0) {
-                    return res.status(404).json({ error: 'Créneau non trouvé' });
-                }
-                
-                console.log('Créneau supprimé avec succès:', creneauId);
-                res.json({ message: 'Créneau supprimé avec succès' });
+    try {
+        // Vérifier d'abord s'il y a des inscriptions
+        const result = await db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE creneau_id = ?`, [creneauId]);
+        
+        if (result && result.count > 0) {
+            return res.status(400).json({ 
+                error: `Impossible de supprimer ce créneau car ${result.count} personne(s) y sont inscrites. Veuillez d'abord les désinscrire.` 
             });
-        });
+        }
+        
+        // Supprimer le créneau s'il n'y a pas d'inscriptions
+        const deleteResult = await db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId]);
+        
+        if (deleteResult.changes === 0) {
+            return res.status(404).json({ error: 'Créneau non trouvé' });
+        }
+        
+        console.log('Créneau supprimé avec succès:', creneauId);
+        res.json({ message: 'Créneau supprimé avec succès' });
+    } catch (err) {
+        console.error('Erreur lors de la suppression:', err);
+        res.status(500).json({ error: 'Erreur lors de la suppression du créneau' });
+    }
 });
 
 // Route pour forcer la suppression d'un créneau (avec ses inscriptions)
-app.delete('/api/creneaux/:creneauId/force', requireAdmin, (req, res) => {
+app.delete('/api/creneaux/:creneauId/force', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
     
     console.log('Suppression forcée du créneau:', creneauId);
     
-    // Supprimer d'abord toutes les inscriptions
-    db.run(`DELETE FROM inscriptions WHERE creneau_id = ?`, [creneauId], (err) => {
-        if (err) {
-            console.error('Erreur lors de la suppression des inscriptions:', err);
-            return res.status(500).json({ error: 'Erreur lors de la suppression des inscriptions' });
-        }
+    try {
+        // Supprimer d'abord toutes les inscriptions
+        await db.run(`DELETE FROM inscriptions WHERE creneau_id = ?`, [creneauId]);
         
         // Puis supprimer le créneau
-        db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId], function(err) {
-            if (err) {
-                console.error('Erreur lors de la suppression du créneau:', err);
-                return res.status(500).json({ error: 'Erreur lors de la suppression du créneau' });
-            }
-            
-            if (this.changes === 0) {
-                return res.status(404).json({ error: 'Créneau non trouvé' });
-            }
-            
-            console.log('Créneau et inscriptions supprimés avec succès:', creneauId);
-            res.json({ message: 'Créneau et toutes ses inscriptions supprimés avec succès' });
-        });
-    });
+        const deleteResult = await db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId]);
+        
+        if (deleteResult.changes === 0) {
+            return res.status(404).json({ error: 'Créneau non trouvé' });
+        }
+        
+        console.log('Créneau et inscriptions supprimés avec succès:', creneauId);
+        res.json({ message: 'Créneau et toutes ses inscriptions supprimés avec succès' });
+    } catch (err) {
+        console.error('Erreur lors de la suppression:', err);
+        res.status(500).json({ error: 'Erreur lors de la suppression du créneau' });
+    }
 });
 
 // Routes d'administration des utilisateurs
@@ -912,7 +901,7 @@ app.put('/api/admin/users/:userId/reset-password', requireAdmin, async (req, res
     }
 });
 
-app.delete('/api/admin/users/:userId', requireAdmin, (req, res) => {
+app.delete('/api/admin/users/:userId', requireAdmin, async (req, res) => {
     const userId = req.params.userId;
     
     console.log('Tentative de suppression de l\'utilisateur:', userId);
@@ -922,34 +911,29 @@ app.delete('/api/admin/users/:userId', requireAdmin, (req, res) => {
         return res.status(400).json({ error: 'Vous ne pouvez pas supprimer votre propre compte' });
     }
     
-    // Vérifier s'il y a des inscriptions
-    db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE user_id = ?`, [userId], (err, result) => {
-        if (err) {
-            console.error('Erreur lors de la vérification des inscriptions:', err);
-            return res.status(500).json({ error: 'Erreur de base de données' });
-        }
+    try {
+        // Vérifier s'il y a des inscriptions
+        const result = await db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE user_id = ?`, [userId]);
         
-        if (result.count > 0) {
+        if (result && result.count > 0) {
             return res.status(400).json({ 
                 error: `Impossible de supprimer cet utilisateur car il a ${result.count} inscription(s) active(s). Veuillez d'abord le désinscrire de tous les créneaux.` 
             });
         }
         
         // Supprimer l'utilisateur
-        db.run(`DELETE FROM users WHERE id = ?`, [userId], function(err) {
-            if (err) {
-                console.error('Erreur lors de la suppression:', err);
-                return res.status(500).json({ error: 'Erreur lors de la suppression de l\'utilisateur' });
-            }
-            
-            if (this.changes === 0) {
-                return res.status(404).json({ error: 'Utilisateur non trouvé' });
-            }
-            
-            console.log('Utilisateur supprimé avec succès:', userId);
-            res.json({ message: 'Utilisateur supprimé avec succès' });
-        });
-    });
+        const deleteResult = await db.run(`DELETE FROM users WHERE id = ?`, [userId]);
+        
+        if (deleteResult.changes === 0) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+        
+        console.log('Utilisateur supprimé avec succès:', userId);
+        res.json({ message: 'Utilisateur supprimé avec succès' });
+    } catch (err) {
+        console.error('Erreur lors de la suppression:', err);
+        res.status(500).json({ error: 'Erreur lors de la suppression de l\'utilisateur' });
+    }
 });
 
 // Fonction pour vérifier les limites de séances par semaine

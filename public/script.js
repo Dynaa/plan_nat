@@ -312,7 +312,7 @@ async function loadCreneaux() {
 
 function displayMesMetaRegles(metaReglesData) {
     const metaReglesContainer = document.getElementById('meta-regles-info');
-    
+
     if (!metaReglesContainer) {
         // Créer le conteneur s'il n'existe pas
         const quotaSection = document.querySelector('.quota-section');
