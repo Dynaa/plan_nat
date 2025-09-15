@@ -274,6 +274,37 @@ async function initializeDatabase() {
         await db.run(metaRulesSQL);
         console.log('✅ Table meta_rules créée');
 
+        // Table des tokens d'inscription pour la liste d'attente
+        const waitlistTokensSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS waitlist_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL,
+                creneau_id INTEGER NOT NULL,
+                expires_at DATETIME NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (creneau_id) REFERENCES creneaux(id)
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS waitlist_tokens (
+                id SERIAL PRIMARY KEY,
+                token VARCHAR(255) UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL,
+                creneau_id INTEGER NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT false,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (creneau_id) REFERENCES creneaux(id)
+            )`
+        );
+        console.log('🔧 Création table waitlist_tokens...');
+        await db.run(waitlistTokensSQL);
+        console.log('✅ Table waitlist_tokens créée');
+
         // Créer admin par défaut
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
         const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
@@ -357,6 +388,103 @@ initializeDatabase().then(() => {
     console.error('❌ ERREUR CRITIQUE initialisation base de données:', err);
     console.error('❌ Stack trace:', err.stack);
 });
+
+// Fonction pour générer un token sécurisé
+const crypto = require('crypto');
+const generateWaitlistToken = () => {
+    return crypto.randomBytes(32).toString('hex');
+};
+
+// Fonction pour créer un token d'inscription et envoyer l'email
+const notifyWaitlistUser = async (userId, creneauId) => {
+    try {
+        // Récupérer les infos utilisateur et créneau
+        const userInfo = await db.get(`SELECT email, nom, prenom FROM users WHERE id = ?`, [userId]);
+        const creneauInfo = await db.get(`SELECT nom, jour_semaine, heure_debut, heure_fin FROM creneaux WHERE id = ?`, [creneauId]);
+        
+        if (!userInfo || !creneauInfo) {
+            console.error('❌ Utilisateur ou créneau introuvable pour notification');
+            return false;
+        }
+
+        // Générer un token unique
+        const token = generateWaitlistToken();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24); // Expire dans 24h
+
+        // Sauvegarder le token
+        await db.run(`INSERT INTO waitlist_tokens (token, user_id, creneau_id, expires_at) VALUES (?, ?, ?, ?)`,
+            [token, userId, creneauId, expiresAt.toISOString()]);
+
+        // Créer le lien d'inscription
+        const baseUrl = process.env.BASE_URL || process.env.RAILWAY_STATIC_URL || 'http://localhost:3000';
+        const inscriptionLink = `${baseUrl}/inscription-attente?token=${token}`;
+
+        // Jours de la semaine
+        const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+        const jourNom = jours[creneauInfo.jour_semaine];
+
+        // Template d'email
+        const emailContent = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #2563eb;">🏊‍♀️ Une place s'est libérée !</h2>
+                
+                <p>Bonjour ${userInfo.prenom} ${userInfo.nom},</p>
+                
+                <p>Bonne nouvelle ! Une place s'est libérée pour le créneau :</p>
+                
+                <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h3 style="margin: 0; color: #1f2937;">${creneauInfo.nom}</h3>
+                    <p style="margin: 10px 0 0 0; color: #6b7280;">
+                        📅 ${jourNom}<br>
+                        🕐 ${creneauInfo.heure_debut} - ${creneauInfo.heure_fin}
+                    </p>
+                </div>
+                
+                <p>Vous avez <strong>24 heures</strong> pour confirmer votre inscription en cliquant sur le lien ci-dessous :</p>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${inscriptionLink}" 
+                       style="background: #2563eb; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+                        ✅ Confirmer mon inscription
+                    </a>
+                </div>
+                
+                <p style="color: #6b7280; font-size: 14px;">
+                    ⚠️ Ce lien expire le ${expiresAt.toLocaleDateString('fr-FR')} à ${expiresAt.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})}
+                </p>
+                
+                <p style="color: #6b7280; font-size: 14px;">
+                    Si vous ne souhaitez plus vous inscrire à ce créneau, ignorez simplement cet email.
+                </p>
+                
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    Club de Triathlon - Gestion des créneaux de natation
+                </p>
+            </div>
+        `;
+
+        // Envoyer l'email
+        const emailSent = await sendEmail(
+            userInfo.email,
+            `🏊‍♀️ Place disponible - ${creneauInfo.nom}`,
+            emailContent
+        );
+
+        if (emailSent) {
+            console.log(`✅ Email de notification envoyé à ${userInfo.email} pour le créneau ${creneauInfo.nom}`);
+            return true;
+        } else {
+            console.error(`❌ Échec envoi email à ${userInfo.email}`);
+            return false;
+        }
+
+    } catch (err) {
+        console.error('❌ Erreur notification liste d\'attente:', err);
+        return false;
+    }
+};
 
 // Fonctions d'envoi d'email (simplifiées)
 const sendEmail = async (to, subject, htmlContent) => {
@@ -599,6 +727,11 @@ app.get('/health', (req, res) => {
 // Servir les fichiers statiques
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Route pour servir la page d'inscription via token
+app.get('/inscription-attente', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'inscription-attente.html'));
 });
 
 // Gestion des erreurs non capturées
@@ -1684,6 +1817,80 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
     }
 });
 
+// Route pour l'inscription via token de liste d'attente
+app.post('/api/inscription-attente', async (req, res) => {
+    const { token } = req.body;
+
+    if (!token) {
+        return res.status(400).json({ error: 'Token manquant' });
+    }
+
+    try {
+        // Vérifier le token
+        const tokenInfo = await db.get(`
+            SELECT wt.*, u.email, u.nom, u.prenom, c.nom as creneau_nom, c.capacite_max
+            FROM waitlist_tokens wt
+            JOIN users u ON wt.user_id = u.id
+            JOIN creneaux c ON wt.creneau_id = c.id
+            WHERE wt.token = ? AND wt.used = ? AND wt.expires_at > ?
+        `, [token, false, new Date().toISOString()]);
+
+        if (!tokenInfo) {
+            return res.status(400).json({ error: 'Token invalide ou expiré' });
+        }
+
+        // Vérifier si l'utilisateur est toujours en liste d'attente
+        const currentInscription = await db.get(`
+            SELECT * FROM inscriptions 
+            WHERE user_id = ? AND creneau_id = ? AND statut = 'attente'
+        `, [tokenInfo.user_id, tokenInfo.creneau_id]);
+
+        if (!currentInscription) {
+            return res.status(400).json({ error: 'Vous n\'êtes plus en liste d\'attente pour ce créneau' });
+        }
+
+        // Vérifier s'il y a encore de la place
+        const inscritActuels = await db.get(`
+            SELECT COUNT(*) as count 
+            FROM inscriptions 
+            WHERE creneau_id = ? AND statut = 'inscrit'
+        `, [tokenInfo.creneau_id]);
+
+        if (inscritActuels.count >= tokenInfo.capacite_max) {
+            return res.status(400).json({ error: 'Le créneau est à nouveau complet' });
+        }
+
+        // Promouvoir l'utilisateur
+        await db.run(`
+            UPDATE inscriptions 
+            SET statut = 'inscrit', position_attente = NULL 
+            WHERE user_id = ? AND creneau_id = ?
+        `, [tokenInfo.user_id, tokenInfo.creneau_id]);
+
+        // Marquer le token comme utilisé
+        await db.run(`UPDATE waitlist_tokens SET used = ? WHERE token = ?`, [true, token]);
+
+        // Réorganiser les positions d'attente
+        await db.run(`
+            UPDATE inscriptions 
+            SET position_attente = position_attente - 1 
+            WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?
+        `, [tokenInfo.creneau_id, currentInscription.position_attente]);
+
+        console.log(`✅ Inscription via token réussie: ${tokenInfo.email} -> ${tokenInfo.creneau_nom}`);
+
+        res.json({ 
+            message: `Inscription confirmée pour le créneau "${tokenInfo.creneau_nom}" !`,
+            success: true,
+            creneau: tokenInfo.creneau_nom
+        });
+
+    } catch (err) {
+        console.error('Erreur inscription via token:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
 // Route de désinscription
 app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
     const creneauId = req.params.creneauId;
@@ -1712,7 +1919,7 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
         
         console.log('Désinscription réussie:', { userId, creneauId });
         
-        // Si c'était un inscrit (pas en attente), promouvoir le premier de la liste d'attente
+        // Si c'était un inscrit (pas en attente), notifier le premier de la liste d'attente
         if (inscription.statut === 'inscrit') {
             const premierEnAttenteSql = db.isPostgres ?
                 `SELECT * FROM inscriptions 
@@ -1725,33 +1932,23 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
             const premierEnAttente = await db.get(premierEnAttenteSql, [creneauId]);
             
             if (premierEnAttente) {
-                // Promouvoir le premier de la liste d'attente
-                const promoteSql = db.isPostgres ?
-                    `UPDATE inscriptions 
-                     SET statut = 'inscrit', position_attente = NULL 
-                     WHERE id = $1` :
-                    `UPDATE inscriptions 
-                     SET statut = 'inscrit', position_attente = NULL 
-                     WHERE id = ?`;
+                // Envoyer un email de notification au lieu de promouvoir automatiquement
+                const emailSent = await notifyWaitlistUser(premierEnAttente.user_id, creneauId);
                 
-                await db.run(promoteSql, [premierEnAttente.id]);
-                
-                // Réorganiser les positions d'attente
-                const reorganiserSql = db.isPostgres ?
-                    `UPDATE inscriptions 
-                     SET position_attente = position_attente - 1 
-                     WHERE creneau_id = $1 AND statut = 'attente' AND position_attente > $2` :
-                    `UPDATE inscriptions 
-                     SET position_attente = position_attente - 1 
-                     WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?`;
-                
-                await db.run(reorganiserSql, [creneauId, premierEnAttente.position_attente]);
-                
-                console.log('Promotion automatique réussie pour:', premierEnAttente.user_id);
-                res.json({ 
-                    message: 'Désinscription réussie. Une personne a été promue de la liste d\'attente.',
-                    promotion: true
-                });
+                if (emailSent) {
+                    console.log('📧 Email de notification envoyé au premier de la liste d\'attente:', premierEnAttente.user_id);
+                    res.json({ 
+                        message: 'Désinscription réussie. Le premier de la liste d\'attente a été notifié par email.',
+                        notification: true
+                    });
+                } else {
+                    console.error('❌ Échec envoi email, promotion automatique en fallback');
+                    // En cas d'échec email, on peut garder l'ancien système en fallback
+                    res.json({ 
+                        message: 'Désinscription réussie. Erreur lors de la notification email.',
+                        notification: false
+                    });
+                }
             } else {
                 res.json({ message: 'Désinscription réussie' });
             }

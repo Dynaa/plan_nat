@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmation d'inscription - Liste d'attente</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .token-container {
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e5e7eb;
+            border-top: 2px solid #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .success {
+            color: #059669;
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .error {
+            color: #dc2626;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+        
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+        
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+        
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="token-container">
+            <h1>🏊‍♀️ Confirmation d'inscription</h1>
+            
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <span>Vérification de votre lien...</span>
+            </div>
+            
+            <div id="content" style="display: none;">
+                <div id="token-info">
+                    <h2>Une place s'est libérée !</h2>
+                    <p>Souhaitez-vous confirmer votre inscription ?</p>
+                    <div id="creneau-details"></div>
+                </div>
+                
+                <div id="result"></div>
+                
+                <div id="actions">
+                    <button id="confirm-btn" class="btn-primary">
+                        ✅ Confirmer mon inscription
+                    </button>
+                    <a href="/" class="btn-secondary">
+                        ❌ Non merci
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Récupérer le token depuis l'URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        
+        const loadingDiv = document.getElementById('loading');
+        const contentDiv = document.getElementById('content');
+        const resultDiv = document.getElementById('result');
+        const actionsDiv = document.getElementById('actions');
+        const confirmBtn = document.getElementById('confirm-btn');
+        
+        if (!token) {
+            showError('Token manquant dans l\'URL');
+            return;
+        }
+        
+        // Simuler une vérification (on pourrait ajouter un endpoint de vérification)
+        setTimeout(() => {
+            loadingDiv.style.display = 'none';
+            contentDiv.style.display = 'block';
+        }, 1000);
+        
+        // Gérer la confirmation
+        confirmBtn.addEventListener('click', async () => {
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<div class="spinner" style="width: 16px; height: 16px; margin-right: 8px;"></div>Confirmation...';
+            
+            try {
+                const response = await fetch('/api/inscription-attente', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showSuccess(data.message);
+                    actionsDiv.innerHTML = `
+                        <a href="/" class="btn-primary">
+                            🏠 Retour à l'accueil
+                        </a>
+                    `;
+                } else {
+                    showError(data.error || 'Erreur lors de la confirmation');
+                    confirmBtn.disabled = false;
+                    confirmBtn.innerHTML = '✅ Confirmer mon inscription';
+                }
+            } catch (err) {
+                showError('Erreur de connexion');
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '✅ Confirmer mon inscription';
+            }
+        });
+        
+        function showSuccess(message) {
+            resultDiv.innerHTML = `<div class="success">${message}</div>`;
+        }
+        
+        function showError(message) {
+            loadingDiv.style.display = 'none';
+            contentDiv.style.display = 'block';
+            resultDiv.innerHTML = `<div class="error">${message}</div>`;
+            actionsDiv.innerHTML = `
+                <a href="/" class="btn-secondary">
+                    🏠 Retour à l'accueil
+                </a>
+            `;
+        }
+    </script>
+</body>
+</html>
