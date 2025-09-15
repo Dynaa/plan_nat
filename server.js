@@ -351,7 +351,6 @@ if (db.isPostgres) {
         console.error('❌ Erreur initialisation SQLite:', err);
     });
 }
-}
 
 // Fonctions d'envoi d'email (simplifiées)
 const sendEmail = async (to, subject, htmlContent) => {
