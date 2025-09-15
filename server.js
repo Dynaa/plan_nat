@@ -331,26 +331,16 @@ async function initializeDatabase() {
 
 // Initialisation de la base de données (SQLite ou PostgreSQL)
 const db = new DatabaseAdapter();
-const initPostgres = require('./init-postgres');
 
 // Initialisation de la base de données
 console.log('🔄 Initialisation de la base de données...');
 
-// Si PostgreSQL, utiliser le script d'initialisation dédié
-if (db.isPostgres) {
-    initPostgres().then(() => {
-        console.log('✅ Base de données PostgreSQL initialisée');
-    }).catch(err => {
-        console.error('❌ Erreur initialisation PostgreSQL:', err);
-    });
-} else {
-    // Initialisation avec l'adaptateur unifié
-    initializeDatabase().then(() => {
-        console.log('✅ Base de données SQLite initialisée');
-    }).catch(err => {
-        console.error('❌ Erreur initialisation SQLite:', err);
-    });
-}
+// Initialisation unifiée pour PostgreSQL et SQLite
+initializeDatabase().then(() => {
+    console.log(`✅ Base de données ${db.isPostgres ? 'PostgreSQL' : 'SQLite'} initialisée`);
+}).catch(err => {
+    console.error('❌ Erreur initialisation base de données:', err);
+});
 
 // Fonctions d'envoi d'email (simplifiées)
 const sendEmail = async (to, subject, htmlContent) => {
