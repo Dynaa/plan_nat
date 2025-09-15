@@ -100,6 +100,235 @@ if (process.env.NODE_ENV === 'production') {
     }
 }
 
+// Fonction d'initialisation unifiée de la base de données
+async function initializeDatabase() {
+    try {
+        console.log('🔧 Initialisation de la base de données...');
+        
+        // Table des utilisateurs
+        const usersSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                nom TEXT NOT NULL,
+                prenom TEXT NOT NULL,
+                role TEXT DEFAULT 'membre',
+                licence_type TEXT DEFAULT 'Loisir/Senior',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                nom VARCHAR(255) NOT NULL,
+                prenom VARCHAR(255) NOT NULL,
+                role VARCHAR(50) DEFAULT 'membre',
+                licence_type VARCHAR(100) DEFAULT 'Loisir/Senior',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`
+        );
+        await db.run(usersSQL);
+
+        // Table des créneaux
+        const creneauxSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS creneaux (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nom TEXT NOT NULL,
+                jour_semaine INTEGER NOT NULL,
+                heure_debut TEXT NOT NULL,
+                heure_fin TEXT NOT NULL,
+                capacite_max INTEGER NOT NULL,
+                licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
+                actif BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS creneaux (
+                id SERIAL PRIMARY KEY,
+                nom VARCHAR(255) NOT NULL,
+                jour_semaine INTEGER NOT NULL,
+                heure_debut VARCHAR(10) NOT NULL,
+                heure_fin VARCHAR(10) NOT NULL,
+                capacite_max INTEGER NOT NULL,
+                licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
+                actif BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`
+        );
+        await db.run(creneauxSQL);
+
+        // Table des inscriptions
+        const inscriptionsSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS inscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                creneau_id INTEGER NOT NULL,
+                statut TEXT DEFAULT 'inscrit',
+                position_attente INTEGER NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (creneau_id) REFERENCES creneaux (id),
+                UNIQUE(user_id, creneau_id)
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS inscriptions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                creneau_id INTEGER NOT NULL,
+                statut VARCHAR(50) DEFAULT 'inscrit',
+                position_attente INTEGER NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (creneau_id) REFERENCES creneaux (id),
+                UNIQUE(user_id, creneau_id)
+            )`
+        );
+        await db.run(inscriptionsSQL);
+
+        // Table des limites de séances
+        const limitsSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS licence_limits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                licence_type TEXT UNIQUE NOT NULL,
+                max_seances_semaine INTEGER NOT NULL DEFAULT 3,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS licence_limits (
+                id SERIAL PRIMARY KEY,
+                licence_type VARCHAR(100) UNIQUE NOT NULL,
+                max_seances_semaine INTEGER NOT NULL DEFAULT 3,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`
+        );
+        await db.run(limitsSQL);
+
+        // Table de configuration des méta-règles
+        const metaConfigSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS meta_rules_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                enabled BOOLEAN DEFAULT FALSE,
+                description TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_by INTEGER,
+                FOREIGN KEY (updated_by) REFERENCES users(id)
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS meta_rules_config (
+                id SERIAL PRIMARY KEY,
+                enabled BOOLEAN DEFAULT false,
+                description TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_by INTEGER,
+                FOREIGN KEY (updated_by) REFERENCES users(id)
+            )`
+        );
+        await db.run(metaConfigSQL);
+
+        // Table des méta-règles par licence
+        const metaRulesSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS meta_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                licence_type TEXT NOT NULL,
+                jour_source INTEGER NOT NULL,
+                jours_interdits TEXT NOT NULL,
+                description TEXT,
+                active BOOLEAN DEFAULT TRUE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_by INTEGER,
+                FOREIGN KEY (created_by) REFERENCES users(id)
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS meta_rules (
+                id SERIAL PRIMARY KEY,
+                licence_type VARCHAR(100) NOT NULL,
+                jour_source INTEGER NOT NULL,
+                jours_interdits TEXT NOT NULL,
+                description TEXT,
+                active BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by INTEGER,
+                FOREIGN KEY (created_by) REFERENCES users(id)
+            )`
+        );
+        await db.run(metaRulesSQL);
+
+        // Créer admin par défaut
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
+        const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
+        
+        const insertAdminSQL = db.adaptSQL(
+            `INSERT OR IGNORE INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Admin', 'Système', 'admin')`,
+            `INSERT INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Admin', 'Système', 'admin') ON CONFLICT (email) DO NOTHING`
+        );
+        await db.run(insertAdminSQL, [adminEmail, adminPassword]);
+
+        // Créer utilisateur de test (seulement en développement)
+        if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
+            const userPassword = bcrypt.hashSync('test123', 10);
+            const insertUserSQL = db.adaptSQL(
+                `INSERT OR IGNORE INTO users (email, password, nom, prenom, licence_type) VALUES (?, ?, 'Dupont', 'Jean', 'Loisir/Senior')`,
+                `INSERT INTO users (email, password, nom, prenom, licence_type) VALUES (?, ?, 'Dupont', 'Jean', 'Loisir/Senior') ON CONFLICT (email) DO NOTHING`
+            );
+            await db.run(insertUserSQL, ['test@triathlon.com', userPassword]);
+        }
+
+        // Créer créneaux de test
+        const creneauxCount = await db.get(`SELECT COUNT(*) as count FROM creneaux`);
+        if (!creneauxCount || creneauxCount.count === 0) {
+            console.log('Création des créneaux de test...');
+            const creneauxTest = [
+                ['Natation Débutants', 1, '18:00', '19:00', 8, 'Loisir/Senior'],
+                ['Natation Confirmés', 1, '19:00', '20:00', 6, 'Compétition,Loisir/Senior'],
+                ['École de Natation', 3, '12:00', '13:00', 10, 'Poussins/Pupilles,Benjamins/Junior'],
+                ['Entraînement Compétition', 5, '18:30', '19:30', 12, 'Compétition'],
+                ['Natation Libre', 6, '10:00', '11:00', 15, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles']
+            ];
+            
+            for (const [nom, jour, debut, fin, capacite, licences] of creneauxTest) {
+                await db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) VALUES (?, ?, ?, ?, ?, ?)`, 
+                    [nom, jour, debut, fin, capacite, licences]);
+            }
+        }
+
+        // Créer limites par défaut
+        const limitsCount = await db.get(`SELECT COUNT(*) as count FROM licence_limits`);
+        if (!limitsCount || limitsCount.count === 0) {
+            const limitesParDefaut = [
+                ['Compétition', 6],
+                ['Loisir/Senior', 3],
+                ['Benjamins/Junior', 4],
+                ['Poussins/Pupilles', 2]
+            ];
+
+            for (const [licenceType, maxSeances] of limitesParDefaut) {
+                await db.run(`INSERT INTO licence_limits (licence_type, max_seances_semaine) VALUES (?, ?)`,
+                    [licenceType, maxSeances]);
+            }
+        }
+
+        // Initialiser la configuration des méta-règles
+        const configCount = await db.get(`SELECT COUNT(*) as count FROM meta_rules_config`);
+        if (!configCount || configCount.count === 0) {
+            await db.run(`INSERT INTO meta_rules_config (enabled, description) VALUES (?, ?)`,
+                [false, 'Configuration des méta-règles d\'inscription par licence']);
+        }
+
+        console.log('✅ Base de données initialisée avec succès');
+    } catch (err) {
+        console.error('❌ Erreur initialisation base de données:', err);
+        throw err;
+    }
+}
+
 // Initialisation de la base de données (SQLite ou PostgreSQL)
 const db = new DatabaseAdapter();
 const initPostgres = require('./init-postgres');
@@ -115,139 +344,13 @@ if (db.isPostgres) {
         console.error('❌ Erreur initialisation PostgreSQL:', err);
     });
 } else {
-    // Initialisation SQLite (code existant)
-    db.serialize(() => {
-    // Table des utilisateurs
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        nom TEXT NOT NULL,
-        prenom TEXT NOT NULL,
-        role TEXT DEFAULT 'membre',
-        licence_type TEXT DEFAULT 'Loisir/Senior',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    // Table des créneaux
-    db.run(`CREATE TABLE IF NOT EXISTS creneaux (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nom TEXT NOT NULL,
-        jour_semaine INTEGER NOT NULL,
-        heure_debut TEXT NOT NULL,
-        heure_fin TEXT NOT NULL,
-        capacite_max INTEGER NOT NULL,
-        licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
-        actif BOOLEAN DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    // Table des inscriptions
-    db.run(`CREATE TABLE IF NOT EXISTS inscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        creneau_id INTEGER NOT NULL,
-        statut TEXT DEFAULT 'inscrit',
-        position_attente INTEGER NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id),
-        FOREIGN KEY (creneau_id) REFERENCES creneaux (id),
-        UNIQUE(user_id, creneau_id)
-    )`);
-
-    // Table des limites de séances
-    db.run(`CREATE TABLE IF NOT EXISTS licence_limits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        licence_type TEXT UNIQUE NOT NULL,
-        max_seances_semaine INTEGER NOT NULL DEFAULT 3,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    // Table de configuration des méta-règles
-    db.run(`CREATE TABLE IF NOT EXISTS meta_rules_config (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        enabled BOOLEAN DEFAULT FALSE,
-        description TEXT,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_by INTEGER,
-        FOREIGN KEY (updated_by) REFERENCES users(id)
-    )`);
-
-    // Table des méta-règles par licence
-    db.run(`CREATE TABLE IF NOT EXISTS meta_rules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        licence_type TEXT NOT NULL,
-        jour_source INTEGER NOT NULL, -- Jour d'inscription (0=dimanche, 1=lundi, etc.)
-        jours_interdits TEXT NOT NULL, -- Jours interdits séparés par des virgules (ex: "2,3,4")
-        description TEXT,
-        active BOOLEAN DEFAULT TRUE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        created_by INTEGER,
-        FOREIGN KEY (created_by) REFERENCES users(id)
-    )`);
-
-    // Créer admin par défaut
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
-    const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
-    
-    db.run(`INSERT OR IGNORE INTO users (email, password, nom, prenom, role) 
-            VALUES (?, ?, 'Admin', 'Système', 'admin')`, 
-            [adminEmail, adminPassword]);
-
-    // Créer utilisateur de test (seulement en développement)
-    if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
-        const userPassword = bcrypt.hashSync('test123', 10);
-        db.run(`INSERT OR IGNORE INTO users (email, password, nom, prenom, licence_type) 
-                VALUES (?, ?, 'Dupont', 'Jean', 'Loisir/Senior')`, 
-                ['test@triathlon.com', userPassword]);
-    }
-
-    // Créer créneaux de test
-    db.get(`SELECT COUNT(*) as count FROM creneaux`, [], (err, result) => {
-        if (!err && result.count === 0) {
-            console.log('Création des créneaux de test...');
-            const creneauxTest = [
-                ['Natation Débutants', 1, '18:00', '19:00', 8, 'Loisir/Senior'],
-                ['Natation Confirmés', 1, '19:00', '20:00', 6, 'Compétition,Loisir/Senior'],
-                ['École de Natation', 3, '12:00', '13:00', 10, 'Poussins/Pupilles,Benjamins/Junior'],
-                ['Entraînement Compétition', 5, '18:30', '19:30', 12, 'Compétition'],
-                ['Natation Libre', 6, '10:00', '11:00', 15, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles']
-            ];
-            
-            creneauxTest.forEach(([nom, jour, debut, fin, capacite, licences]) => {
-                db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) 
-                        VALUES (?, ?, ?, ?, ?, ?)`, [nom, jour, debut, fin, capacite, licences]);
-            });
-        }
+    // Initialisation avec l'adaptateur unifié
+    initializeDatabase().then(() => {
+        console.log('✅ Base de données SQLite initialisée');
+    }).catch(err => {
+        console.error('❌ Erreur initialisation SQLite:', err);
     });
-
-    // Créer limites par défaut
-    db.get(`SELECT COUNT(*) as count FROM licence_limits`, [], (err, result) => {
-        if (!err && result.count === 0) {
-            const limitesParDefaut = [
-                ['Compétition', 6],
-                ['Loisir/Senior', 3],
-                ['Benjamins/Junior', 4],
-                ['Poussins/Pupilles', 2]
-            ];
-
-            limitesParDefaut.forEach(([licenceType, maxSeances]) => {
-                db.run(`INSERT INTO licence_limits (licence_type, max_seances_semaine) VALUES (?, ?)`,
-                    [licenceType, maxSeances]);
-            });
-        }
-    });
-
-    // Initialiser la configuration des méta-règles
-    db.get(`SELECT COUNT(*) as count FROM meta_rules_config`, [], (err, result) => {
-        if (!err && result.count === 0) {
-            db.run(`INSERT INTO meta_rules_config (enabled, description) VALUES (?, ?)`,
-                [false, 'Configuration des méta-règles d\'inscription par licence']);
-        }
-    });
-
-    console.log('✅ Base de données SQLite initialisée');
-    });
+}
 }
 
 // Fonctions d'envoi d'email (simplifiées)
@@ -551,8 +654,11 @@ app.put('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
         const existingConfig = await db.get(`SELECT * FROM meta_rules_config LIMIT 1`);
         
         if (existingConfig) {
-            await db.run(`UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`,
-                [enabled, description, userId]);
+            const updateSQL = db.adaptSQL(
+                `UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`,
+                `UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`
+            );
+            await db.run(updateSQL, [enabled, description, userId]);
         } else {
             await db.run(`INSERT INTO meta_rules_config (enabled, description, updated_by) VALUES (?, ?, ?)`,
                 [enabled, description, userId]);
