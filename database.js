@@ -10,6 +10,7 @@ class DatabaseAdapter {
                           process.env.DATABASE_URL.startsWith('postgresql'));
         
         console.log('🔍 DATABASE_URL détectée:', !!process.env.DATABASE_URL);
+        console.log('🔍 DATABASE_URL value:', process.env.DATABASE_URL ? process.env.DATABASE_URL.substring(0, 20) + '...' : 'undefined');
         console.log('🔍 Type de base:', this.isPostgres ? 'PostgreSQL' : 'SQLite');
         
         if (this.isPostgres) {

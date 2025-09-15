@@ -103,7 +103,8 @@ if (process.env.NODE_ENV === 'production') {
 // Fonction d'initialisation unifiée de la base de données
 async function initializeDatabase() {
     try {
-        console.log('🔧 Initialisation de la base de données...');
+        console.log('🔧 Début initialisation de la base de données...');
+        console.log('🔧 Type de base:', db.isPostgres ? 'PostgreSQL' : 'SQLite');
         
         // Table des utilisateurs
         const usersSQL = db.adaptSQL(
@@ -130,7 +131,9 @@ async function initializeDatabase() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )`
         );
+        console.log('🔧 Création table users...');
         await db.run(usersSQL);
+        console.log('✅ Table users créée');
 
         // Table des créneaux
         const creneauxSQL = db.adaptSQL(
@@ -159,7 +162,9 @@ async function initializeDatabase() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )`
         );
+        console.log('🔧 Création table creneaux...');
         await db.run(creneauxSQL);
+        console.log('✅ Table creneaux créée');
 
         // Table des inscriptions
         const inscriptionsSQL = db.adaptSQL(
@@ -188,7 +193,9 @@ async function initializeDatabase() {
                 UNIQUE(user_id, creneau_id)
             )`
         );
+        console.log('🔧 Création table inscriptions...');
         await db.run(inscriptionsSQL);
+        console.log('✅ Table inscriptions créée');
 
         // Table des limites de séances
         const limitsSQL = db.adaptSQL(
@@ -207,7 +214,9 @@ async function initializeDatabase() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )`
         );
+        console.log('🔧 Création table licence_limits...');
         await db.run(limitsSQL);
+        console.log('✅ Table licence_limits créée');
 
         // Table de configuration des méta-règles
         const metaConfigSQL = db.adaptSQL(
@@ -230,7 +239,9 @@ async function initializeDatabase() {
                 FOREIGN KEY (updated_by) REFERENCES users(id)
             )`
         );
+        console.log('🔧 Création table meta_rules_config...');
         await db.run(metaConfigSQL);
+        console.log('✅ Table meta_rules_config créée');
 
         // Table des méta-règles par licence
         const metaRulesSQL = db.adaptSQL(
@@ -259,7 +270,9 @@ async function initializeDatabase() {
                 FOREIGN KEY (created_by) REFERENCES users(id)
             )`
         );
+        console.log('🔧 Création table meta_rules...');
         await db.run(metaRulesSQL);
+        console.log('✅ Table meta_rules créée');
 
         // Créer admin par défaut
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
@@ -334,12 +347,15 @@ const db = new DatabaseAdapter();
 
 // Initialisation de la base de données
 console.log('🔄 Initialisation de la base de données...');
+console.log('🔍 DATABASE_URL présente:', !!process.env.DATABASE_URL);
+console.log('🔍 Type détecté:', db.isPostgres ? 'PostgreSQL' : 'SQLite');
 
 // Initialisation unifiée pour PostgreSQL et SQLite
 initializeDatabase().then(() => {
-    console.log(`✅ Base de données ${db.isPostgres ? 'PostgreSQL' : 'SQLite'} initialisée`);
+    console.log(`✅ Base de données ${db.isPostgres ? 'PostgreSQL' : 'SQLite'} initialisée avec succès`);
 }).catch(err => {
-    console.error('❌ Erreur initialisation base de données:', err);
+    console.error('❌ ERREUR CRITIQUE initialisation base de données:', err);
+    console.error('❌ Stack trace:', err.stack);
 });
 
 // Fonctions d'envoi d'email (simplifiées)
