@@ -74,6 +74,12 @@ const initEmailTransporter = async () => {
         transporter = nodemailer.createTransport(emailConfig);
         await transporter.verify();
         console.log('✅ Serveur email configuré avec succès');
+        console.log('📧 Configuration email active:', {
+            host: emailConfig.host,
+            port: emailConfig.port,
+            user: emailConfig.auth.user,
+            secure: emailConfig.secure
+        });
     } catch (error) {
         console.error('❌ Erreur configuration email:', error.message);
         console.log('📧 Les notifications email seront désactivées');
@@ -509,6 +515,8 @@ const sendEmail = async (to, subject, htmlContent) => {
     }
     
     try {
+        console.log('📧 Tentative d\'envoi email:', { to, subject, from: process.env.SMTP_USER });
+        
         const info = await transporter.sendMail({
             from: `"Club Triathlon 🏊‍♂️" <${process.env.SMTP_USER || 'noreply@triathlon.com'}>`,
             to: to,
@@ -516,10 +524,18 @@ const sendEmail = async (to, subject, htmlContent) => {
             html: htmlContent
         });
         
-        console.log('📧 Email envoyé:', subject, 'à', to);
+        console.log('✅ Email envoyé avec succès:', { messageId: info.messageId, to, subject });
         return true;
     } catch (error) {
-        console.error('❌ Erreur envoi email:', error.message);
+        console.error('❌ Erreur détaillée envoi email:', {
+            error: error.message,
+            code: error.code,
+            command: error.command,
+            to: to,
+            subject: subject,
+            smtpUser: process.env.SMTP_USER,
+            smtpHost: process.env.SMTP_HOST
+        });
         return false;
     }
 };
