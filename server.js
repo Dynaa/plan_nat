@@ -6,6 +6,7 @@ const DatabaseAdapter = require('./database');
 const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -538,15 +539,38 @@ const notifyWaitlistUser = async (userId, creneauId) => {
     }
 };
 
-// Fonctions d'envoi d'email (simplifiées)
+// Fonctions d'envoi d'email (SMTP + SendGrid)
 const sendEmail = async (to, subject, htmlContent) => {
+    // Priorité 1 : SendGrid si configuré
+    if (process.env.SENDGRID_API_KEY) {
+        try {
+            sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+            
+            const msg = {
+                to: to,
+                from: process.env.SMTP_USER || 'noreply@triathlon.com',
+                subject: subject,
+                html: htmlContent,
+            };
+            
+            console.log('📧 Envoi via SendGrid:', { to, subject });
+            await sgMail.send(msg);
+            console.log('✅ Email envoyé via SendGrid:', { to, subject });
+            return true;
+        } catch (error) {
+            console.error('❌ Erreur SendGrid:', error.message);
+            // Fallback vers SMTP si SendGrid échoue
+        }
+    }
+    
+    // Priorité 2 : SMTP si transporteur configuré
     if (!transporter) {
-        console.log('📧 Email non envoyé (transporteur non configuré):', subject);
+        console.log('📧 Email non envoyé (aucun transporteur configuré):', subject);
         return false;
     }
     
     try {
-        console.log('📧 Tentative d\'envoi email:', { to, subject, from: process.env.SMTP_USER });
+        console.log('📧 Tentative d\'envoi email via SMTP:', { to, subject, from: process.env.SMTP_USER });
         
         const info = await transporter.sendMail({
             from: `"Club Triathlon 🏊‍♂️" <${process.env.SMTP_USER || 'noreply@triathlon.com'}>`,
@@ -555,17 +579,14 @@ const sendEmail = async (to, subject, htmlContent) => {
             html: htmlContent
         });
         
-        console.log('✅ Email envoyé avec succès:', { messageId: info.messageId, to, subject });
+        console.log('✅ Email envoyé via SMTP:', { messageId: info.messageId, to, subject });
         return true;
     } catch (error) {
-        console.error('❌ Erreur détaillée envoi email:', {
+        console.error('❌ Erreur SMTP:', {
             error: error.message,
             code: error.code,
-            command: error.command,
             to: to,
-            subject: subject,
-            smtpUser: process.env.SMTP_USER,
-            smtpHost: process.env.SMTP_HOST
+            subject: subject
         });
         return false;
     }
