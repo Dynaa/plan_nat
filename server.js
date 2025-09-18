@@ -42,12 +42,19 @@ app.use(session(sessionConfig));
 // Configuration email
 const emailConfig = {
     host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-    port: process.env.SMTP_PORT || 587,
-    secure: false,
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_PORT === '465', // true pour 465, false pour 587
     auth: {
         user: process.env.SMTP_USER || 'ethereal.user@ethereal.email',
         pass: process.env.SMTP_PASS || 'ethereal.pass'
-    }
+    },
+    // Options supplémentaires pour OVH
+    tls: {
+        rejectUnauthorized: false
+    },
+    connectionTimeout: 10000, // 10 secondes
+    greetingTimeout: 5000,
+    socketTimeout: 10000
 };
 
 // Créer le transporteur email
@@ -58,6 +65,11 @@ const initEmailTransporter = async () => {
         if (process.env.NODE_ENV === 'production' && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS)) {
             console.log('📧 Mode production : utilisation d\'Ethereal Email pour les tests');
             // Ne pas retourner, continuer avec Ethereal
+        }
+        
+        // Fallback vers Ethereal si timeout avec OVH
+        if (process.env.SMTP_HOST && process.env.SMTP_HOST.includes('ovh')) {
+            console.log('⚠️ Détection OVH - ajout de fallback Ethereal en cas de timeout');
         }
         
         if (!process.env.SMTP_HOST) {
