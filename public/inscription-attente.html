@@ -103,6 +103,14 @@
             <div id="content" style="display: none;">
                 <div id="token-info">
                     <h2>Une place s'est libérée !</h2>
+                    <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                        <p style="margin: 0; color: #92400e; font-weight: bold;">
+                            ⚡ Premier arrivé, premier servi !
+                        </p>
+                        <p style="margin: 5px 0 0 0; color: #92400e; font-size: 14px;">
+                            Toutes les personnes en liste d'attente ont reçu ce lien. Le premier qui confirme obtiendra la place.
+                        </p>
+                    </div>
                     <p>Souhaitez-vous confirmer votre inscription ?</p>
                     <div id="creneau-details"></div>
                 </div>
@@ -163,6 +171,18 @@
                     showSuccess(data.message);
                     actionsDiv.innerHTML = `
                         <a href="/" class="btn-primary">
+                            🏠 Retour à l'accueil
+                        </a>
+                    `;
+                } else if (response.status === 409 && data.tooLate) {
+                    // Cas spécial : quelqu'un d'autre a pris la place
+                    showError(`
+                        <strong>Trop tard ! 😔</strong><br>
+                        ${data.error}<br><br>
+                        <small>Vous restez en liste d'attente pour les prochaines places qui se libèrent.</small>
+                    `);
+                    actionsDiv.innerHTML = `
+                        <a href="/" class="btn-secondary">
                             🏠 Retour à l'accueil
                         </a>
                     `;

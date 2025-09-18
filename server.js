@@ -54,11 +54,10 @@ const emailConfig = {
 let transporter;
 const initEmailTransporter = async () => {
     try {
-        // En production, désactiver les emails si pas de configuration SMTP complète
+        // En production, utiliser Ethereal si pas de configuration SMTP (pour les tests)
         if (process.env.NODE_ENV === 'production' && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS)) {
-            console.log('📧 Mode production : emails désactivés (pas de configuration SMTP)');
-            transporter = null;
-            return;
+            console.log('📧 Mode production : utilisation d\'Ethereal Email pour les tests');
+            // Ne pas retourner, continuer avec Ethereal
         }
         
         if (!process.env.SMTP_HOST) {
@@ -433,6 +432,22 @@ const notifyWaitlistUser = async (userId, creneauId) => {
                 
                 <p>Bonne nouvelle ! Une place s'est libérée pour le créneau :</p>
                 
+                <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                    <p style="margin: 0; color: #92400e; font-weight: bold;">
+                        ⚡ Attention : Cet email a été envoyé à toutes les personnes en liste d'attente. 
+                        Le premier qui confirme son inscription obtiendra la place !
+                    </p>
+                </div>
+                
+                <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                    <p style="margin: 0; color: #92400e; font-weight: bold;">
+                        ⚡ Premier arrivé, premier servi !
+                    </p>
+                    <p style="margin: 5px 0 0 0; color: #92400e; font-size: 14px;">
+                        Cet email a été envoyé à toutes les personnes en liste d'attente. Le premier qui confirme son inscription obtiendra la place.
+                    </p>
+                </div>
+                
                 <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
                     <h3 style="margin: 0; color: #1f2937;">${creneauInfo.nom}</h3>
                     <p style="margin: 10px 0 0 0; color: #6b7280;">
@@ -495,7 +510,7 @@ const sendEmail = async (to, subject, htmlContent) => {
     
     try {
         const info = await transporter.sendMail({
-            from: '"Club Triathlon 🏊‍♂️" <noreply@triathlon.com>',
+            from: `"Club Triathlon 🏊‍♂️" <${process.env.SMTP_USER || 'noreply@triathlon.com'}>`,
             to: to,
             subject: subject,
             html: htmlContent
@@ -1849,7 +1864,7 @@ app.post('/api/inscription-attente', async (req, res) => {
             return res.status(400).json({ error: 'Vous n\'êtes plus en liste d\'attente pour ce créneau' });
         }
 
-        // Vérifier s'il y a encore de la place
+        // Vérifier s'il y a encore de la place (vérification en temps réel)
         const inscritActuels = await db.get(`
             SELECT COUNT(*) as count 
             FROM inscriptions 
@@ -1857,7 +1872,10 @@ app.post('/api/inscription-attente', async (req, res) => {
         `, [tokenInfo.creneau_id]);
 
         if (inscritActuels.count >= tokenInfo.capacite_max) {
-            return res.status(400).json({ error: 'Le créneau est à nouveau complet' });
+            return res.status(409).json({ 
+                error: 'Désolé, quelqu\'un d\'autre a pris la place avant vous ! Le créneau est à nouveau complet.',
+                tooLate: true
+            });
         }
 
         // Promouvoir l'utilisateur
@@ -1869,6 +1887,9 @@ app.post('/api/inscription-attente', async (req, res) => {
 
         // Marquer le token comme utilisé
         await db.run(`UPDATE waitlist_tokens SET used = ? WHERE token = ?`, [true, token]);
+        
+        // Invalider tous les autres tokens pour ce créneau pour éviter les tentatives inutiles
+        await db.run(`UPDATE waitlist_tokens SET used = ? WHERE creneau_id = ? AND token != ?`, [true, tokenInfo.creneau_id, token]);
 
         // Réorganiser les positions d'attente
         await db.run(`
@@ -1932,22 +1953,34 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
             const premierEnAttente = await db.get(premierEnAttenteSql, [creneauId]);
             
             if (premierEnAttente) {
-                // Envoyer un email de notification au lieu de promouvoir automatiquement
-                const emailSent = await notifyWaitlistUser(premierEnAttente.user_id, creneauId);
+                // Récupérer TOUTES les personnes en liste d'attente
+                const toutesPersonnesAttenteSql = db.isPostgres ?
+                    `SELECT user_id FROM inscriptions 
+                     WHERE creneau_id = $1 AND statut = 'attente' 
+                     ORDER BY position_attente ASC` :
+                    `SELECT user_id FROM inscriptions 
+                     WHERE creneau_id = ? AND statut = 'attente' 
+                     ORDER BY position_attente ASC`;
                 
-                if (emailSent) {
-                    console.log('📧 Email de notification envoyé au premier de la liste d\'attente:', premierEnAttente.user_id);
+                const personnesEnAttente = await db.query(toutesPersonnesAttenteSql, [creneauId]);
+                
+                if (personnesEnAttente && personnesEnAttente.length > 0) {
+                    console.log(`📧 Envoi d'emails à ${personnesEnAttente.length} personne(s) en liste d'attente`);
+                    
+                    // Envoyer un email à chaque personne en liste d'attente
+                    let emailsEnvoyes = 0;
+                    for (const personne of personnesEnAttente) {
+                        const emailSent = await notifyWaitlistUser(personne.user_id, creneauId);
+                        if (emailSent) emailsEnvoyes++;
+                    }
+                    
                     res.json({ 
-                        message: 'Désinscription réussie. Le premier de la liste d\'attente a été notifié par email.',
-                        notification: true
+                        message: `Désinscription réussie. ${emailsEnvoyes} personne(s) en liste d'attente ont été notifiées par email.`,
+                        notification: true,
+                        emailsEnvoyes
                     });
                 } else {
-                    console.error('❌ Échec envoi email, promotion automatique en fallback');
-                    // En cas d'échec email, on peut garder l'ancien système en fallback
-                    res.json({ 
-                        message: 'Désinscription réussie. Erreur lors de la notification email.',
-                        notification: false
-                    });
+                    res.json({ message: 'Désinscription réussie' });
                 }
             } else {
                 res.json({ message: 'Désinscription réussie' });
