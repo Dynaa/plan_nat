@@ -60,6 +60,14 @@ const emailConfig = {
 // Créer le transporteur email
 let transporter;
 const initEmailTransporter = async () => {
+    console.log('📧 Début initEmailTransporter...');
+    console.log('📧 Variables SMTP:', {
+        host: !!process.env.SMTP_HOST,
+        user: !!process.env.SMTP_USER,
+        pass: !!process.env.SMTP_PASS,
+        nodeEnv: process.env.NODE_ENV
+    });
+    
     try {
         // En production, utiliser Ethereal si pas de configuration SMTP (pour les tests)
         if (process.env.NODE_ENV === 'production' && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS)) {
@@ -67,12 +75,8 @@ const initEmailTransporter = async () => {
             // Ne pas retourner, continuer avec Ethereal
         }
         
-        // Fallback vers Ethereal si timeout avec OVH
-        if (process.env.SMTP_HOST && process.env.SMTP_HOST.includes('ovh')) {
-            console.log('⚠️ Détection OVH - ajout de fallback Ethereal en cas de timeout');
-        }
-        
         if (!process.env.SMTP_HOST) {
+            console.log('📧 Pas de SMTP_HOST défini, création compte Ethereal...');
             const testAccount = await nodemailer.createTestAccount();
             emailConfig.auth.user = testAccount.user;
             emailConfig.auth.pass = testAccount.pass;
@@ -81,6 +85,8 @@ const initEmailTransporter = async () => {
             console.log('Pass:', testAccount.pass);
             console.log('Prévisualisez les emails sur: https://ethereal.email');
             console.log('===================================');
+        } else {
+            console.log('📧 SMTP_HOST défini:', process.env.SMTP_HOST);
         }
 
         transporter = nodemailer.createTransport(emailConfig);
@@ -90,8 +96,18 @@ const initEmailTransporter = async () => {
             host: emailConfig.host,
             port: emailConfig.port,
             user: emailConfig.auth.user,
-            secure: emailConfig.secure
+            secure: emailConfig.secure,
+            tls: emailConfig.tls
         });
+        
+        // Diagnostic spécial pour OVH
+        if (emailConfig.host.includes('ovh')) {
+            console.log('🔍 Diagnostic OVH:');
+            console.log('- Serveur SMTP:', emailConfig.host);
+            console.log('- Port:', emailConfig.port, emailConfig.secure ? '(SSL)' : '(TLS)');
+            console.log('- Utilisateur:', emailConfig.auth.user);
+            console.log('- Mot de passe défini:', !!emailConfig.auth.pass);
+        }
     } catch (error) {
         console.error('❌ Erreur configuration email:', error.message);
         console.log('📧 Les notifications email seront désactivées');
@@ -100,7 +116,10 @@ const initEmailTransporter = async () => {
 };
 
 // Initialiser le transporteur email
-initEmailTransporter();
+console.log('🔄 Démarrage initialisation email...');
+initEmailTransporter().catch(err => {
+    console.error('❌ Erreur critique initialisation email:', err);
+});
 
 // Debug des variables d'environnement (seulement en production pour diagnostiquer)
 if (process.env.NODE_ENV === 'production') {
