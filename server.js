@@ -6,7 +6,8 @@ const DatabaseAdapter = require('./database');
 const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
-const sgMail = require('@sendgrid/mail');
+const { Resend } = require('resend');
+const { Resend } = require('resend');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -70,8 +71,8 @@ const initEmailTransporter = async () => {
     });
     
     try {
-        // En production, utiliser Ethereal si pas de configuration SMTP (pour les tests)
-        if (process.env.NODE_ENV === 'production' && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS)) {
+        // En production, utiliser Ethereal si aucun service email configuré
+        if (process.env.NODE_ENV === 'production' && !process.env.RESEND_API_KEY && !process.env.SENDGRID_API_KEY && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS)) {
             console.log('📧 Mode production : utilisation d\'Ethereal Email pour les tests');
             // Ne pas retourner, continuer avec Ethereal
         }
@@ -539,27 +540,26 @@ const notifyWaitlistUser = async (userId, creneauId) => {
     }
 };
 
-// Fonctions d'envoi d'email (SMTP + SendGrid)
+// Fonctions d'envoi d'email (Resend + SendGrid + SMTP)
 const sendEmail = async (to, subject, htmlContent) => {
-    // Priorité 1 : SendGrid si configuré
-    if (process.env.SENDGRID_API_KEY) {
+    // Priorité 1 : Resend si configuré (gratuit 3000 emails/mois)
+    if (process.env.RESEND_API_KEY) {
         try {
-            sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+            const resend = new Resend(process.env.RESEND_API_KEY);
             
-            const msg = {
+            console.log('📧 Envoi via Resend:', { to, subject });
+            const result = await resend.emails.send({
+                from: process.env.SMTP_USER || 'noreply@resend.dev',
                 to: to,
-                from: process.env.SMTP_USER || 'noreply@triathlon.com',
                 subject: subject,
                 html: htmlContent,
-            };
+            });
             
-            console.log('📧 Envoi via SendGrid:', { to, subject });
-            await sgMail.send(msg);
-            console.log('✅ Email envoyé via SendGrid:', { to, subject });
+            console.log('✅ Email envoyé via Resend:', { id: result.data?.id, to, subject });
             return true;
         } catch (error) {
-            console.error('❌ Erreur SendGrid:', error.message);
-            // Fallback vers SMTP si SendGrid échoue
+            console.error('❌ Erreur Resend:', error.message);
+            // Fallback vers SendGrid si Resend échoue
         }
     }
     

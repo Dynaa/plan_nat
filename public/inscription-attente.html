@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,14 +16,14 @@
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             text-align: center;
         }
-        
+
         .loading {
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 10px;
         }
-        
+
         .spinner {
             width: 20px;
             height: 20px;
@@ -31,12 +32,17 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
-        
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
-        
+
         .success {
             color: #059669;
             background: #ecfdf5;
@@ -45,7 +51,7 @@
             border-radius: 8px;
             margin: 20px 0;
         }
-        
+
         .error {
             color: #dc2626;
             background: #fef2f2;
@@ -54,7 +60,7 @@
             border-radius: 8px;
             margin: 20px 0;
         }
-        
+
         .btn-primary {
             background: #2563eb;
             color: white;
@@ -67,11 +73,11 @@
             display: inline-block;
             margin: 10px;
         }
-        
+
         .btn-primary:hover {
             background: #1d4ed8;
         }
-        
+
         .btn-secondary {
             background: #6b7280;
             color: white;
@@ -84,39 +90,42 @@
             display: inline-block;
             margin: 10px;
         }
-        
+
         .btn-secondary:hover {
             background: #4b5563;
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="token-container">
             <h1>🏊‍♀️ Confirmation d'inscription</h1>
-            
+
             <div id="loading" class="loading">
                 <div class="spinner"></div>
                 <span>Vérification de votre lien...</span>
             </div>
-            
+
             <div id="content" style="display: none;">
                 <div id="token-info">
                     <h2>Une place s'est libérée !</h2>
-                    <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                    <div
+                        style="background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 15px 0;">
                         <p style="margin: 0; color: #92400e; font-weight: bold;">
                             ⚡ Premier arrivé, premier servi !
                         </p>
                         <p style="margin: 5px 0 0 0; color: #92400e; font-size: 14px;">
-                            Toutes les personnes en liste d'attente ont reçu ce lien. Le premier qui confirme obtiendra la place.
+                            Toutes les personnes en liste d'attente ont reçu ce lien. Le premier qui confirme obtiendra
+                            la place.
                         </p>
                     </div>
                     <p>Souhaitez-vous confirmer votre inscription ?</p>
                     <div id="creneau-details"></div>
                 </div>
-                
+
                 <div id="result"></div>
-                
+
                 <div id="actions">
                     <button id="confirm-btn" class="btn-primary">
                         ✅ Confirmer mon inscription
@@ -133,29 +142,29 @@
         // Récupérer le token depuis l'URL
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
-        
+
         const loadingDiv = document.getElementById('loading');
         const contentDiv = document.getElementById('content');
         const resultDiv = document.getElementById('result');
         const actionsDiv = document.getElementById('actions');
         const confirmBtn = document.getElementById('confirm-btn');
-        
+
         if (!token) {
             showError('Token manquant dans l\'URL');
             return;
         }
-        
+
         // Simuler une vérification (on pourrait ajouter un endpoint de vérification)
         setTimeout(() => {
             loadingDiv.style.display = 'none';
             contentDiv.style.display = 'block';
         }, 1000);
-        
+
         // Gérer la confirmation
         confirmBtn.addEventListener('click', async () => {
             confirmBtn.disabled = true;
             confirmBtn.innerHTML = '<div class="spinner" style="width: 16px; height: 16px; margin-right: 8px;"></div>Confirmation...';
-            
+
             try {
                 const response = await fetch('/api/inscription-attente', {
                     method: 'POST',
@@ -164,9 +173,9 @@
                     },
                     body: JSON.stringify({ token })
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (response.ok) {
                     showSuccess(data.message);
                     actionsDiv.innerHTML = `
@@ -197,11 +206,11 @@
                 confirmBtn.innerHTML = '✅ Confirmer mon inscription';
             }
         });
-        
+
         function showSuccess(message) {
             resultDiv.innerHTML = `<div class="success">${message}</div>`;
         }
-        
+
         function showError(message) {
             loadingDiv.style.display = 'none';
             contentDiv.style.display = 'block';
@@ -214,4 +223,5 @@
         }
     </script>
 </body>
+
 </html>
