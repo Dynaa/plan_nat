@@ -150,15 +150,16 @@
         const confirmBtn = document.getElementById('confirm-btn');
 
         if (!token) {
-            showError('Token manquant dans l\'URL');
-            return;
-        }
+            // Attendre que showError soit définie
+            setTimeout(() => showError('Token manquant dans l\'URL'), 100);
+        } else {
 
-        // Simuler une vérification (on pourrait ajouter un endpoint de vérification)
-        setTimeout(() => {
-            loadingDiv.style.display = 'none';
-            contentDiv.style.display = 'block';
-        }, 1000);
+            // Afficher le contenu après un court délai
+            setTimeout(() => {
+                loadingDiv.style.display = 'none';
+                contentDiv.style.display = 'block';
+            }, 500);
+        }
 
         // Gérer la confirmation
         confirmBtn.addEventListener('click', async () => {
