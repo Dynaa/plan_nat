@@ -7,7 +7,6 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
-const { Resend } = require('resend');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
