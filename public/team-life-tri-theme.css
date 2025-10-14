@@ -351,6 +351,23 @@ body::after {
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
 }
 
+/* Gestion des onglets et formulaires */
+.auth-form {
+    display: none;
+}
+
+.auth-form.active {
+    display: block;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .header-content {
