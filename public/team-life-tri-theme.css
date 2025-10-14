@@ -23,15 +23,42 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, var(--gray-light) 0%, var(--light-blue) 100%);
+    background: 
+        linear-gradient(135deg, var(--gray-light) 0%, var(--light-blue) 100%),
+        url('assets/Life_Tri_Rond.png');
+    background-size: 
+        cover,
+        800px 800px;
+    background-position: 
+        center,
+        center center;
+    background-repeat: 
+        no-repeat,
+        no-repeat;
+    background-attachment: fixed;
     min-height: 100vh;
     color: var(--primary-black);
     line-height: 1.6;
+    position: relative;
+}
+
+/* Overlay transparent pour atténuer le logo de fond */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.85);
+    z-index: -1;
+    pointer-events: none;
 }
 
 /* Header avec logo */
 .header {
-    background: var(--primary-white);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(15px);
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     padding: 1.5rem 0;
     position: sticky;
@@ -104,7 +131,8 @@ body {
 
 /* Cards modernes */
 .card {
-    background: var(--primary-white);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
     border-radius: 15px;
     box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
     padding: 2rem;
