@@ -110,6 +110,20 @@ function switchMainTab(tab) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
         console.log('✅ Classes ajoutées - tabContent.classList:', tabContent.classList.toString());
+        
+        // Debug supplémentaire - forcer l'affichage et vérifier la position
+        const rect = tabContent.getBoundingClientRect();
+        console.log('📐 Position de l\'élément admin:', {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+            visible: rect.width > 0 && rect.height > 0
+        });
+        
+        // Forcer l'affichage avec du JavaScript
+        tabContent.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; position: relative !important; z-index: 9999 !important; background: red !important; min-height: 500px !important; width: 100% !important;';
+        console.log('🔧 Styles forcés appliqués via JavaScript');
     } else {
         console.error('❌ Éléments non trouvés - tabButton:', !!tabButton, 'tabContent:', !!tabContent);
     }
