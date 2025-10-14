@@ -130,9 +130,9 @@
                     <button id="confirm-btn" class="btn-primary">
                         ✅ Confirmer mon inscription
                     </button>
-                    <a href="/" class="btn-secondary">
+                    <button onclick="logoutAndRedirect()" class="btn-secondary">
                         ❌ Non merci
-                    </a>
+                    </button>
                 </div>
             </div>
         </div>
@@ -175,7 +175,7 @@
                                 </p>
                             </div>
                         `;
-                        
+
                         loadingDiv.style.display = 'none';
                         contentDiv.style.display = 'block';
                     }
@@ -204,9 +204,9 @@
                 if (response.ok) {
                     showSuccess(data.message);
                     actionsDiv.innerHTML = `
-                        <a href="/" class="btn-primary">
+                        <button onclick="logoutAndRedirect()" class="btn-primary">
                             🏠 Retour à l'accueil
-                        </a>
+                        </button>
                     `;
                 } else if (response.status === 409 && data.tooLate) {
                     // Cas spécial : quelqu'un d'autre a pris la place
@@ -216,9 +216,9 @@
                         <small>Vous restez en liste d'attente pour les prochaines places qui se libèrent.</small>
                     `);
                     actionsDiv.innerHTML = `
-                        <a href="/" class="btn-secondary">
+                        <button onclick="logoutAndRedirect()" class="btn-secondary">
                             🏠 Retour à l'accueil
-                        </a>
+                        </button>
                     `;
                 } else {
                     showError(data.error || 'Erreur lors de la confirmation');
@@ -241,10 +241,24 @@
             contentDiv.style.display = 'block';
             resultDiv.innerHTML = `<div class="error">${message}</div>`;
             actionsDiv.innerHTML = `
-                <a href="/" class="btn-secondary">
+                <button onclick="logoutAndRedirect()" class="btn-secondary">
                     🏠 Retour à l'accueil
-                </a>
+                </button>
             `;
+        }
+        
+        // Fonction pour déconnecter et rediriger
+        async function logoutAndRedirect() {
+            try {
+                // Déconnecter l'utilisateur actuel
+                await fetch('/api/logout', { method: 'POST' });
+                console.log('✅ Déconnexion effectuée');
+            } catch (err) {
+                console.log('⚠️ Erreur déconnexion (pas grave):', err);
+            }
+            
+            // Rediriger vers l'accueil
+            window.location.href = '/';
         }
     </script>
 </body>
