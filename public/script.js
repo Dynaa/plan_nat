@@ -80,11 +80,19 @@ function switchAuthTab(tab) {
 }
 
 function switchMainTab(tab) {
+    // DEBUG: Afficher les infos utilisateur
+    console.log('🔍 switchMainTab appelé avec:', tab);
+    console.log('🔍 currentUser:', currentUser);
+    console.log('🔍 currentUser.role:', currentUser ? currentUser.role : 'undefined');
+    
     // Vérifier les permissions pour l'onglet admin
     if (tab === 'admin' && (!currentUser || currentUser.role !== 'admin')) {
+        console.log('❌ Accès admin refusé - redirection vers créneaux');
         showMessage('Accès non autorisé à l\'administration', 'error');
         // Rediriger vers l'onglet créneaux
         tab = 'creneaux';
+    } else if (tab === 'admin') {
+        console.log('✅ Accès admin autorisé');
     }
 
     document.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
