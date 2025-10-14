@@ -1899,6 +1899,38 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
     }
 });
 
+// Route pour obtenir les infos du token (pour affichage)
+app.get('/api/inscription-attente/info/:token', async (req, res) => {
+    const { token } = req.params;
+
+    try {
+        const tokenInfo = await db.get(`
+            SELECT u.email, u.nom, u.prenom, c.nom as creneau_nom, c.jour_semaine, c.heure_debut, c.heure_fin
+            FROM waitlist_tokens wt
+            JOIN users u ON wt.user_id = u.id
+            JOIN creneaux c ON wt.creneau_id = c.id
+            WHERE wt.token = ? AND wt.used = ? AND wt.expires_at > ?
+        `, [token, false, new Date().toISOString()]);
+
+        if (!tokenInfo) {
+            return res.status(400).json({ error: 'Token invalide ou expiré' });
+        }
+
+        const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+        
+        res.json({
+            user: `${tokenInfo.prenom} ${tokenInfo.nom}`,
+            email: tokenInfo.email,
+            creneau: tokenInfo.creneau_nom,
+            jour: jours[tokenInfo.jour_semaine],
+            horaire: `${tokenInfo.heure_debut} - ${tokenInfo.heure_fin}`
+        });
+    } catch (err) {
+        console.error('Erreur info token:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
 // Route pour l'inscription via token de liste d'attente
 app.post('/api/inscription-attente', async (req, res) => {
     const { token } = req.body;

@@ -153,12 +153,36 @@
             // Attendre que showError soit définie
             setTimeout(() => showError('Token manquant dans l\'URL'), 100);
         } else {
-
-            // Afficher le contenu après un court délai
-            setTimeout(() => {
-                loadingDiv.style.display = 'none';
-                contentDiv.style.display = 'block';
-            }, 500);
+            // Récupérer les infos du token pour affichage
+            fetch(`/api/inscription-attente/info/${token}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showError(data.error);
+                    } else {
+                        // Afficher les informations du token
+                        document.getElementById('creneau-details').innerHTML = `
+                            <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                                <h3 style="margin: 0; color: #1f2937;">${data.creneau}</h3>
+                                <p style="margin: 10px 0 0 0; color: #6b7280;">
+                                    📅 ${data.jour}<br>
+                                    🕐 ${data.horaire}
+                                </p>
+                            </div>
+                            <div style="background: #dbeafe; border: 1px solid #3b82f6; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                                <p style="margin: 0; color: #1e40af; font-weight: bold;">
+                                    👤 Cette inscription est pour : ${data.user} (${data.email})
+                                </p>
+                            </div>
+                        `;
+                        
+                        loadingDiv.style.display = 'none';
+                        contentDiv.style.display = 'block';
+                    }
+                })
+                .catch(err => {
+                    showError('Erreur lors de la vérification du token');
+                });
         }
 
         // Gérer la confirmation
