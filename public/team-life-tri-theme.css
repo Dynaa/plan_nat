@@ -55,11 +55,11 @@ body {
 }
 
 .logo {
-    height: 50px;
-    width: auto;
-    max-width: 150px;
-    border-radius: 8px;
-    object-fit: contain;
+    height: 60px;
+    width: 60px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--primary-blue);
 }
 
 .brand-text {
