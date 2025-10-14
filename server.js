@@ -404,6 +404,9 @@ async function initializeDatabase() {
         }
 
         console.log('✅ Base de données initialisée avec succès');
+        
+        // Nettoyer les anciens tokens expirés au démarrage
+        await cleanupExpiredTokens();
     } catch (err) {
         console.error('❌ Erreur initialisation base de données:', err);
         throw err;
@@ -430,6 +433,18 @@ initializeDatabase().then(() => {
 const crypto = require('crypto');
 const generateWaitlistToken = () => {
     return crypto.randomBytes(32).toString('hex');
+};
+
+// Fonction pour nettoyer les anciens tokens expirés (maintenance)
+const cleanupExpiredTokens = async () => {
+    try {
+        const result = await db.run(`DELETE FROM waitlist_tokens WHERE expires_at < ?`, [new Date().toISOString()]);
+        if (result.changes > 0) {
+            console.log(`🧹 ${result.changes} token(s) expirés supprimés`);
+        }
+    } catch (err) {
+        console.error('❌ Erreur nettoyage tokens:', err);
+    }
 };
 
 // Fonction pour créer un token d'inscription et envoyer l'email
@@ -2034,7 +2049,11 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
                 if (personnesEnAttente && personnesEnAttente.length > 0) {
                     console.log(`📧 Envoi d'emails à ${personnesEnAttente.length} personne(s) en liste d'attente`);
                     
-                    // Envoyer un email à chaque personne en liste d'attente
+                    // Invalider tous les anciens tokens pour ce créneau (pour repartir à zéro)
+                    await db.run(`UPDATE waitlist_tokens SET used = ? WHERE creneau_id = ?`, [true, creneauId]);
+                    console.log('🔄 Anciens tokens invalidés, création de nouveaux tokens...');
+                    
+                    // Envoyer un email à chaque personne en liste d'attente (avec nouveaux tokens)
                     let emailsEnvoyes = 0;
                     for (const personne of personnesEnAttente) {
                         const emailSent = await notifyWaitlistUser(personne.user_id, creneauId);
@@ -2175,4 +2194,6 @@ app.post('/api/temp-promote-admin', async (req, res) => {
         console.error('Erreur promotion admin:', err);
         return res.status(500).json({ error: 'Erreur lors de la promotion' });
     }
-});
+});// Export po
+ur les tests
+module.exports = app;
