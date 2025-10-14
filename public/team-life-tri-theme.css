@@ -353,19 +353,19 @@ body::after {
 
 /* Gestion des onglets et formulaires */
 .auth-form {
-    display: none;
+    display: none !important;
 }
 
 .auth-form.active {
-    display: block;
+    display: block !important;
 }
 
 .tab-content {
-    display: none;
+    display: none !important;
 }
 
 .tab-content.active {
-    display: block;
+    display: block !important;
 }
 
 /* Sous-onglets admin */
