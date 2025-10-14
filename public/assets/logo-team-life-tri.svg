@@ -1,0 +1,7 @@
+<!-- Logo Team Life Tri - À remplacer par le vrai fichier SVG -->
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="100" cy="100" r="95" fill="white" stroke="black" stroke-width="4"/>
+  <text x="100" y="60" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="black">TEAM</text>
+  <text x="50" y="90" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" font-weight="normal" fill="#5DADE2">life</text>
+  <text x="100" y="130" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="black">TRI</text>
+</svg>

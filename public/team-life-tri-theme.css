@@ -1,0 +1,346 @@
+/* Team Life Tri - Thème personnalisé */
+
+:root {
+    /* Couleurs du logo */
+    --primary-blue: #5DADE2;
+    --primary-black: #000000;
+    --primary-white: #FFFFFF;
+    --light-blue: #AED6F1;
+    --dark-blue: #2E86AB;
+    --gray-light: #F8F9FA;
+    --gray-medium: #6C757D;
+    --success-green: #28A745;
+    --warning-orange: #FFC107;
+    --danger-red: #DC3545;
+}
+
+/* Reset et base */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, var(--gray-light) 0%, var(--light-blue) 100%);
+    min-height: 100vh;
+    color: var(--primary-black);
+    line-height: 1.6;
+}
+
+/* Header avec logo */
+.header {
+    background: var(--primary-white);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    padding: 1rem 0;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.header-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2rem;
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.logo {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+}
+
+.brand-text {
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: var(--primary-black);
+}
+
+.brand-text .life {
+    color: var(--primary-blue);
+    font-weight: normal;
+}
+
+/* Navigation */
+.nav-links {
+    display: flex;
+    gap: 2rem;
+    list-style: none;
+}
+
+.nav-links a {
+    text-decoration: none;
+    color: var(--primary-black);
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 25px;
+    transition: all 0.3s ease;
+}
+
+.nav-links a:hover {
+    background: var(--primary-blue);
+    color: var(--primary-white);
+}
+
+/* Container principal */
+.container {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 0 2rem;
+}
+
+/* Cards modernes */
+.card {
+    background: var(--primary-white);
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+    margin-bottom: 2rem;
+    border: 2px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    border-color: var(--primary-blue);
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--light-blue);
+}
+
+.card-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--primary-black);
+}
+
+.card-icon {
+    font-size: 2rem;
+    color: var(--primary-blue);
+}
+
+/* Boutons Team Life Tri */
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 25px;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 1rem;
+}
+
+.btn-primary {
+    background: linear-gradient(45deg, var(--primary-blue), var(--dark-blue));
+    color: var(--primary-white);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(93, 173, 226, 0.4);
+}
+
+.btn-secondary {
+    background: var(--primary-white);
+    color: var(--primary-black);
+    border: 2px solid var(--primary-blue);
+}
+
+.btn-secondary:hover {
+    background: var(--primary-blue);
+    color: var(--primary-white);
+}
+
+.btn-success {
+    background: var(--success-green);
+    color: var(--primary-white);
+}
+
+.btn-warning {
+    background: var(--warning-orange);
+    color: var(--primary-black);
+}
+
+.btn-danger {
+    background: var(--danger-red);
+    color: var(--primary-white);
+}
+
+/* Formulaires */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--primary-black);
+}
+
+.form-control {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 2px solid var(--light-blue);
+    border-radius: 10px;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary-blue);
+    box-shadow: 0 0 0 3px rgba(93, 173, 226, 0.2);
+}
+
+/* Tables */
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.table th,
+.table td {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--light-blue);
+}
+
+.table th {
+    background: var(--primary-blue);
+    color: var(--primary-white);
+    font-weight: 600;
+}
+
+.table tr:hover {
+    background: var(--gray-light);
+}
+
+/* Badges et statuts */
+.badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 15px;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.badge-inscrit {
+    background: var(--success-green);
+    color: var(--primary-white);
+}
+
+.badge-attente {
+    background: var(--warning-orange);
+    color: var(--primary-black);
+}
+
+.badge-complet {
+    background: var(--danger-red);
+    color: var(--primary-white);
+}
+
+/* Alertes */
+.alert {
+    padding: 1rem 1.5rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    border-left: 4px solid;
+}
+
+.alert-success {
+    background: rgba(40, 167, 69, 0.1);
+    border-color: var(--success-green);
+    color: var(--success-green);
+}
+
+.alert-warning {
+    background: rgba(255, 193, 7, 0.1);
+    border-color: var(--warning-orange);
+    color: #856404;
+}
+
+.alert-danger {
+    background: rgba(220, 53, 69, 0.1);
+    border-color: var(--danger-red);
+    color: var(--danger-red);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .header-content {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .nav-links {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    .container {
+        padding: 0 1rem;
+    }
+    
+    .card {
+        padding: 1.5rem;
+    }
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.6s ease-out;
+}
+
+/* Motif géométrique inspiré du logo */
+.geometric-pattern {
+    position: relative;
+    overflow: hidden;
+}
+
+.geometric-pattern::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 20px;
+    background: repeating-linear-gradient(
+        45deg,
+        var(--primary-blue),
+        var(--primary-blue) 10px,
+        var(--primary-white) 10px,
+        var(--primary-white) 20px
+    );
+}
