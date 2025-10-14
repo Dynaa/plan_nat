@@ -6,7 +6,7 @@
     --primary-black: #000000;
     --primary-white: #FFFFFF;
     --light-blue: #AED6F1;
-    --dark-blue: #2E86AB;
+    --dark-blue: #1B4F72;
     --gray-light: #F8F9FA;
     --gray-medium: #6C757D;
     --success-green: #28A745;
@@ -153,6 +153,8 @@ body {
 .btn-primary {
     background: linear-gradient(45deg, var(--primary-blue), var(--dark-blue));
     color: var(--primary-white);
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .btn-primary:hover {
@@ -284,6 +286,33 @@ body {
     background: rgba(220, 53, 69, 0.1);
     border-color: var(--danger-red);
     color: var(--danger-red);
+}
+
+/* Boutons d'onglets spécifiques */
+.tab-btn.active {
+    background: var(--primary-black) !important;
+    color: var(--primary-white) !important;
+    border: 2px solid var(--primary-blue);
+}
+
+.main-tab-btn.active {
+    background: var(--primary-black) !important;
+    color: var(--primary-white) !important;
+    border: 2px solid var(--primary-blue);
+}
+
+/* Amélioration du contraste pour tous les boutons */
+.btn {
+    border: 2px solid transparent;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.btn-primary:hover {
+    background: var(--primary-black);
+    border-color: var(--primary-blue);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
 }
 
 /* Responsive */
