@@ -55,9 +55,11 @@ body {
 }
 
 .logo {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
+    height: 50px;
+    width: auto;
+    max-width: 150px;
+    border-radius: 8px;
+    object-fit: contain;
 }
 
 .brand-text {

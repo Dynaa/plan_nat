@@ -1,0 +1,27 @@
+<svg width="200" height="80" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fond blanc -->
+  <rect width="200" height="80" fill="white" rx="8"/>
+  
+  <!-- Texte TEAM -->
+  <text x="20" y="35" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="black">TEAM</text>
+  
+  <!-- Texte life -->
+  <text x="120" y="35" font-family="Arial, sans-serif" font-size="24" font-weight="normal" fill="#5DADE2">life</text>
+  
+  <!-- Texte TRI -->
+  <text x="170" y="35" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="black">TRI</text>
+  
+  <!-- Motif géométrique en bas -->
+  <g transform="translate(0, 60)">
+    <polygon points="0,0 20,0 10,20" fill="#5DADE2"/>
+    <polygon points="20,0 40,0 30,20" fill="white"/>
+    <polygon points="40,0 60,0 50,20" fill="#5DADE2"/>
+    <polygon points="60,0 80,0 70,20" fill="white"/>
+    <polygon points="80,0 100,0 90,20" fill="#5DADE2"/>
+    <polygon points="100,0 120,0 110,20" fill="white"/>
+    <polygon points="120,0 140,0 130,20" fill="#5DADE2"/>
+    <polygon points="140,0 160,0 150,20" fill="white"/>
+    <polygon points="160,0 180,0 170,20" fill="#5DADE2"/>
+    <polygon points="180,0 200,0 190,20" fill="white"/>
+  </g>
+</svg>
