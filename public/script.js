@@ -98,14 +98,12 @@ function switchMainTab(tab) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
 
-        // Solution temporaire pour admin : créer un nouvel élément
+        // Solution pour admin : créer un élément dynamique
         if (tab === 'admin') {
-            console.log('🔧 Création d\'un nouvel admin tab');
-            
             // Supprimer l'ancien admin tab s'il existe
             const oldAdmin = document.getElementById('admin-tab-temp');
             if (oldAdmin) oldAdmin.remove();
-            
+
             // Créer un nouvel élément admin directement dans main-section
             const mainSection = document.getElementById('main-section');
             const newAdminTab = document.createElement('div');
@@ -117,17 +115,21 @@ function switchMainTab(tab) {
                         <h2 class="card-title">Administration</h2>
                     </div>
                     <div class="card-body">
-                        <div style="padding: 20px; background: green; color: white; font-size: 20px;">
-                            ✅ ONGLET ADMIN FONCTIONNE ENFIN !
+                        <div class="admin-nav">
+                            <button class="btn btn-secondary admin-tab-btn active" data-admin-tab="creneaux">📅 Créneaux</button>
+                            <button class="btn btn-secondary admin-tab-btn" data-admin-tab="users">👥 Utilisateurs</button>
+                            <button class="btn btn-secondary admin-tab-btn" data-admin-tab="limites">⚡ Limites</button>
+                            <button class="btn btn-secondary admin-tab-btn" data-admin-tab="meta-rules">🔧 Méta-règles</button>
                         </div>
-                        <p>Interface d'administration temporaire...</p>
+                        <div class="admin-content">
+                            <p>Interface d'administration - Sélectionnez une section ci-dessus</p>
+                        </div>
                     </div>
                 </div>
             `;
             newAdminTab.style.cssText = 'display: block; background: white; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);';
-            
+
             mainSection.appendChild(newAdminTab);
-            console.log('✅ Nouvel admin tab créé et ajouté');
         }
     }
 
@@ -285,12 +287,7 @@ function showMainInterface() {
     const adminTab = document.querySelector('[data-tab="admin"]');
     if (currentUser.role === 'admin') {
         adminTab.style.display = 'block';
-        console.log('✅ Bouton admin affiché pour:', currentUser.email);
 
-        // Test du clic sur le bouton admin
-        adminTab.addEventListener('click', function () {
-            console.log('🖱️ CLIC DÉTECTÉ sur bouton admin !');
-        });
     } else {
         adminTab.style.display = 'none';
 
