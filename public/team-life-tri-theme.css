@@ -162,31 +162,21 @@ body::after {
     display: block !important;
 }
 
-/* Masquage agressif de tous les éléments potentiellement problématiques */
-.main-tab-btn,
-.tabs,
-.tab-content,
-.nav-links,
-.user-info,
-#logout-btn {
-    display: none !important;
+/* Règles de base pour l'affichage des onglets */
+.main-tab-btn {
+    display: inline-block;
 }
 
-/* Réaffichage uniquement quand main-section est visible */
-#main-section.show .main-tab-btn,
-#main-section.show .tabs,
-#main-section.show .tab-content {
-    display: block !important;
+.tabs {
+    display: flex;
 }
 
-#main-section.show .tabs {
-    display: flex !important;
+.tab-content {
+    display: none;
 }
 
-#nav-menu.show .nav-links,
-#nav-menu.show .user-info,
-#nav-menu.show #logout-btn {
-    display: block !important;
+.tab-content.active {
+    display: block;
 }
 
 /* Cards modernes */
