@@ -104,6 +104,26 @@ function switchMainTab(tab) {
             // Forcer l'affichage avec du CSS inline très agressif
             tabContent.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; position: relative !important; background: yellow !important; padding: 20px !important; margin: 20px 0 !important; border: 5px solid red !important; min-height: 200px !important; width: 100% !important;';
             console.log('🔧 Admin forcé avec style agressif');
+            
+            // Diagnostic des parents
+            let parent = tabContent.parentElement;
+            let level = 0;
+            while (parent && level < 5) {
+                const rect = parent.getBoundingClientRect();
+                const styles = getComputedStyle(parent);
+                console.log(`📦 Parent niveau ${level}:`, {
+                    tagName: parent.tagName,
+                    id: parent.id,
+                    className: parent.className,
+                    width: rect.width,
+                    height: rect.height,
+                    display: styles.display,
+                    visibility: styles.visibility,
+                    overflow: styles.overflow
+                });
+                parent = parent.parentElement;
+                level++;
+            }
         }
     }
 
@@ -262,9 +282,9 @@ function showMainInterface() {
     if (currentUser.role === 'admin') {
         adminTab.style.display = 'block';
         console.log('✅ Bouton admin affiché pour:', currentUser.email);
-        
+
         // Test du clic sur le bouton admin
-        adminTab.addEventListener('click', function() {
+        adminTab.addEventListener('click', function () {
             console.log('🖱️ CLIC DÉTECTÉ sur bouton admin !');
         });
     } else {
