@@ -132,6 +132,12 @@ body::after {
     max-width: 1200px;
     margin: 2rem auto;
     padding: 0 2rem;
+    min-height: 500px;
+}
+
+/* Section principale */
+#main-section {
+    min-height: 600px;
 }
 
 /* Cards modernes */
