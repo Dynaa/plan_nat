@@ -95,11 +95,11 @@ function switchMainTab(tab) {
     const tabContent = document.getElementById(`${tab}-tab`);
 
     console.log('🔍 switchMainTab:', tab, 'Button:', !!tabButton, 'Content:', !!tabContent);
-    
+
     if (tabButton && tabContent) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
-        
+
         // Test spécial pour admin
         if (tab === 'admin') {
             console.log('✅ Admin tab activé');
@@ -130,6 +130,33 @@ function switchMainTab(tab) {
             } else if (adminTabName === 'meta-rules') {
                 loadMetaRules();
             }
+        }
+    }
+}
+
+// Fonction pour gérer les sous-onglets admin
+function switchAdminTab(adminTab) {
+    // Supprimer la classe active de tous les boutons admin
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.admin-tab-content').forEach(content => content.style.display = 'none');
+
+    // Activer le bouton et contenu sélectionné
+    const activeBtn = document.querySelector(`[data-admin-tab="${adminTab}"]`);
+    const activeContent = document.getElementById(`admin-${adminTab}-section`);
+
+    if (activeBtn && activeContent) {
+        activeBtn.classList.add('active');
+        activeContent.style.display = 'block';
+
+        // Charger les données selon l'onglet admin
+        if (adminTab === 'creneaux') {
+            loadAdminCreneaux();
+        } else if (adminTab === 'users') {
+            loadAdminUsers();
+        } else if (adminTab === 'limites') {
+            loadAdminLimites();
+        } else if (adminTab === 'meta-rules') {
+            loadMetaRulesStatus();
         }
     }
 }

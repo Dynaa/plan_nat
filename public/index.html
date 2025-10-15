@@ -209,12 +209,76 @@
                         <h2 class="card-title">Administration</h2>
                     </div>
                     
-                    <!-- Test simple -->
-                    <div style="padding: 20px; background: green; color: white; font-size: 20px;">
-                        ✅ ONGLET ADMIN FONCTIONNE MAINTENANT !
+                    <div class="card-body">
+                        <!-- Navigation des sous-onglets admin -->
+                        <div class="admin-nav">
+                            <button class="btn btn-secondary admin-tab-btn active" data-admin-tab="creneaux">📅 Créneaux</button>
+                            <button class="btn btn-secondary admin-tab-btn" data-admin-tab="users">👥 Utilisateurs</button>
+                            <button class="btn btn-secondary admin-tab-btn" data-admin-tab="limites">⚡ Limites</button>
+                            <button class="btn btn-secondary admin-tab-btn" data-admin-tab="meta-rules">🔧 Méta-règles</button>
+                        </div>
+                        
+                        <!-- Contenu Créneaux -->
+                        <div id="admin-creneaux-section" class="admin-tab-content active">
+                            <div class="admin-section">
+                                <h3>Créer un nouveau créneau</h3>
+                                <form id="create-creneau-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                                    <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
+                                    <select id="creneau-jour" required>
+                                        <option value="">Jour de la semaine</option>
+                                        <option value="1">Lundi</option>
+                                        <option value="2">Mardi</option>
+                                        <option value="3">Mercredi</option>
+                                        <option value="4">Jeudi</option>
+                                        <option value="5">Vendredi</option>
+                                        <option value="6">Samedi</option>
+                                        <option value="0">Dimanche</option>
+                                    </select>
+                                    <input type="time" id="creneau-debut" required>
+                                    <input type="time" id="creneau-fin" required>
+                                    <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
+                                    <div style="grid-column: 1 / -1;">
+                                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
+                                        <div id="licences-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                                            <label><input type="checkbox" value="Compétition" checked> 🏆 Compétition</label>
+                                            <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️ Loisir/Senior</label>
+                                            <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒 Benjamins/Junior</label>
+                                            <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶 Poussins/Pupilles</label>
+                                        </div>
+                                    </div>
+                                    <button type="submit" style="background: #007bff; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; grid-column: 1 / -1;">Créer le créneau</button>
+                                </form>
+                            </div>
+                            <div class="admin-section">
+                                <h3>Gestion des créneaux</h3>
+                                <div id="admin-creneaux-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Contenu Utilisateurs -->
+                        <div id="admin-users-section" class="admin-tab-content" style="display: none;">
+                            <div class="admin-section">
+                                <h3>Gestion des utilisateurs</h3>
+                                <div id="admin-users-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Contenu Limites -->
+                        <div id="admin-limites-section" class="admin-tab-content" style="display: none;">
+                            <div class="admin-section">
+                                <h3>Limites de séances par semaine</h3>
+                                <div id="admin-limites-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Contenu Méta-règles -->
+                        <div id="admin-meta-rules-section" class="admin-tab-content" style="display: none;">
+                            <div class="admin-section">
+                                <h3>Méta-règles d'inscription</h3>
+                                <div id="meta-rules-list"></div>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <p>Interface d'administration en cours de développement...</p>
                 </div>
             </div>
                 <div id="admin-creneaux-section" class="admin-tab-content active">
