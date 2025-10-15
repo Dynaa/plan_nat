@@ -138,6 +138,11 @@ body::after {
 /* Section principale */
 #main-section {
     min-height: 600px;
+    display: none !important;
+}
+
+#main-section.show {
+    display: block !important;
 }
 
 /* Cards modernes */

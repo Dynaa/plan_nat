@@ -318,13 +318,13 @@ function resetToDefaultTabs() {
 
 function showAuthInterface() {
     authSection.style.display = 'block';
-    mainSection.style.display = 'none';
+    mainSection.classList.remove('show');
     navMenu.style.display = 'none';
 }
 
 function showMainInterface() {
     authSection.style.display = 'none';
-    mainSection.style.display = 'block';
+    mainSection.classList.add('show');
     navMenu.style.display = 'flex';
     userName.textContent = `${currentUser.prenom} ${currentUser.nom}`;
 
