@@ -97,14 +97,37 @@ function switchMainTab(tab) {
     if (tabButton && tabContent) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
-        
-        // Debug pour admin seulement
+
+        // Solution temporaire pour admin : créer un nouvel élément
         if (tab === 'admin') {
-            console.log('🔧 Admin tab activé');
-            console.log('📍 Parent direct:', tabContent.parentElement.id);
+            console.log('🔧 Création d\'un nouvel admin tab');
             
-            // Style de test simple
-            tabContent.style.cssText = 'display: block !important; background: lime !important; padding: 20px !important; border: 3px solid blue !important; margin: 10px !important;';
+            // Supprimer l'ancien admin tab s'il existe
+            const oldAdmin = document.getElementById('admin-tab-temp');
+            if (oldAdmin) oldAdmin.remove();
+            
+            // Créer un nouvel élément admin directement dans main-section
+            const mainSection = document.getElementById('main-section');
+            const newAdminTab = document.createElement('div');
+            newAdminTab.id = 'admin-tab-temp';
+            newAdminTab.innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">⚙️</span>
+                        <h2 class="card-title">Administration</h2>
+                    </div>
+                    <div class="card-body">
+                        <div style="padding: 20px; background: green; color: white; font-size: 20px;">
+                            ✅ ONGLET ADMIN FONCTIONNE ENFIN !
+                        </div>
+                        <p>Interface d'administration temporaire...</p>
+                    </div>
+                </div>
+            `;
+            newAdminTab.style.cssText = 'display: block; background: white; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);';
+            
+            mainSection.appendChild(newAdminTab);
+            console.log('✅ Nouvel admin tab créé et ajouté');
         }
     }
 
