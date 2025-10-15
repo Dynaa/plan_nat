@@ -104,7 +104,7 @@ function switchMainTab(tab) {
             // Forcer l'affichage avec du CSS inline très agressif
             tabContent.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; position: relative !important; background: yellow !important; padding: 20px !important; margin: 20px 0 !important; border: 5px solid red !important; min-height: 200px !important; width: 100% !important;';
             console.log('🔧 Admin forcé avec style agressif');
-            
+
             // Diagnostic des parents
             let parent = tabContent.parentElement;
             let level = 0;
