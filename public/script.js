@@ -101,9 +101,17 @@ function switchMainTab(tab) {
     const tabButton = document.querySelector(`[data-tab="${tab}"]`);
     const tabContent = document.getElementById(`${tab}-tab`);
 
+    console.log('🔍 Recherche éléments pour tab:', tab);
+    console.log('🔍 tabButton trouvé:', !!tabButton, tabButton);
+    console.log('🔍 tabContent trouvé:', !!tabContent, tabContent);
+
     if (tabButton && tabContent) {
+        console.log('✅ Ajout classes active');
         tabButton.classList.add('active');
         tabContent.classList.add('active');
+        console.log('✅ Classes ajoutées - tabContent visible:', tabContent.style.display !== 'none');
+    } else {
+        console.error('❌ Éléments manquants - button:', !!tabButton, 'content:', !!tabContent);
     }
 
     // Charger les données selon l'onglet
