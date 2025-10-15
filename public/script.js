@@ -84,7 +84,7 @@ function switchMainTab(tab) {
     console.log('🔍 switchMainTab appelé avec:', tab);
     console.log('🔍 currentUser:', currentUser);
     console.log('🔍 currentUser.role:', currentUser ? currentUser.role : 'undefined');
-    
+
     // Vérifier les permissions pour l'onglet admin
     if (tab === 'admin' && (!currentUser || currentUser.role !== 'admin')) {
         console.log('❌ Accès admin refusé - redirection vers créneaux');
@@ -95,8 +95,10 @@ function switchMainTab(tab) {
         console.log('✅ Accès admin autorisé');
     }
 
+    console.log('🔄 Début switchMainTab - suppression classes active');
     document.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    console.log('✅ Classes active supprimées');
 
     const tabButton = document.querySelector(`[data-tab="${tab}"]`);
     const tabContent = document.getElementById(`${tab}-tab`);
@@ -110,6 +112,12 @@ function switchMainTab(tab) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
         console.log('✅ Classes ajoutées - tabContent visible:', tabContent.style.display !== 'none');
+        
+        // Forcer le scroll vers le haut et vers l'élément
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(() => {
+            tabContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
     } else {
         console.error('❌ Éléments manquants - button:', !!tabButton, 'content:', !!tabContent);
     }
