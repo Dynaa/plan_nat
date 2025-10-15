@@ -162,6 +162,33 @@ body::after {
     display: block !important;
 }
 
+/* Masquage agressif de tous les éléments potentiellement problématiques */
+.main-tab-btn,
+.tabs,
+.tab-content,
+.nav-links,
+.user-info,
+#logout-btn {
+    display: none !important;
+}
+
+/* Réaffichage uniquement quand main-section est visible */
+#main-section.show .main-tab-btn,
+#main-section.show .tabs,
+#main-section.show .tab-content {
+    display: block !important;
+}
+
+#main-section.show .tabs {
+    display: flex !important;
+}
+
+#nav-menu.show .nav-links,
+#nav-menu.show .user-info,
+#nav-menu.show #logout-btn {
+    display: block !important;
+}
+
 /* Cards modernes */
 .card {
     background: rgba(255, 255, 255, 0.95);

@@ -80,33 +80,22 @@ function switchAuthTab(tab) {
 }
 
 function switchMainTab(tab) {
-
     // Vérifier les permissions pour l'onglet admin
     if (tab === 'admin' && (!currentUser || currentUser.role !== 'admin')) {
         showMessage('Accès non autorisé à l\'administration', 'error');
+        // Rediriger vers l'onglet créneaux
         tab = 'creneaux';
     }
 
-    // Supprimer la classe active de tous les boutons et contenus
     document.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
 
     const tabButton = document.querySelector(`[data-tab="${tab}"]`);
     const tabContent = document.getElementById(`${tab}-tab`);
 
-    console.log('🔍 switchMainTab:', tab, 'Button:', !!tabButton, 'Content:', !!tabContent);
-
     if (tabButton && tabContent) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
-
-        // Test spécial pour admin
-        if (tab === 'admin') {
-            console.log('✅ Admin tab activé');
-            // Forcer l'affichage
-            tabContent.style.display = 'block';
-            tabContent.style.visibility = 'visible';
-        }
     }
 
     // Charger les données selon l'onglet
@@ -120,83 +109,6 @@ function switchMainTab(tab) {
         loadMetaRulesStatus(); // Charger le statut des méta-règles
         loadAdminCreneaux();
         // Charger les utilisateurs si on est sur cet onglet
-        const activeAdminTab = document.querySelector('.admin-tab-btn.active');
-        if (activeAdminTab) {
-            const adminTabName = activeAdminTab.dataset.adminTab;
-            if (adminTabName === 'users') {
-                loadAdminUsers();
-            } else if (adminTabName === 'limites') {
-                loadAdminLimites();
-            } else if (adminTabName === 'meta-rules') {
-                loadMetaRules();
-            }
-        }
-    }
-}
-
-// Fonction pour gérer les sous-onglets admin
-function switchAdminTab(adminTab) {
-    // Supprimer la classe active de tous les boutons admin
-    document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.admin-tab-content').forEach(content => content.style.display = 'none');
-
-    // Activer le bouton et contenu sélectionné
-    const activeBtn = document.querySelector(`[data-admin-tab="${adminTab}"]`);
-    const activeContent = document.getElementById(`admin-${adminTab}-section`);
-
-    if (activeBtn && activeContent) {
-        activeBtn.classList.add('active');
-        activeContent.style.display = 'block';
-
-        // Charger les données selon l'onglet admin
-        if (adminTab === 'creneaux') {
-            loadAdminCreneaux();
-        } else if (adminTab === 'users') {
-            loadAdminUsers();
-        } else if (adminTab === 'limites') {
-            loadAdminLimites();
-        } else if (adminTab === 'meta-rules') {
-            loadMetaRulesStatus();
-        }
-    }
-}
-
-// Fonction pour gérer les sous-onglets admin
-function switchAdminTab(adminTab) {
-    // Chercher dans le conteneur admin temporaire
-    const adminContainer = document.getElementById('admin-tab-temp');
-    if (!adminContainer) return;
-
-    // Supprimer la classe active de tous les boutons admin
-    adminContainer.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
-    adminContainer.querySelectorAll('.admin-tab-content').forEach(content => content.style.display = 'none');
-
-    // Activer le bouton et contenu sélectionné
-    const activeBtn = adminContainer.querySelector(`[data-admin-tab="${adminTab}"]`);
-    const activeContent = adminContainer.querySelector(`#admin-${adminTab}-section`);
-
-    console.log('🔍 switchAdminTab:', adminTab, 'Button:', !!activeBtn, 'Content:', !!activeContent);
-
-    if (activeBtn && activeContent) {
-        activeBtn.classList.add('active');
-        activeContent.style.display = 'block';
-
-        // Charger les données selon l'onglet admin
-        if (adminTab === 'creneaux') {
-            loadAdminCreneaux();
-        } else if (adminTab === 'users') {
-            loadAdminUsers();
-        } else if (adminTab === 'limites') {
-            loadAdminLimites();
-        } else if (adminTab === 'meta-rules') {
-            loadMetaRulesStatus();
-        }
-    }
-}
-
-// Continuer avec le reste du code existant
-function continueExistingCode() {
-    if (true) { // Placeholder pour maintenir la structure
         const activeAdminTab = document.querySelector('.admin-tab-btn.active');
         if (activeAdminTab) {
             const adminTabName = activeAdminTab.dataset.adminTab;
@@ -319,13 +231,13 @@ function resetToDefaultTabs() {
 function showAuthInterface() {
     authSection.style.display = 'block';
     mainSection.classList.remove('show');
-    navMenu.classList.remove('show');
+    navMenu.style.display = 'none';
 }
 
 function showMainInterface() {
     authSection.style.display = 'none';
     mainSection.classList.add('show');
-    navMenu.classList.add('show');
+    navMenu.style.display = 'flex';
     userName.textContent = `${currentUser.prenom} ${currentUser.nom}`;
 
     // Afficher la licence de l'utilisateur (temporaire pour debug)
@@ -661,18 +573,14 @@ async function desinscrireCreneau(creneauId) {
 async function handleCreateCreneau(e) {
     e.preventDefault();
 
-    // Chercher dans le conteneur admin ou dans le document
-    const adminContainer = document.getElementById('admin-tab-temp') || document;
-
-    const nom = adminContainer.querySelector('#creneau-nom')?.value || document.getElementById('creneau-nom')?.value;
-    const jour_semaine = adminContainer.querySelector('#creneau-jour')?.value || document.getElementById('creneau-jour')?.value;
-    const heure_debut = adminContainer.querySelector('#creneau-debut')?.value || document.getElementById('creneau-debut')?.value;
-    const heure_fin = adminContainer.querySelector('#creneau-fin')?.value || document.getElementById('creneau-fin')?.value;
-    const capacite_max = adminContainer.querySelector('#creneau-capacite')?.value || document.getElementById('creneau-capacite')?.value;
+    const nom = document.getElementById('creneau-nom').value;
+    const jour_semaine = document.getElementById('creneau-jour').value;
+    const heure_debut = document.getElementById('creneau-debut').value;
+    const heure_fin = document.getElementById('creneau-fin').value;
+    const capacite_max = document.getElementById('creneau-capacite').value;
 
     // Récupérer les licences sélectionnées
-    const licencesCheckboxes = adminContainer.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked') ||
-        document.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked');
+    const licencesCheckboxes = document.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked');
     const licences_autorisees = Array.from(licencesCheckboxes).map(cb => cb.value).join(',');
 
     try {
@@ -686,8 +594,7 @@ async function handleCreateCreneau(e) {
 
         if (response.ok) {
             showMessage('Créneau créé avec succès', 'success');
-            const form = adminContainer.querySelector('#create-creneau-form') || document.getElementById('create-creneau-form');
-            if (form) form.reset();
+            document.getElementById('create-creneau-form').reset();
             loadAdminCreneaux();
         } else {
             showMessage(data.error, 'error');

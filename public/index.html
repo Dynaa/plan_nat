@@ -1,500 +1,356 @@
 <!DOCTYPE html>
 <html lang="fr">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestion Créneaux Natation - Team Life Tri</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="team-life-tri-theme.css">
+    <title>Gestion Créneaux Natation - Club Triathlon</title>
+    <link rel="stylesheet" href="team-life-tri-simple.css">
 </head>
-
 <body>
-    <header class="header geometric-pattern">
+    <header>
         <div class="header-content">
-            <div class="logo-container">
+            <div class="logo-section">
                 <img src="assets/Life_Tri_Rond.png" alt="Team Life Tri" class="logo">
-                <div class="brand-text">
-                    TEAM <span class="life">life</span> TRI
-                </div>
+                <h1>Team Life Tri - Créneaux Natation</h1>
             </div>
             <nav id="nav-menu" style="display: none;">
-                <ul class="nav-links">
-                    <li><span id="user-name" class="user-info"></span></li>
-                    <li><button id="logout-btn" class="btn btn-secondary">Déconnexion</button></li>
-                </ul>
+                <span id="user-name"></span>
+                <button id="logout-btn">Déconnexion</button>
             </nav>
         </div>
     </header>
 
-    <main class="container">
+    <main>
         <!-- Formulaires de connexion/inscription -->
-        <div id="auth-section" class="fade-in">
-            <div class="card" style="max-width: 500px; margin: 2rem auto;">
-                <div class="card-header">
-                    <span class="card-icon">🏊‍♂️</span>
-                    <h2 class="card-title">Accès Membre</h2>
-                </div>
-
-                <div class="auth-tabs" style="display: flex; gap: 1rem; margin-bottom: 2rem;">
-                    <button class="btn btn-primary tab-btn active" data-tab="login">Connexion</button>
-                    <button class="btn btn-secondary tab-btn" data-tab="register">Inscription</button>
+        <div id="auth-section">
+            <div class="auth-container">
+                <div class="auth-tabs">
+                    <button class="tab-btn active" data-tab="login">Connexion</button>
+                    <button class="tab-btn" data-tab="register">Inscription</button>
                 </div>
 
                 <form id="login-form" class="auth-form active">
-                    <div class="form-group">
-                        <label class="form-label" for="login-email">Email</label>
-                        <input type="email" id="login-email" class="form-control" placeholder="votre@email.com"
-                            required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="login-password">Mot de passe</label>
-                        <input type="password" id="login-password" class="form-control" placeholder="••••••••" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%;">Se connecter</button>
+                    <h2>Connexion</h2>
+                    <input type="email" id="login-email" placeholder="Email" required>
+                    <input type="password" id="login-password" placeholder="Mot de passe" required>
+                    <button type="submit">Se connecter</button>
                 </form>
 
                 <form id="register-form" class="auth-form">
-                    <div class="form-group">
-                        <label class="form-label" for="register-prenom">Prénom</label>
-                        <input type="text" id="register-prenom" class="form-control" placeholder="Votre prénom"
-                            required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="register-nom">Nom</label>
-                        <input type="text" id="register-nom" class="form-control" placeholder="Votre nom" required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="register-email">Email</label>
-                        <input type="email" id="register-email" class="form-control" placeholder="votre@email.com"
-                            required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="register-password">Mot de passe</label>
-                        <input type="password" id="register-password" class="form-control" placeholder="••••••••"
-                            required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="register-licence">Type de licence</label>
-                        <select id="register-licence" class="form-control" required>
-                            <option value="">Sélectionnez votre licence</option>
-                            <option value="Compétition">🏆 Compétition</option>
-                            <option value="Loisir/Senior">🏊‍♂️ Loisir/Senior</option>
-                            <option value="Benjamins/Junior">🧒 Benjamins/Junior</option>
-                            <option value="Poussins/Pupilles">👶 Poussins/Pupilles</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%;">Créer le compte</button>
+                    <h2>Créer un compte</h2>
+                    <input type="text" id="register-prenom" placeholder="Prénom" required>
+                    <input type="text" id="register-nom" placeholder="Nom" required>
+                    <input type="email" id="register-email" placeholder="Email" required>
+                    <input type="password" id="register-password" placeholder="Mot de passe" required>
+                    <select id="register-licence" required>
+                        <option value="">Type de licence</option>
+                        <option value="Compétition">🏆 Compétition</option>
+                        <option value="Loisir/Senior">🏊‍♂️ Loisir/Senior</option>
+                        <option value="Benjamins/Junior">🧒 Benjamins/Junior</option>
+                        <option value="Poussins/Pupilles">👶 Poussins/Pupilles</option>
+                    </select>
+                    <button type="submit">Créer le compte</button>
                 </form>
             </div>
         </div>
 
         <!-- Interface principale -->
-        <div id="main-section" style="display: none;" class="fade-in">
-            <div class="tabs"
-                style="display: flex; gap: 1rem; margin-bottom: 2rem; justify-content: center; flex-wrap: wrap;">
-                <button class="btn btn-primary main-tab-btn active" data-tab="creneaux">🏊‍♂️ Créneaux
-                    disponibles</button>
-                <button class="btn btn-secondary main-tab-btn" data-tab="mes-inscriptions">📋 Mes inscriptions</button>
-                <button class="btn btn-secondary main-tab-btn" data-tab="mon-profil">👤 Mon profil</button>
-                <button class="btn btn-warning main-tab-btn admin-only" data-tab="admin" style="display: none;">⚙️
-                    Administration</button>
+        <div id="main-section" style="display: none;">
+            <div class="tabs">
+                <button class="main-tab-btn active" data-tab="creneaux">Créneaux disponibles</button>
+                <button class="main-tab-btn" data-tab="mes-inscriptions">Mes inscriptions</button>
+                <button class="main-tab-btn" data-tab="mon-profil">Mon profil</button>
+                <button class="main-tab-btn admin-only" data-tab="admin" style="display: none;">Administration</button>
             </div>
 
             <!-- Onglet Créneaux -->
             <div id="creneaux-tab" class="tab-content active">
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-icon">🏊‍♂️</span>
-                        <h2 class="card-title">Créneaux de natation</h2>
-                    </div>
-                    <div id="creneaux-list"></div>
-                </div>
+                <h2>Créneaux de natation</h2>
+                <div id="creneaux-list"></div>
             </div>
 
             <!-- Onglet Mes inscriptions -->
             <div id="mes-inscriptions-tab" class="tab-content">
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-icon">📋</span>
-                        <h2 class="card-title">Mes inscriptions</h2>
-                    </div>
-
-                    <div class="alert alert-info" id="mes-limites-info">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <h4 style="margin: 0 0 0.25rem 0;">📊 Votre quota de séances</h4>
-                                <div id="quota-details" style="font-size: 0.9rem;">Chargement...</div>
-                            </div>
-                            <div id="quota-visual" style="font-size: 1.5rem;"></div>
+                <h2>Mes inscriptions</h2>
+                <div id="mes-limites-info" style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h4 style="margin: 0 0 0.25rem 0; color: #2d3748;">📊 Votre quota de séances</h4>
+                            <div id="quota-details" style="color: #718096; font-size: 0.9rem;">Chargement...</div>
                         </div>
+                        <div id="quota-visual" style="font-size: 1.5rem;"></div>
                     </div>
-
-                    <div id="mes-inscriptions-list"></div>
                 </div>
+                <div id="mes-inscriptions-list"></div>
             </div>
 
             <!-- Onglet Mon Profil -->
             <div id="mon-profil-tab" class="tab-content">
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-icon">👤</span>
-                        <h2 class="card-title">Mon profil</h2>
+                <h2>Mon profil</h2>
+                
+                <div class="profile-sections">
+                    <!-- Section Informations personnelles -->
+                    <div class="profile-section">
+                        <h3>📝 Informations personnelles</h3>
+                        <form id="profile-form">
+                            <div class="form-group">
+                                <label for="profile-prenom">Prénom</label>
+                                <input type="text" id="profile-prenom" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-nom">Nom</label>
+                                <input type="text" id="profile-nom" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-email">Email</label>
+                                <input type="email" id="profile-email" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-licence">Type de licence</label>
+                                <input type="text" id="profile-licence" readonly style="background: #f7fafc; color: #718096;">
+                                <small style="color: #718096;">Contactez un administrateur pour modifier votre type de licence</small>
+                            </div>
+                            <button type="submit">Mettre à jour mes informations</button>
+                        </form>
                     </div>
 
-                    <div class="profile-sections">
-                        <!-- Section Informations personnelles -->
-                        <div class="profile-section">
-                            <h3>📝 Informations personnelles</h3>
-                            <form id="profile-form">
-                                <div class="form-group">
-                                    <label for="profile-prenom">Prénom</label>
-                                    <input type="text" id="profile-prenom" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="profile-nom">Nom</label>
-                                    <input type="text" id="profile-nom" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="profile-email">Email</label>
-                                    <input type="email" id="profile-email" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="profile-licence">Type de licence</label>
-                                    <input type="text" id="profile-licence" readonly
-                                        style="background: #f7fafc; color: #718096;">
-                                    <small style="color: #718096;">Contactez un administrateur pour modifier votre type
-                                        de licence</small>
-                                </div>
-                                <button type="submit">Mettre à jour mes informations</button>
-                            </form>
-                        </div>
-
-                        <!-- Section Changement de mot de passe -->
-                        <div class="profile-section">
-                            <h3>🔒 Changer mon mot de passe</h3>
-                            <form id="password-form">
-                                <div class="form-group">
-                                    <label for="current-password">Mot de passe actuel</label>
-                                    <input type="password" id="current-password" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="new-password">Nouveau mot de passe</label>
-                                    <input type="password" id="new-password" minlength="6" required>
-                                    <small style="color: #718096;">Minimum 6 caractères</small>
-                                </div>
-                                <div class="form-group">
-                                    <label for="confirm-password">Confirmer le nouveau mot de passe</label>
-                                    <input type="password" id="confirm-password" minlength="6" required>
-                                </div>
-                                <button type="submit">Changer le mot de passe</button>
-                            </form>
-                        </div>
-
-                        <!-- Section Statistiques -->
-                        <div class="profile-section">
-                            <h3>📊 Mes statistiques</h3>
-                            <div id="profile-stats" class="stats-grid">
-                                <div class="stat-card">
-                                    <div class="stat-value" id="stat-inscriptions">-</div>
-                                    <div class="stat-label">Inscriptions actives</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-value" id="stat-seances">-</div>
-                                    <div class="stat-label">Séances cette semaine</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-value" id="stat-limite">-</div>
-                                    <div class="stat-label">Limite hebdomadaire</div>
-                                </div>
+                    <!-- Section Changement de mot de passe -->
+                    <div class="profile-section">
+                        <h3>🔒 Changer mon mot de passe</h3>
+                        <form id="password-form">
+                            <div class="form-group">
+                                <label for="current-password">Mot de passe actuel</label>
+                                <input type="password" id="current-password" required>
                             </div>
-                        </div> <!-- Fermeture profile-sections -->
+                            <div class="form-group">
+                                <label for="new-password">Nouveau mot de passe</label>
+                                <input type="password" id="new-password" minlength="6" required>
+                                <small style="color: #718096;">Minimum 6 caractères</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="confirm-password">Confirmer le nouveau mot de passe</label>
+                                <input type="password" id="confirm-password" minlength="6" required>
+                            </div>
+                            <button type="submit">Changer le mot de passe</button>
+                        </form>
                     </div>
-                </div> <!-- Fermeture mon-profil-tab -->
 
-                <!-- Onglet Administration -->
-                <div id="admin-tab" class="tab-content">
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-icon">⚙️</span>
-                            <h2 class="card-title">Administration</h2>
-                        </div>
-
-                        <div class="card-body">
-                            <!-- Navigation des sous-onglets admin -->
-                            <div class="admin-nav">
-                                <button class="btn btn-secondary admin-tab-btn active" data-admin-tab="creneaux">📅
-                                    Créneaux</button>
-                                <button class="btn btn-secondary admin-tab-btn" data-admin-tab="users">👥
-                                    Utilisateurs</button>
-                                <button class="btn btn-secondary admin-tab-btn" data-admin-tab="limites">⚡
-                                    Limites</button>
-                                <button class="btn btn-secondary admin-tab-btn" data-admin-tab="meta-rules">🔧
-                                    Méta-règles</button>
+                    <!-- Section Statistiques -->
+                    <div class="profile-section">
+                        <h3>📊 Mes statistiques</h3>
+                        <div id="profile-stats" class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-inscriptions">-</div>
+                                <div class="stat-label">Inscriptions actives</div>
                             </div>
-
-                            <!-- Contenu Créneaux -->
-                            <div id="admin-creneaux-section" class="admin-tab-content active">
-                                <div class="admin-section">
-                                    <h3>Créer un nouveau créneau</h3>
-                                    <form id="create-creneau-form"
-                                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-                                        <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
-                                        <select id="creneau-jour" required>
-                                            <option value="">Jour de la semaine</option>
-                                            <option value="1">Lundi</option>
-                                            <option value="2">Mardi</option>
-                                            <option value="3">Mercredi</option>
-                                            <option value="4">Jeudi</option>
-                                            <option value="5">Vendredi</option>
-                                            <option value="6">Samedi</option>
-                                            <option value="0">Dimanche</option>
-                                        </select>
-                                        <input type="time" id="creneau-debut" required>
-                                        <input type="time" id="creneau-fin" required>
-                                        <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1"
-                                            required>
-                                        <div style="grid-column: 1 / -1;">
-                                            <label
-                                                style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences
-                                                autorisées :</label>
-                                            <div id="licences-checkboxes"
-                                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
-                                                <label><input type="checkbox" value="Compétition" checked> 🏆
-                                                    Compétition</label>
-                                                <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️
-                                                    Loisir/Senior</label>
-                                                <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒
-                                                    Benjamins/Junior</label>
-                                                <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶
-                                                    Poussins/Pupilles</label>
-                                            </div>
-                                        </div>
-                                        <button type="submit"
-                                            style="background: #007bff; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; grid-column: 1 / -1;">Créer
-                                            le créneau</button>
-                                    </form>
-                                </div>
-                                <div class="admin-section">
-                                    <h3>Gestion des créneaux</h3>
-                                    <div id="admin-creneaux-list"></div>
-                                </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-seances">-</div>
+                                <div class="stat-label">Séances cette semaine</div>
                             </div>
-
-                            <!-- Contenu Utilisateurs -->
-                            <div id="admin-users-section" class="admin-tab-content" style="display: none;">
-                                <div class="admin-section">
-                                    <h3>Gestion des utilisateurs</h3>
-                                    <div id="admin-users-list"></div>
-                                </div>
-                            </div>
-
-                            <!-- Contenu Limites -->
-                            <div id="admin-limites-section" class="admin-tab-content" style="display: none;">
-                                <div class="admin-section">
-                                    <h3>Limites de séances par semaine</h3>
-                                    <div id="admin-limites-list"></div>
-                                </div>
-                            </div>
-
-                            <!-- Contenu Méta-règles -->
-                            <div id="admin-meta-rules-section" class="admin-tab-content" style="display: none;">
-                                <div class="admin-section">
-                                    <h3>Méta-règles d'inscription</h3>
-                                    <div id="meta-rules-list"></div>
-                                </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-limite">-</div>
+                                <div class="stat-label">Limite hebdomadaire</div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <!-- Onglet Administration -->
+            <div id="admin-tab" class="tab-content">
+                <h2>Administration</h2>
+                
+                <!-- Indicateur de statut des méta-règles -->
+                <div id="meta-rules-status" style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 8px; border: 2px solid #e2e8f0; background: #f8fafc;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div id="meta-rules-indicator" style="width: 12px; height: 12px; border-radius: 50%; background: #94a3b8;"></div>
+                        <span style="font-weight: 600; color: #374151;">Méta-règles :</span>
+                        <span id="meta-rules-status-text" style="color: #6b7280;">Chargement...</span>
+                        <button id="refresh-meta-rules-status" style="margin-left: auto; padding: 0.25rem 0.5rem; font-size: 0.875rem; background: #e5e7eb; border: none; border-radius: 4px; cursor: pointer;">🔄 Actualiser</button>
+                    </div>
+                </div>
+                
+                <div class="admin-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 2rem; background: #f7fafc; padding: 0.5rem; border-radius: 8px;">
+                    <button class="admin-tab-btn active" data-admin-tab="creneaux">Gestion des créneaux</button>
+                    <button class="admin-tab-btn" data-admin-tab="users">Gestion des utilisateurs</button>
+                    <button class="admin-tab-btn" data-admin-tab="limites">Limites de séances</button>
+                    <button class="admin-tab-btn" data-admin-tab="meta-rules">Méta-règles</button>
+                </div>
+
+                <!-- Sous-onglet Créneaux -->
+                <div id="admin-creneaux-section" class="admin-tab-content active">
+                    <div class="admin-section">
+                        <h3>Créer un nouveau créneau</h3>
+                        <form id="create-creneau-form">
+                            <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
+                            <select id="creneau-jour" required>
+                                <option value="">Jour de la semaine</option>
+                                <option value="1">Lundi</option>
+                                <option value="2">Mardi</option>
+                                <option value="3">Mercredi</option>
+                                <option value="4">Jeudi</option>
+                                <option value="5">Vendredi</option>
+                                <option value="6">Samedi</option>
+                                <option value="0">Dimanche</option>
+                            </select>
+                            <input type="time" id="creneau-debut" required>
+                            <input type="time" id="creneau-fin" required>
+                            <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
+                            <div style="grid-column: 1 / -1;">
+                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
+                                <div id="licences-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                                    <label><input type="checkbox" value="Compétition" checked> 🏆 Compétition</label>
+                                    <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️ Loisir/Senior</label>
+                                    <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒 Benjamins/Junior</label>
+                                    <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶 Poussins/Pupilles</label>
+                                </div>
+                            </div>
+                            <button type="submit">Créer le créneau</button>
+                        </form>
+                    </div>
+
+                    <div class="admin-section">
+                        <h3>Gestion des créneaux</h3>
+                        
+                        <!-- Section de remise à zéro hebdomadaire -->
+                        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 1rem; margin-bottom: 2rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <h4 style="margin: 0 0 0.5rem 0; color: #856404;">🔄 Remise à zéro hebdomadaire</h4>
+                                    <p style="margin: 0; color: #856404; font-size: 0.9rem;">
+                                        Désinscrire tous les utilisateurs de tous les créneaux pour commencer une nouvelle semaine
+                                    </p>
+                                </div>
+                                <button onclick="remiseAZeroHebdomadaire()" 
+                                        style="background: #dc3545; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap;">
+                                    🗑️ Vider tous les créneaux
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="admin-creneaux-list"></div>
+                    </div>
+                </div>
+
+                <!-- Sous-onglet Utilisateurs -->
+                <div id="admin-users-section" class="admin-tab-content">
+                    <div class="admin-section">
+                        <h3>Gestion des utilisateurs</h3>
+                        <div id="admin-users-list"></div>
+                    </div>
+                </div>
+
+                <!-- Sous-onglet Limites -->
+                <div id="admin-limites-section" class="admin-tab-content">
+                    <div class="admin-section">
+                        <h3>Limites de séances par semaine</h3>
+                        <p style="color: #718096; margin-bottom: 1.5rem;">
+                            Définissez le nombre maximum de séances par semaine pour chaque type de licence.
+                        </p>
+                        <div id="admin-limites-list"></div>
+                    </div>
+                </div>
+
+                <!-- Sous-onglet Méta-règles -->
+                <div id="admin-meta-rules-section" class="admin-tab-content">
+                    <div class="admin-section">
+                        <h3>Méta-règles d'inscription</h3>
+                        <p style="color: #718096; margin-bottom: 1.5rem;">
+                            Définissez des règles avancées qui empêchent certaines combinaisons d'inscriptions selon le type de licence.
+                        </p>
+
+                        <!-- Configuration globale -->
+                        <div style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h4 style="margin-bottom: 1rem;">Configuration globale</h4>
+                            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="meta-rules-enabled" style="transform: scale(1.2);">
+                                    <span>Activer les méta-règles</span>
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="meta-rules-description">Description</label>
+                                <textarea id="meta-rules-description" placeholder="Description de la configuration des méta-règles" rows="2"></textarea>
+                            </div>
+                            <button onclick="updateMetaRulesConfig()" class="btn-success">Sauvegarder la configuration</button>
+                        </div>
+
+                        <!-- Création de nouvelle règle -->
+                        <div style="background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h4 style="margin-bottom: 1rem;">Créer une nouvelle règle</h4>
+                            <form id="create-meta-rule-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="rule-licence-type">Type de licence</label>
+                                    <select id="rule-licence-type" required>
+                                        <option value="">Sélectionner...</option>
+                                        <option value="Compétition">Compétition</option>
+                                        <option value="Loisir/Senior">Loisir/Senior</option>
+                                        <option value="Benjamins/Junior">Benjamins/Junior</option>
+                                        <option value="Poussins/Pupilles">Poussins/Pupilles</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="rule-jour-source">Si inscrit le</label>
+                                    <select id="rule-jour-source" required>
+                                        <option value="">Sélectionner...</option>
+                                        <option value="1">Lundi</option>
+                                        <option value="2">Mardi</option>
+                                        <option value="3">Mercredi</option>
+                                        <option value="4">Jeudi</option>
+                                        <option value="5">Vendredi</option>
+                                        <option value="6">Samedi</option>
+                                        <option value="0">Dimanche</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="grid-column: 1 / -1;">
+                                    <label>Alors interdire les jours</label>
+                                    <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem;">
+                                        <label style="display: flex; align-items: center; gap: 0.25rem;">
+                                            <input type="checkbox" name="jours-interdits" value="1"> Lundi
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.25rem;">
+                                            <input type="checkbox" name="jours-interdits" value="2"> Mardi
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.25rem;">
+                                            <input type="checkbox" name="jours-interdits" value="3"> Mercredi
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.25rem;">
+                                            <input type="checkbox" name="jours-interdits" value="4"> Jeudi
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.25rem;">
+                                            <input type="checkbox" name="jours-interdits" value="5"> Vendredi
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.25rem;">
+                                            <input type="checkbox" name="jours-interdits" value="6"> Samedi
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.25rem;">
+                                            <input type="checkbox" name="jours-interdits" value="0"> Dimanche
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group" style="grid-column: 1 / -1;">
+                                    <label for="rule-description">Description de la règle</label>
+                                    <textarea id="rule-description" placeholder="Ex: Récupération obligatoire après séance intensive" rows="2"></textarea>
+                                </div>
+                                <div style="grid-column: 1 / -1;">
+                                    <button type="submit" class="btn-success">Créer la règle</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Liste des règles existantes -->
+                        <div>
+                            <h4 style="margin-bottom: 1rem;">Règles existantes</h4>
+                            <div id="meta-rules-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <div id="message" class="message"></div>
 
     <script src="script.js"></script>
 </body>
-
-</html>
-<h3>Créer un nouveau créneau</h3>
-<form id="create-creneau-form">
-    <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
-    <select id="creneau-jour" required>
-        <option value="">Jour de la semaine</option>
-        <option value="1">Lundi</option>
-        <option value="2">Mardi</option>
-        <option value="3">Mercredi</option>
-        <option value="4">Jeudi</option>
-        <option value="5">Vendredi</option>
-        <option value="6">Samedi</option>
-        <option value="0">Dimanche</option>
-    </select>
-    <input type="time" id="creneau-debut" required>
-    <input type="time" id="creneau-fin" required>
-    <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
-    <div style="grid-column: 1 / -1;">
-        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
-        <div id="licences-checkboxes"
-            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
-            <label><input type="checkbox" value="Compétition" checked> 🏆 Compétition</label>
-            <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️ Loisir/Senior</label>
-            <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒 Benjamins/Junior</label>
-            <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶 Poussins/Pupilles</label>
-        </div>
-    </div>
-    <button type="submit">Créer le créneau</button>
-</form>
-</div>
-
-<div class="admin-section">
-    <h3>Gestion des créneaux</h3>
-
-    <!-- Section de remise à zéro hebdomadaire -->
-    <div
-        style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 1rem; margin-bottom: 2rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <h4 style="margin: 0 0 0.5rem 0; color: #856404;">🔄 Remise à zéro hebdomadaire</h4>
-                <p style="margin: 0; color: #856404; font-size: 0.9rem;">
-                    Désinscrire tous les utilisateurs de tous les créneaux pour commencer une nouvelle semaine
-                </p>
-            </div>
-            <button onclick="remiseAZeroHebdomadaire()"
-                style="background: #dc3545; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap;">
-                🗑️ Vider tous les créneaux
-            </button>
-        </div>
-    </div>
-
-    <div id="admin-creneaux-list"></div>
-</div>
-</div>
-
-<!-- Sous-onglet Utilisateurs -->
-<div id="admin-users-section" class="admin-tab-content">
-    <div class="admin-section">
-        <h3>Gestion des utilisateurs</h3>
-        <div id="admin-users-list"></div>
-    </div>
-</div>
-
-<!-- Sous-onglet Limites -->
-<div id="admin-limites-section" class="admin-tab-content">
-    <div class="admin-section">
-        <h3>Limites de séances par semaine</h3>
-        <p style="color: #718096; margin-bottom: 1.5rem;">
-            Définissez le nombre maximum de séances par semaine pour chaque type de licence.
-        </p>
-        <div id="admin-limites-list"></div>
-    </div>
-</div>
-
-<!-- Sous-onglet Méta-règles -->
-<div id="admin-meta-rules-section" class="admin-tab-content">
-    <div class="admin-section">
-        <h3>Méta-règles d'inscription</h3>
-        <p style="color: #718096; margin-bottom: 1.5rem;">
-            Définissez des règles avancées qui empêchent certaines combinaisons d'inscriptions selon le type de licence.
-        </p>
-
-        <!-- Configuration globale -->
-        <div
-            style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
-            <h4 style="margin-bottom: 1rem;">Configuration globale</h4>
-            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-                <label style="display: flex; align-items: center; gap: 0.5rem;">
-                    <input type="checkbox" id="meta-rules-enabled" style="transform: scale(1.2);">
-                    <span>Activer les méta-règles</span>
-                </label>
-            </div>
-            <div class="form-group">
-                <label for="meta-rules-description">Description</label>
-                <textarea id="meta-rules-description" placeholder="Description de la configuration des méta-règles"
-                    rows="2"></textarea>
-            </div>
-            <button onclick="updateMetaRulesConfig()" class="btn-success">Sauvegarder la configuration</button>
-        </div>
-
-        <!-- Création de nouvelle règle -->
-        <div
-            style="background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
-            <h4 style="margin-bottom: 1rem;">Créer une nouvelle règle</h4>
-            <form id="create-meta-rule-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                    <label for="rule-licence-type">Type de licence</label>
-                    <select id="rule-licence-type" required>
-                        <option value="">Sélectionner...</option>
-                        <option value="Compétition">Compétition</option>
-                        <option value="Loisir/Senior">Loisir/Senior</option>
-                        <option value="Benjamins/Junior">Benjamins/Junior</option>
-                        <option value="Poussins/Pupilles">Poussins/Pupilles</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="rule-jour-source">Si inscrit le</label>
-                    <select id="rule-jour-source" required>
-                        <option value="">Sélectionner...</option>
-                        <option value="1">Lundi</option>
-                        <option value="2">Mardi</option>
-                        <option value="3">Mercredi</option>
-                        <option value="4">Jeudi</option>
-                        <option value="5">Vendredi</option>
-                        <option value="6">Samedi</option>
-                        <option value="0">Dimanche</option>
-                    </select>
-                </div>
-                <div class="form-group" style="grid-column: 1 / -1;">
-                    <label>Alors interdire les jours</label>
-                    <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem;">
-                        <label style="display: flex; align-items: center; gap: 0.25rem;">
-                            <input type="checkbox" name="jours-interdits" value="1"> Lundi
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 0.25rem;">
-                            <input type="checkbox" name="jours-interdits" value="2"> Mardi
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 0.25rem;">
-                            <input type="checkbox" name="jours-interdits" value="3"> Mercredi
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 0.25rem;">
-                            <input type="checkbox" name="jours-interdits" value="4"> Jeudi
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 0.25rem;">
-                            <input type="checkbox" name="jours-interdits" value="5"> Vendredi
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 0.25rem;">
-                            <input type="checkbox" name="jours-interdits" value="6"> Samedi
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 0.25rem;">
-                            <input type="checkbox" name="jours-interdits" value="0"> Dimanche
-                        </label>
-                    </div>
-                </div>
-                <div class="form-group" style="grid-column: 1 / -1;">
-                    <label for="rule-description">Description de la règle</label>
-                    <textarea id="rule-description" placeholder="Ex: Récupération obligatoire après séance intensive"
-                        rows="2"></textarea>
-                </div>
-                <div style="grid-column: 1 / -1;">
-                    <button type="submit" class="btn-success">Créer la règle</button>
-                </div>
-            </form>
-        </div>
-
-        <!-- Liste des règles existantes -->
-        <div>
-            <h4 style="margin-bottom: 1rem;">Règles existantes</h4>
-            <div id="meta-rules-list"></div>
-        </div>
-    </div>
-</div>
-</div> <!-- Fermeture de la card admin -->
-</div>
-</div>
-</main>
-
-<div id="message" class="message"></div>
-
-<script src="script.js"></script>
-</body>
-
 </html>
