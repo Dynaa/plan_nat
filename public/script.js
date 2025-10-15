@@ -150,7 +150,7 @@ function switchMainTab(tab) {
                                             <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶 Poussins/Pupilles</label>
                                         </div>
                                     </div>
-                                    <button type="submit" style="background: var(--primary-color); color: white; border: none; padding: 0.75rem; border-radius: 6px; cursor: pointer;">Créer le créneau</button>
+                                    <button type="submit" style="background: #007bff; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; grid-column: 1 / -1;">Créer le créneau</button>
                                 </form>
                             </div>
                             <div class="admin-section">
@@ -804,14 +804,18 @@ async function desinscrireCreneau(creneauId) {
 async function handleCreateCreneau(e) {
     e.preventDefault();
 
-    const nom = document.getElementById('creneau-nom').value;
-    const jour_semaine = document.getElementById('creneau-jour').value;
-    const heure_debut = document.getElementById('creneau-debut').value;
-    const heure_fin = document.getElementById('creneau-fin').value;
-    const capacite_max = document.getElementById('creneau-capacite').value;
+    // Chercher dans le conteneur admin ou dans le document
+    const adminContainer = document.getElementById('admin-tab-temp') || document;
+    
+    const nom = adminContainer.querySelector('#creneau-nom')?.value || document.getElementById('creneau-nom')?.value;
+    const jour_semaine = adminContainer.querySelector('#creneau-jour')?.value || document.getElementById('creneau-jour')?.value;
+    const heure_debut = adminContainer.querySelector('#creneau-debut')?.value || document.getElementById('creneau-debut')?.value;
+    const heure_fin = adminContainer.querySelector('#creneau-fin')?.value || document.getElementById('creneau-fin')?.value;
+    const capacite_max = adminContainer.querySelector('#creneau-capacite')?.value || document.getElementById('creneau-capacite')?.value;
 
     // Récupérer les licences sélectionnées
-    const licencesCheckboxes = document.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked');
+    const licencesCheckboxes = adminContainer.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked') || 
+                              document.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked');
     const licences_autorisees = Array.from(licencesCheckboxes).map(cb => cb.value).join(',');
 
     try {
@@ -825,7 +829,8 @@ async function handleCreateCreneau(e) {
 
         if (response.ok) {
             showMessage('Créneau créé avec succès', 'success');
-            document.getElementById('create-creneau-form').reset();
+            const form = adminContainer.querySelector('#create-creneau-form') || document.getElementById('create-creneau-form');
+            if (form) form.reset();
             loadAdminCreneaux();
         } else {
             showMessage(data.error, 'error');
