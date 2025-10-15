@@ -145,6 +145,23 @@ body::after {
     display: block !important;
 }
 
+/* Forcer le masquage des éléments sensibles par défaut */
+#nav-menu {
+    display: none !important;
+}
+
+#nav-menu.show {
+    display: flex !important;
+}
+
+.admin-only {
+    display: none !important;
+}
+
+.admin-only.show {
+    display: block !important;
+}
+
 /* Cards modernes */
 .card {
     background: rgba(255, 255, 255, 0.95);

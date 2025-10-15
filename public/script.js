@@ -319,13 +319,13 @@ function resetToDefaultTabs() {
 function showAuthInterface() {
     authSection.style.display = 'block';
     mainSection.classList.remove('show');
-    navMenu.style.display = 'none';
+    navMenu.classList.remove('show');
 }
 
 function showMainInterface() {
     authSection.style.display = 'none';
     mainSection.classList.add('show');
-    navMenu.style.display = 'flex';
+    navMenu.classList.add('show');
     userName.textContent = `${currentUser.prenom} ${currentUser.nom}`;
 
     // Afficher la licence de l'utilisateur (temporaire pour debug)
@@ -339,10 +339,9 @@ function showMainInterface() {
     // Gérer l'affichage de l'onglet admin
     const adminTab = document.querySelector('[data-tab="admin"]');
     if (currentUser.role === 'admin') {
-        adminTab.style.display = 'block';
-
+        adminTab.classList.add('show');
     } else {
-        adminTab.style.display = 'none';
+        adminTab.classList.remove('show');
 
         // Si l'onglet admin était actif et que l'utilisateur n'est pas admin,
         // rediriger vers l'onglet créneaux
