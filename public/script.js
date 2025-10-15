@@ -98,6 +98,15 @@ function switchMainTab(tab) {
     if (tabButton && tabContent) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
+        
+        // Debug temporaire pour admin seulement
+        if (tab === 'admin') {
+            console.log('🔧 Admin tab activated:', {
+                hasActiveClass: tabContent.classList.contains('active'),
+                display: getComputedStyle(tabContent).display,
+                visibility: getComputedStyle(tabContent).visibility
+            });
+        }
     }
 
     // Charger les données selon l'onglet
