@@ -94,11 +94,19 @@ function switchMainTab(tab) {
     const tabButton = document.querySelector(`[data-tab="${tab}"]`);
     const tabContent = document.getElementById(`${tab}-tab`);
 
+    console.log('🔍 switchMainTab:', tab, 'Button:', !!tabButton, 'Content:', !!tabContent);
+    
     if (tabButton && tabContent) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
-
-
+        
+        // Test spécial pour admin
+        if (tab === 'admin') {
+            console.log('✅ Admin tab activé');
+            // Forcer l'affichage
+            tabContent.style.display = 'block';
+            tabContent.style.visibility = 'visible';
+        }
     }
 
     // Charger les données selon l'onglet
