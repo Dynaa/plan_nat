@@ -97,8 +97,15 @@ function switchMainTab(tab) {
     if (tabButton && tabContent) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
-
-
+        
+        // Debug pour admin seulement
+        if (tab === 'admin') {
+            console.log('🔧 Admin tab activé');
+            console.log('📍 Parent direct:', tabContent.parentElement.id);
+            
+            // Style de test simple
+            tabContent.style.cssText = 'display: block !important; background: lime !important; padding: 20px !important; border: 3px solid blue !important; margin: 10px !important;';
+        }
     }
 
     // Charger les données selon l'onglet
