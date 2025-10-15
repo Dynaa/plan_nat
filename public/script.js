@@ -274,6 +274,18 @@ function switchMainTab(tab) {
                 });
             });
 
+            // Ajouter l'event listener pour le formulaire de création de créneaux
+            const createCreneauForm = newAdminTab.querySelector('#create-creneau-form');
+            if (createCreneauForm) {
+                createCreneauForm.addEventListener('submit', createCreneau);
+            }
+            
+            // Ajouter l'event listener pour le formulaire de méta-règles
+            const createMetaRuleForm = newAdminTab.querySelector('#create-meta-rule-form');
+            if (createMetaRuleForm) {
+                createMetaRuleForm.addEventListener('submit', createMetaRule);
+            }
+            
             // Charger les données admin
             loadAdminCreneaux();
         }
@@ -293,14 +305,20 @@ function switchMainTab(tab) {
 
 // Fonction pour gérer les sous-onglets admin
 function switchAdminTab(adminTab) {
+    // Chercher dans le conteneur admin temporaire
+    const adminContainer = document.getElementById('admin-tab-temp');
+    if (!adminContainer) return;
+    
     // Supprimer la classe active de tous les boutons admin
-    document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.admin-tab-content').forEach(content => content.style.display = 'none');
+    adminContainer.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
+    adminContainer.querySelectorAll('.admin-tab-content').forEach(content => content.style.display = 'none');
 
     // Activer le bouton et contenu sélectionné
-    const activeBtn = document.querySelector(`[data-admin-tab="${adminTab}"]`);
-    const activeContent = document.getElementById(`admin-${adminTab}-section`);
+    const activeBtn = adminContainer.querySelector(`[data-admin-tab="${adminTab}"]`);
+    const activeContent = adminContainer.querySelector(`#admin-${adminTab}-section`);
 
+    console.log('🔍 switchAdminTab:', adminTab, 'Button:', !!activeBtn, 'Content:', !!activeContent);
+    
     if (activeBtn && activeContent) {
         activeBtn.classList.add('active');
         activeContent.style.display = 'block';
