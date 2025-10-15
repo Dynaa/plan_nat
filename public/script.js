@@ -98,7 +98,7 @@ function switchMainTab(tab) {
     if (tabButton && tabContent) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
-        
+
         // Diagnostic simple pour admin
         if (tab === 'admin') {
             // Forcer l'affichage avec du CSS inline très agressif
@@ -261,6 +261,12 @@ function showMainInterface() {
     const adminTab = document.querySelector('[data-tab="admin"]');
     if (currentUser.role === 'admin') {
         adminTab.style.display = 'block';
+        console.log('✅ Bouton admin affiché pour:', currentUser.email);
+        
+        // Test du clic sur le bouton admin
+        adminTab.addEventListener('click', function() {
+            console.log('🖱️ CLIC DÉTECTÉ sur bouton admin !');
+        });
     } else {
         adminTab.style.display = 'none';
 
