@@ -121,8 +121,57 @@ function switchMainTab(tab) {
                             <button class="btn btn-secondary admin-tab-btn" data-admin-tab="limites">⚡ Limites</button>
                             <button class="btn btn-secondary admin-tab-btn" data-admin-tab="meta-rules">🔧 Méta-règles</button>
                         </div>
-                        <div class="admin-content">
-                            <p>Interface d'administration - Sélectionnez une section ci-dessus</p>
+                        
+                        <!-- Contenu Créneaux -->
+                        <div id="admin-creneaux-section" class="admin-tab-content active">
+                            <div class="admin-section">
+                                <h3>Créer un nouveau créneau</h3>
+                                <form id="create-creneau-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                                    <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
+                                    <select id="creneau-jour" required>
+                                        <option value="">Jour de la semaine</option>
+                                        <option value="1">Lundi</option>
+                                        <option value="2">Mardi</option>
+                                        <option value="3">Mercredi</option>
+                                        <option value="4">Jeudi</option>
+                                        <option value="5">Vendredi</option>
+                                        <option value="6">Samedi</option>
+                                        <option value="0">Dimanche</option>
+                                    </select>
+                                    <input type="time" id="creneau-debut" required>
+                                    <input type="time" id="creneau-fin" required>
+                                    <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
+                                    <button type="submit" style="background: var(--primary-color); color: white; border: none; padding: 0.75rem; border-radius: 6px; cursor: pointer;">Créer le créneau</button>
+                                </form>
+                            </div>
+                            <div class="admin-section">
+                                <h3>Gestion des créneaux</h3>
+                                <div id="admin-creneaux-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Contenu Utilisateurs -->
+                        <div id="admin-users-section" class="admin-tab-content" style="display: none;">
+                            <div class="admin-section">
+                                <h3>Gestion des utilisateurs</h3>
+                                <div id="admin-users-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Contenu Limites -->
+                        <div id="admin-limites-section" class="admin-tab-content" style="display: none;">
+                            <div class="admin-section">
+                                <h3>Limites de séances par semaine</h3>
+                                <div id="admin-limites-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Contenu Méta-règles -->
+                        <div id="admin-meta-rules-section" class="admin-tab-content" style="display: none;">
+                            <div class="admin-section">
+                                <h3>Méta-règles d'inscription</h3>
+                                <div id="meta-rules-list"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -130,6 +179,17 @@ function switchMainTab(tab) {
             newAdminTab.style.cssText = 'display: block; background: white; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);';
 
             mainSection.appendChild(newAdminTab);
+            
+            // Ajouter les event listeners pour les sous-onglets admin
+            newAdminTab.querySelectorAll('.admin-tab-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const adminTab = this.dataset.adminTab;
+                    switchAdminTab(adminTab);
+                });
+            });
+            
+            // Charger les données admin
+            loadAdminCreneaux();
         }
     }
 
@@ -141,9 +201,40 @@ function switchMainTab(tab) {
     } else if (tab === 'mon-profil') {
         loadMonProfil();
     } else if (tab === 'admin') {
-        loadMetaRulesStatus(); // Charger le statut des méta-règles
-        loadAdminCreneaux();
-        // Charger les utilisateurs si on est sur cet onglet
+        // Les données admin sont chargées dans la création dynamique
+    }
+}
+
+// Fonction pour gérer les sous-onglets admin
+function switchAdminTab(adminTab) {
+    // Supprimer la classe active de tous les boutons admin
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.admin-tab-content').forEach(content => content.style.display = 'none');
+    
+    // Activer le bouton et contenu sélectionné
+    const activeBtn = document.querySelector(`[data-admin-tab="${adminTab}"]`);
+    const activeContent = document.getElementById(`admin-${adminTab}-section`);
+    
+    if (activeBtn && activeContent) {
+        activeBtn.classList.add('active');
+        activeContent.style.display = 'block';
+        
+        // Charger les données selon l'onglet admin
+        if (adminTab === 'creneaux') {
+            loadAdminCreneaux();
+        } else if (adminTab === 'users') {
+            loadAdminUsers();
+        } else if (adminTab === 'limites') {
+            loadAdminLimites();
+        } else if (adminTab === 'meta-rules') {
+            loadMetaRulesStatus();
+        }
+    }
+}
+
+// Continuer avec le reste du code existant
+function continueExistingCode() {
+    if (true) { // Placeholder pour maintenir la structure
         const activeAdminTab = document.querySelector('.admin-tab-btn.active');
         if (activeAdminTab) {
             const adminTabName = activeAdminTab.dataset.adminTab;
