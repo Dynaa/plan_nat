@@ -112,7 +112,27 @@ function switchMainTab(tab) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
         console.log('✅ Classes ajoutées - tabContent visible:', tabContent.style.display !== 'none');
+    
+    // Diagnostic avancé de position et visibilité
+    const rect = tabContent.getBoundingClientRect();
+    console.log('📐 Position admin-tab:', {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        visible: rect.width > 0 && rect.height > 0
+    });
+    
+    // Forcer l'affichage avec JavaScript
+    if (tab === 'admin') {
+        console.log('🔧 Forçage affichage admin tab');
+        tabContent.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; position: relative !important; z-index: 9999 !important; background: red !important; min-height: 300px !important; width: 100% !important; margin: 20px 0 !important;';
         
+        // Scroll vers l'élément
+        tabContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        console.log('🔧 Scroll vers admin tab effectué');
+    }
+
         // Forcer le scroll vers le haut et vers l'élément
         window.scrollTo({ top: 0, behavior: 'smooth' });
         setTimeout(() => {
