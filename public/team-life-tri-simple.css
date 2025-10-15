@@ -1,0 +1,101 @@
+/* Design Team Life Tri - Version Simple */
+
+/* Variables de couleurs Team Life Tri */
+:root {
+    --primary-color: #6366f1;
+    --secondary-color: #8b5cf6;
+    --accent-color: #06b6d4;
+    --background-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+}
+
+/* Fond avec dégradé Team Life Tri */
+body {
+    background: var(--background-gradient);
+    min-height: 100vh;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Header avec logo */
+header {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+header h1 {
+    color: var(--primary-color);
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* Logo Team Life Tri */
+header h1::before {
+    content: '';
+    width: 40px;
+    height: 40px;
+    background: url('assets/Life_Tri_Rond.png') center/contain no-repeat;
+    border-radius: 50%;
+}
+
+/* Boutons avec couleurs Team Life Tri */
+button {
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+button:hover {
+    background: var(--secondary-color);
+    transform: translateY(-2px);
+}
+
+/* Cards avec effet glassmorphism */
+.auth-container,
+.admin-section,
+.profile-section {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Onglets avec style Team Life Tri */
+.tabs {
+    background: rgba(255, 255, 255, 0.9);
+    padding: 1rem;
+    border-radius: 12px;
+    margin-bottom: 2rem;
+}
+
+.main-tab-btn.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* Logo en arrière-plan */
+main::before {
+    content: '';
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    height: 600px;
+    background: url('assets/Life_Tri_Rond.png') center/contain no-repeat;
+    opacity: 0.1;
+    z-index: -1;
+    pointer-events: none;
+}
