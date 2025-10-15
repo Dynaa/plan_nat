@@ -101,8 +101,8 @@ function switchMainTab(tab) {
 
         // Diagnostic simple pour admin
         if (tab === 'admin') {
-            // Forcer l'affichage avec du CSS inline très agressif
-            tabContent.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; position: relative !important; background: yellow !important; padding: 20px !important; margin: 20px 0 !important; border: 5px solid red !important; min-height: 200px !important; width: 100% !important;';
+            // Forcer l'affichage avec position fixed pour échapper au parent
+            tabContent.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; position: fixed !important; top: 100px !important; left: 50px !important; background: yellow !important; padding: 20px !important; border: 5px solid red !important; min-height: 200px !important; width: 500px !important; z-index: 99999 !important;';
             console.log('🔧 Admin forcé avec style agressif');
 
             // Diagnostic des parents
