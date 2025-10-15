@@ -141,11 +141,34 @@ function switchMainTab(tab) {
                                     <input type="time" id="creneau-debut" required>
                                     <input type="time" id="creneau-fin" required>
                                     <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
+                                    <div style="grid-column: 1 / -1;">
+                                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
+                                        <div id="licences-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                                            <label><input type="checkbox" value="Compétition" checked> 🏆 Compétition</label>
+                                            <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️ Loisir/Senior</label>
+                                            <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒 Benjamins/Junior</label>
+                                            <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶 Poussins/Pupilles</label>
+                                        </div>
+                                    </div>
                                     <button type="submit" style="background: var(--primary-color); color: white; border: none; padding: 0.75rem; border-radius: 6px; cursor: pointer;">Créer le créneau</button>
                                 </form>
                             </div>
                             <div class="admin-section">
                                 <h3>Gestion des créneaux</h3>
+                                <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 1rem; margin-bottom: 2rem;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <h4 style="margin: 0 0 0.5rem 0; color: #856404;">🔄 Remise à zéro hebdomadaire</h4>
+                                            <p style="margin: 0; color: #856404; font-size: 0.9rem;">
+                                                Désinscrire tous les utilisateurs de tous les créneaux pour commencer une nouvelle semaine
+                                            </p>
+                                        </div>
+                                        <button onclick="remiseAZeroHebdomadaire()" 
+                                                style="background: #dc3545; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap;">
+                                            🗑️ Vider tous les créneaux
+                                        </button>
+                                    </div>
+                                </div>
                                 <div id="admin-creneaux-list"></div>
                             </div>
                         </div>
@@ -170,6 +193,69 @@ function switchMainTab(tab) {
                         <div id="admin-meta-rules-section" class="admin-tab-content" style="display: none;">
                             <div class="admin-section">
                                 <h3>Méta-règles d'inscription</h3>
+                                <p style="color: #718096; margin-bottom: 1.5rem;">
+                                    Définissez des règles avancées qui empêchent certaines combinaisons d'inscriptions selon le type de licence.
+                                </p>
+
+                                <!-- Configuration globale -->
+                                <div style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                                    <h4 style="margin-bottom: 1rem;">Configuration globale</h4>
+                                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                                        <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <input type="checkbox" id="meta-rules-enabled" style="transform: scale(1.2);">
+                                            <span>Activer les méta-règles</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="meta-rules-description">Description</label>
+                                        <textarea id="meta-rules-description" placeholder="Description de la configuration des méta-règles" rows="2" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;"></textarea>
+                                    </div>
+                                    <button onclick="updateMetaRulesConfig()" style="background: #28a745; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; margin-top: 1rem;">Sauvegarder la configuration</button>
+                                </div>
+
+                                <!-- Création de nouvelle règle -->
+                                <div style="background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                                    <h4 style="margin-bottom: 1rem;">Créer une nouvelle règle</h4>
+                                    <form id="create-meta-rule-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                        <div class="form-group">
+                                            <label for="rule-licence-type">Type de licence</label>
+                                            <select id="rule-licence-type" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                                                <option value="">Sélectionner...</option>
+                                                <option value="Compétition">Compétition</option>
+                                                <option value="Loisir/Senior">Loisir/Senior</option>
+                                                <option value="Benjamins/Junior">Benjamins/Junior</option>
+                                                <option value="Poussins/Pupilles">Poussins/Pupilles</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="rule-jour-source">Si inscrit le</label>
+                                            <select id="rule-jour-source" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                                                <option value="">Sélectionner...</option>
+                                                <option value="1">Lundi</option>
+                                                <option value="2">Mardi</option>
+                                                <option value="3">Mercredi</option>
+                                                <option value="4">Jeudi</option>
+                                                <option value="5">Vendredi</option>
+                                                <option value="6">Samedi</option>
+                                                <option value="0">Dimanche</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group" style="grid-column: 1 / -1;">
+                                            <label>Alors interdire les jours</label>
+                                            <div id="jours-interdits-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; margin-top: 0.5rem;">
+                                                <label><input type="checkbox" value="1"> Lundi</label>
+                                                <label><input type="checkbox" value="2"> Mardi</label>
+                                                <label><input type="checkbox" value="3"> Mercredi</label>
+                                                <label><input type="checkbox" value="4"> Jeudi</label>
+                                                <label><input type="checkbox" value="5"> Vendredi</label>
+                                                <label><input type="checkbox" value="6"> Samedi</label>
+                                                <label><input type="checkbox" value="0"> Dimanche</label>
+                                            </div>
+                                        </div>
+                                        <button type="submit" style="background: var(--primary-color); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; grid-column: 1 / -1;">Créer la règle</button>
+                                    </form>
+                                </div>
+
                                 <div id="meta-rules-list"></div>
                             </div>
                         </div>
@@ -179,15 +265,15 @@ function switchMainTab(tab) {
             newAdminTab.style.cssText = 'display: block; background: white; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);';
 
             mainSection.appendChild(newAdminTab);
-            
+
             // Ajouter les event listeners pour les sous-onglets admin
             newAdminTab.querySelectorAll('.admin-tab-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
+                btn.addEventListener('click', function () {
                     const adminTab = this.dataset.adminTab;
                     switchAdminTab(adminTab);
                 });
             });
-            
+
             // Charger les données admin
             loadAdminCreneaux();
         }
@@ -210,15 +296,15 @@ function switchAdminTab(adminTab) {
     // Supprimer la classe active de tous les boutons admin
     document.querySelectorAll('.admin-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.admin-tab-content').forEach(content => content.style.display = 'none');
-    
+
     // Activer le bouton et contenu sélectionné
     const activeBtn = document.querySelector(`[data-admin-tab="${adminTab}"]`);
     const activeContent = document.getElementById(`admin-${adminTab}-section`);
-    
+
     if (activeBtn && activeContent) {
         activeBtn.classList.add('active');
         activeContent.style.display = 'block';
-        
+
         // Charger les données selon l'onglet admin
         if (adminTab === 'creneaux') {
             loadAdminCreneaux();
