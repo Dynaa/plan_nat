@@ -80,8 +80,7 @@ function switchAuthTab(tab) {
 }
 
 function switchMainTab(tab) {
-    // DEBUG: Afficher les infos utilisateur
-    console.log('🔍 switchMainTab appelé avec:', tab);
+
     // Vérifier les permissions pour l'onglet admin
     if (tab === 'admin' && (!currentUser || currentUser.role !== 'admin')) {
         showMessage('Accès non autorisé à l\'administration', 'error');
@@ -99,32 +98,7 @@ function switchMainTab(tab) {
         tabButton.classList.add('active');
         tabContent.classList.add('active');
 
-        // Diagnostic simple pour admin
-        if (tab === 'admin') {
-            // Forcer l'affichage avec position fixed pour échapper au parent
-            tabContent.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; position: fixed !important; top: 100px !important; left: 50px !important; background: yellow !important; padding: 20px !important; border: 5px solid red !important; min-height: 200px !important; width: 500px !important; z-index: 99999 !important;';
-            console.log('🔧 Admin forcé avec style agressif');
 
-            // Diagnostic des parents
-            let parent = tabContent.parentElement;
-            let level = 0;
-            while (parent && level < 5) {
-                const rect = parent.getBoundingClientRect();
-                const styles = getComputedStyle(parent);
-                console.log(`📦 Parent niveau ${level}:`, {
-                    tagName: parent.tagName,
-                    id: parent.id,
-                    className: parent.className,
-                    width: rect.width,
-                    height: rect.height,
-                    display: styles.display,
-                    visibility: styles.visibility,
-                    overflow: styles.overflow
-                });
-                parent = parent.parentElement;
-                level++;
-            }
-        }
     }
 
     // Charger les données selon l'onglet
