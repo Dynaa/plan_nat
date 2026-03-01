@@ -40,7 +40,7 @@ header h1::before {
     content: '';
     width: 40px;
     height: 40px;
-    background: url('assets/Life_Tri_Rond.png') center/contain no-repeat;
+    background: url('assets/logo.png') center/contain no-repeat;
     border-radius: 50%;
 }
 
@@ -94,7 +94,7 @@ main::before {
     transform: translate(-50%, -50%);
     width: 600px;
     height: 600px;
-    background: url('assets/Life_Tri_Rond.png') center/contain no-repeat;
+    background: url('assets/logo.png') center/contain no-repeat;
     opacity: 0.1;
     z-index: -1;
     pointer-events: none;
