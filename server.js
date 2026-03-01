@@ -334,6 +334,56 @@ async function initializeDatabase() {
         await db.run(waitlistTokensSQL);
         console.log('✅ Table waitlist_tokens créée');
 
+        // Table de configuration des méta-règles
+        const metaRulesConfigSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS meta_rules_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                enabled BOOLEAN DEFAULT 0,
+                description TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS meta_rules_config (
+                id SERIAL PRIMARY KEY,
+                enabled BOOLEAN DEFAULT false,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`
+        );
+        console.log('🔧 Création table meta_rules_config...');
+        await db.run(metaRulesConfigSQL);
+        console.log('✅ Table meta_rules_config créée');
+
+        // Table des méta-règles
+        const metaRulesSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS meta_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                licence_type TEXT NOT NULL,
+                jour_source INTEGER NOT NULL,
+                jours_interdits TEXT NOT NULL,
+                description TEXT,
+                active BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS meta_rules (
+                id SERIAL PRIMARY KEY,
+                licence_type VARCHAR(100) NOT NULL,
+                jour_source INTEGER NOT NULL,
+                jours_interdits TEXT NOT NULL,
+                description TEXT,
+                active BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`
+        );
+        console.log('🔧 Création table meta_rules...');
+        await db.run(metaRulesSQL);
+        console.log('✅ Table meta_rules créée');
+
         // Créer admin par défaut
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
         const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
@@ -394,6 +444,13 @@ async function initializeDatabase() {
                 await db.run(`INSERT INTO licence_limits (licence_type, max_seances_semaine) VALUES (?, ?)`,
                     [licenceType, maxSeances]);
             }
+        }
+
+        // Créer configuration méta-règles par défaut
+        const metaConfigCount = await db.get(`SELECT COUNT(*) as count FROM meta_rules_config`);
+        if (!metaConfigCount || metaConfigCount.count === 0) {
+            await db.run(`INSERT INTO meta_rules_config (enabled, description) VALUES (?, ?)`,
+                [false, 'Configuration des méta-règles d\'inscription']);
         }
 
         // Créer les 3 blocs hebdomadaires de référence
