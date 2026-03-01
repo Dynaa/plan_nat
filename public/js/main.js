@@ -37,6 +37,7 @@ function setupMainEventListeners() {
     const createCreneauForm = document.getElementById('create-creneau-form');
     const profileForm = document.getElementById('profile-form');
     const passwordForm = document.getElementById('password-form');
+    const createBlocForm = document.getElementById('create-bloc-form');
 
     if (createCreneauForm) {
         createCreneauForm.addEventListener('submit', handleCreateCreneau);
@@ -46,6 +47,9 @@ function setupMainEventListeners() {
     }
     if (passwordForm) {
         passwordForm.addEventListener('submit', handleChangePassword);
+    }
+    if (createBlocForm) {
+        createBlocForm.addEventListener('submit', handleCreateBloc);
     }
 
     // Event listener pour les méta-règles

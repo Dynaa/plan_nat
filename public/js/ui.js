@@ -460,6 +460,8 @@ function switchAdminTab(tab) {
         loadAdminUsers();
     } else if (tab === 'limites') {
         loadAdminLimites();
+    } else if (tab === 'blocs') {
+        loadBlocs();
     } else if (tab === 'meta-rules') {
         loadMetaRulesConfig();
         loadMetaRules();
@@ -646,4 +648,44 @@ function displayMetaRules(rules) {
             </div>
         `;
     }).join('');
+}
+
+
+// Afficher les blocs
+function displayBlocs(blocs) {
+    const container = document.getElementById('blocs-list');
+    if (!container) return;
+
+    if (!blocs || blocs.length === 0) {
+        container.innerHTML = '<p style="color: #718096;">Aucun bloc créé</p>';
+        return;
+    }
+
+    container.innerHTML = blocs.map(bloc => `
+        <div style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div style="flex: 1;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #2d3748;">${bloc.nom}</h4>
+                    <p style="margin: 0 0 0.5rem 0; color: #718096; font-size: 0.9rem;">${bloc.description || 'Pas de description'}</p>
+                    <p style="margin: 0; color: #4a5568; font-size: 0.85rem;">
+                        📊 <strong>${bloc.nb_creneaux || 0}</strong> créneau(x) dans ce bloc
+                    </p>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button onclick="manageCreneauxBloc(${bloc.id}, '${bloc.nom.replace(/'/g, "\\'")}')" 
+                            class="btn-success" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                        📋 Gérer les créneaux
+                    </button>
+                    <button onclick="editBloc(${bloc.id})" 
+                            class="btn-warning" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                        ✏️ Modifier
+                    </button>
+                    <button onclick="deleteBloc(${bloc.id}, '${bloc.nom.replace(/'/g, "\\'")}')" 
+                            class="btn-danger" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                        🗑️ Supprimer
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
 }

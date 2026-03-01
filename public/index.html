@@ -180,6 +180,7 @@
                     <button class="admin-tab-btn active" data-admin-tab="creneaux">Gestion des créneaux</button>
                     <button class="admin-tab-btn" data-admin-tab="users">Gestion des utilisateurs</button>
                     <button class="admin-tab-btn" data-admin-tab="limites">Limites de séances</button>
+                    <button class="admin-tab-btn" data-admin-tab="blocs">Blocs hebdomadaires</button>
                     <button class="admin-tab-btn" data-admin-tab="meta-rules">Méta-règles</button>
                 </div>
 
@@ -263,6 +264,39 @@
                             Définissez le nombre maximum de séances par semaine pour chaque type de licence.
                         </p>
                         <div id="admin-limites-list"></div>
+                    </div>
+                </div>
+
+                <!-- Sous-onglet Blocs -->
+                <div id="admin-blocs-section" class="admin-tab-content">
+                    <div class="admin-section">
+                        <h3>Blocs hebdomadaires</h3>
+                        <p style="color: #718096; margin-bottom: 1.5rem;">
+                            Les blocs permettent de limiter les inscriptions : un utilisateur ne peut s'inscrire qu'à <strong>1 seul créneau par bloc</strong>.
+                            Organisez vos créneaux en blocs pour gérer la charge d'entraînement.
+                        </p>
+
+                        <!-- Création d'un nouveau bloc -->
+                        <div style="background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h4 style="margin-bottom: 1rem;">Créer un nouveau bloc</h4>
+                            <form id="create-bloc-form" style="display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 1rem; align-items: end;">
+                                <div class="form-group" style="margin: 0;">
+                                    <label for="bloc-nom">Nom du bloc</label>
+                                    <input type="text" id="bloc-nom" placeholder="Ex: Début de semaine" required>
+                                </div>
+                                <div class="form-group" style="margin: 0;">
+                                    <label for="bloc-description">Description</label>
+                                    <input type="text" id="bloc-description" placeholder="Ex: Lundi et Mardi">
+                                </div>
+                                <button type="submit" class="btn-success">Créer le bloc</button>
+                            </form>
+                        </div>
+
+                        <!-- Liste des blocs existants -->
+                        <div>
+                            <h4 style="margin-bottom: 1rem;">Blocs existants</h4>
+                            <div id="blocs-list"></div>
+                        </div>
                     </div>
                 </div>
 

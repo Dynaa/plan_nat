@@ -722,3 +722,276 @@ async function loadMetaRulesStatus() {
         updateMetaRulesStatusDisplay(null);
     }
 }
+
+
+// ===== FONCTIONS GESTION DES BLOCS =====
+
+async function loadBlocs() {
+    try {
+        const response = await fetch('/api/admin/blocs');
+        const blocs = await response.json();
+
+        if (response.ok) {
+            displayBlocs(blocs);
+        } else {
+            showMessage('Erreur lors du chargement des blocs', 'error');
+        }
+    } catch (error) {
+        console.error('Erreur chargement blocs:', error);
+        showMessage('Erreur de connexion', 'error');
+    }
+}
+
+async function handleCreateBloc(e) {
+    e.preventDefault();
+
+    const nom = document.getElementById('bloc-nom').value;
+    const description = document.getElementById('bloc-description').value;
+
+    try {
+        const response = await fetch('/api/admin/blocs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nom, description })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('Bloc créé avec succès', 'success');
+            document.getElementById('create-bloc-form').reset();
+            loadBlocs();
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        showMessage('Erreur lors de la création du bloc', 'error');
+    }
+}
+
+async function deleteBloc(blocId, blocNom) {
+    const confirmation = confirm(
+        `Supprimer le bloc "${blocNom}" ?\n\n` +
+        `⚠️ Les créneaux ne seront pas supprimés, mais ne seront plus associés à ce bloc.`
+    );
+
+    if (!confirmation) return;
+
+    try {
+        const response = await fetch(`/api/admin/blocs/${blocId}`, {
+            method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('Bloc supprimé', 'success');
+            loadBlocs();
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        showMessage('Erreur lors de la suppression', 'error');
+    }
+}
+
+async function editBloc(blocId) {
+    try {
+        const response = await fetch(`/api/admin/blocs/${blocId}`);
+        const bloc = await response.json();
+
+        if (!response.ok) {
+            showMessage('Erreur lors du chargement du bloc', 'error');
+            return;
+        }
+
+        showEditBlocModal(bloc);
+    } catch (error) {
+        showMessage('Erreur lors du chargement du bloc', 'error');
+    }
+}
+
+function showEditBlocModal(bloc) {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); display: flex; align-items: center;
+        justify-content: center; z-index: 1000;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: white; border-radius: 12px; padding: 2rem;
+        max-width: 500px; width: 90%;
+    `;
+
+    content.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h3>Modifier le bloc</h3>
+            <button onclick="this.closest('div').parentElement.remove()" style="background: #e53e3e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Fermer</button>
+        </div>
+        
+        <form id="edit-bloc-form">
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nom du bloc</label>
+                <input type="text" id="edit-bloc-nom" value="${bloc.nom}" required 
+                       style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+            </div>
+            
+            <div style="margin-bottom: 1.5rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Description</label>
+                <input type="text" id="edit-bloc-description" value="${bloc.description || ''}"
+                       style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+            </div>
+            
+            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                <button type="button" onclick="this.closest('div').parentElement.parentElement.remove()" 
+                        style="background: #718096; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
+                    Annuler
+                </button>
+                <button type="submit" 
+                        style="background: #38a169; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
+                    Sauvegarder
+                </button>
+            </div>
+        </form>
+    `;
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    document.getElementById('edit-bloc-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const formData = {
+            nom: document.getElementById('edit-bloc-nom').value,
+            description: document.getElementById('edit-bloc-description').value
+        };
+
+        try {
+            const response = await fetch(`/api/admin/blocs/${bloc.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                showMessage('Bloc modifié avec succès', 'success');
+                modal.remove();
+                loadBlocs();
+            } else {
+                showMessage(result.error, 'error');
+            }
+        } catch (error) {
+            showMessage('Erreur lors de la modification', 'error');
+        }
+    });
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
+}
+
+async function manageCreneauxBloc(blocId, blocNom) {
+    try {
+        // Récupérer tous les créneaux
+        const creneauxResponse = await fetch('/api/creneaux');
+        const creneaux = await creneauxResponse.json();
+
+        // Récupérer les créneaux du bloc
+        const blocCreneauxResponse = await fetch(`/api/admin/blocs/${blocId}/creneaux`);
+        const blocCreneaux = await blocCreneauxResponse.json();
+
+        const blocCreneauxIds = blocCreneaux.map(c => c.id);
+
+        showManageCreneauxModal(blocId, blocNom, creneaux, blocCreneauxIds);
+    } catch (error) {
+        showMessage('Erreur lors du chargement', 'error');
+    }
+}
+
+function showManageCreneauxModal(blocId, blocNom, creneaux, blocCreneauxIds) {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); display: flex; align-items: center;
+        justify-content: center; z-index: 1000;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: white; border-radius: 12px; padding: 2rem;
+        max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;
+    `;
+
+    const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
+    content.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h3>Créneaux du bloc "${blocNom}"</h3>
+            <button onclick="this.closest('div').parentElement.remove()" style="background: #e53e3e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Fermer</button>
+        </div>
+        
+        <p style="color: #718096; margin-bottom: 1rem;">Cochez les créneaux qui appartiennent à ce bloc :</p>
+        
+        <form id="manage-creneaux-form">
+            ${creneaux.map(c => `
+                <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" value="${c.id}" ${blocCreneauxIds.includes(c.id) ? 'checked' : ''}>
+                    <span>${c.nom} - ${joursNoms[c.jour_semaine]} ${c.heure_debut}-${c.heure_fin}</span>
+                </label>
+            `).join('')}
+            
+            <div style="margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: flex-end;">
+                <button type="button" onclick="this.closest('div').parentElement.parentElement.remove()" 
+                        style="background: #718096; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
+                    Annuler
+                </button>
+                <button type="submit" 
+                        style="background: #38a169; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
+                    Sauvegarder
+                </button>
+            </div>
+        </form>
+    `;
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    document.getElementById('manage-creneaux-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const checkboxes = document.querySelectorAll('#manage-creneaux-form input[type="checkbox"]:checked');
+        const creneauxIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+        try {
+            const response = await fetch(`/api/admin/blocs/${blocId}/creneaux`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ creneauxIds })
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                showMessage('Créneaux du bloc mis à jour', 'success');
+                modal.remove();
+                loadBlocs();
+            } else {
+                showMessage(result.error, 'error');
+            }
+        } catch (error) {
+            showMessage('Erreur lors de la mise à jour', 'error');
+        }
+    });
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
+}

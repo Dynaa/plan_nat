@@ -1612,10 +1612,40 @@ app.get('/api/admin/blocs', requireAdmin, async (req, res) => {
                  FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id
                  WHERE bc.bloc_id = ? ORDER BY c.jour_semaine, c.heure_debut`;
             bloc.creneaux = await db.query(creneauxSql, [bloc.id]);
+            bloc.nb_creneaux = bloc.creneaux.length;
         }
         res.json(blocs);
     } catch (err) {
         console.error('Erreur récupération blocs:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// GET : un bloc spécifique
+app.get('/api/admin/blocs/:blocId', requireAdmin, async (req, res) => {
+    const { blocId } = req.params;
+    try {
+        const sql = db.isPostgres ? `SELECT * FROM blocs WHERE id = $1` : `SELECT * FROM blocs WHERE id = ?`;
+        const bloc = await db.get(sql, [blocId]);
+        if (!bloc) return res.status(404).json({ error: 'Bloc non trouvé' });
+        res.json(bloc);
+    } catch (err) {
+        console.error('Erreur récupération bloc:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// GET : créneaux d'un bloc
+app.get('/api/admin/blocs/:blocId/creneaux', requireAdmin, async (req, res) => {
+    const { blocId } = req.params;
+    try {
+        const sql = db.isPostgres ?
+            `SELECT c.* FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id WHERE bc.bloc_id = $1` :
+            `SELECT c.* FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id WHERE bc.bloc_id = ?`;
+        const creneaux = await db.query(sql, [blocId]);
+        res.json(creneaux);
+    } catch (err) {
+        console.error('Erreur récupération créneaux du bloc:', err);
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
@@ -1650,6 +1680,37 @@ app.put('/api/admin/blocs/:blocId', requireAdmin, async (req, res) => {
         res.json({ message: 'Bloc modifié' });
     } catch (err) {
         console.error('Erreur modification bloc:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// PUT : mettre à jour les créneaux d'un bloc
+app.put('/api/admin/blocs/:blocId/creneaux', requireAdmin, async (req, res) => {
+    const { blocId } = req.params;
+    const { creneauxIds } = req.body;
+    
+    if (!Array.isArray(creneauxIds)) {
+        return res.status(400).json({ error: 'creneauxIds doit être un tableau' });
+    }
+
+    try {
+        // Supprimer toutes les associations existantes
+        const deleteSql = db.isPostgres ?
+            `DELETE FROM bloc_creneaux WHERE bloc_id = $1` :
+            `DELETE FROM bloc_creneaux WHERE bloc_id = ?`;
+        await db.run(deleteSql, [blocId]);
+
+        // Ajouter les nouvelles associations
+        for (const creneauId of creneauxIds) {
+            const insertSql = db.isPostgres ?
+                `INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES ($1, $2)` :
+                `INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`;
+            await db.run(insertSql, [blocId, creneauId]);
+        }
+
+        res.json({ message: 'Créneaux du bloc mis à jour' });
+    } catch (err) {
+        console.error('Erreur mise à jour créneaux du bloc:', err);
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
