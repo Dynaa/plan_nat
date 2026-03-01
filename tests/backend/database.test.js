@@ -18,6 +18,12 @@ describe('DatabaseAdapter', () => {
         // Clear mocks and env vars
         jest.clearAllMocks();
         delete process.env.DATABASE_URL;
+        // Désactiver temporairement le mode test pour tester le chemin PostgreSQL
+        process.env.NODE_ENV = 'development';
+    });
+
+    afterEach(() => {
+        process.env.NODE_ENV = 'test'; // Restaurer après chaque test
     });
 
     it('devrait initialiser le pool PostgreSQL si DATABASE_URL est fournie', () => {
