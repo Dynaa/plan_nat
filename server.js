@@ -837,7 +837,7 @@ app.get('/api/creneaux', async (req, res) => {
             FROM inscriptions i2
             JOIN creneaux c2 ON i2.creneau_id = c2.id
             JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
-            WHERE i2.statut = 'inscrit' AND i2.user_id = $1
+            WHERE i2.statut = 'inscrit' AND i2.user_id = $1::integer
         ) ub ON b.id = ub.bloc_id
         WHERE c.actif = true
         GROUP BY c.id, b.id, b.nom, ub.user_id, ub.creneau_nom
@@ -867,7 +867,7 @@ app.get('/api/creneaux', async (req, res) => {
     `;
 
     try {
-        const rows = await db.query(query, [userId || null, userId || null]);
+        const rows = await db.query(query, [userId || null]);
         res.json(rows);
     } catch (err) {
         console.error('Erreur récupération créneaux:', err);
@@ -1688,7 +1688,7 @@ app.put('/api/admin/blocs/:blocId', requireAdmin, async (req, res) => {
 app.put('/api/admin/blocs/:blocId/creneaux', requireAdmin, async (req, res) => {
     const { blocId } = req.params;
     const { creneauxIds } = req.body;
-    
+
     if (!Array.isArray(creneauxIds)) {
         return res.status(400).json({ error: 'creneauxIds doit être un tableau' });
     }
