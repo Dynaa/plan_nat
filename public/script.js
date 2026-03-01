@@ -277,19 +277,24 @@ function showMainInterface() {
 
 async function checkAuthStatus() {
     try {
+        console.log('🔍 Vérification du statut d\'authentification...');
         const response = await fetch('/api/auth-status');
         const data = await response.json();
+        
+        console.log('📊 Réponse auth-status:', data);
 
         if (data.authenticated) {
+            console.log('✅ Utilisateur authentifié:', data.user);
             currentUser = data.user;
             // Réinitialiser aux onglets par défaut avant d'afficher l'interface
             resetToDefaultTabs();
             showMainInterface();
         } else {
+            console.log('❌ Utilisateur non authentifié');
             showAuthInterface();
         }
     } catch (error) {
-        console.log('Erreur de vérification auth:', error);
+        console.log('💥 Erreur de vérification auth:', error);
         showAuthInterface();
     }
 }

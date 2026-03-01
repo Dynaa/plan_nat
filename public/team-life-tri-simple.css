@@ -2,10 +2,10 @@
 
 /* Variables de couleurs Team Life Tri */
 :root {
-    --primary-color: #6366f1;
-    --secondary-color: #8b5cf6;
-    --accent-color: #06b6d4;
-    --background-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    --primary-color: #00A3E0;
+    --secondary-color: #007bb5;
+    --accent-color: #111111;
+    --background-gradient: linear-gradient(135deg, #00A3E0 0%, #004b87 100%);
 }
 
 /* Fond avec dégradé Team Life Tri */

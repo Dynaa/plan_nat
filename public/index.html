@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="team-life-tri-simple.css">
 </head>
+
 <body>
     <header>
         <h1>🏊‍♂️ Créneaux Natation - Club Triathlon</h1>
@@ -68,7 +70,8 @@
             <!-- Onglet Mes inscriptions -->
             <div id="mes-inscriptions-tab" class="tab-content">
                 <h2>Mes inscriptions</h2>
-                <div id="mes-limites-info" style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+                <div id="mes-limites-info"
+                    style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <h4 style="margin: 0 0 0.25rem 0; color: #2d3748;">📊 Votre quota de séances</h4>
@@ -83,7 +86,7 @@
             <!-- Onglet Mon Profil -->
             <div id="mon-profil-tab" class="tab-content">
                 <h2>Mon profil</h2>
-                
+
                 <div class="profile-sections">
                     <!-- Section Informations personnelles -->
                     <div class="profile-section">
@@ -103,8 +106,10 @@
                             </div>
                             <div class="form-group">
                                 <label for="profile-licence">Type de licence</label>
-                                <input type="text" id="profile-licence" readonly style="background: #f7fafc; color: #718096;">
-                                <small style="color: #718096;">Contactez un administrateur pour modifier votre type de licence</small>
+                                <input type="text" id="profile-licence" readonly
+                                    style="background: #f7fafc; color: #718096;">
+                                <small style="color: #718096;">Contactez un administrateur pour modifier votre type de
+                                    licence</small>
                             </div>
                             <button type="submit">Mettre à jour mes informations</button>
                         </form>
@@ -155,18 +160,23 @@
             <!-- Onglet Administration -->
             <div id="admin-tab" class="tab-content">
                 <h2>Administration</h2>
-                
+
                 <!-- Indicateur de statut des méta-règles -->
-                <div id="meta-rules-status" style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 8px; border: 2px solid #e2e8f0; background: #f8fafc;">
+                <div id="meta-rules-status"
+                    style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 8px; border: 2px solid #e2e8f0; background: #f8fafc;">
                     <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <div id="meta-rules-indicator" style="width: 12px; height: 12px; border-radius: 50%; background: #94a3b8;"></div>
+                        <div id="meta-rules-indicator"
+                            style="width: 12px; height: 12px; border-radius: 50%; background: #94a3b8;"></div>
                         <span style="font-weight: 600; color: #374151;">Méta-règles :</span>
                         <span id="meta-rules-status-text" style="color: #6b7280;">Chargement...</span>
-                        <button id="refresh-meta-rules-status" style="margin-left: auto; padding: 0.25rem 0.5rem; font-size: 0.875rem; background: #e5e7eb; border: none; border-radius: 4px; cursor: pointer;">🔄 Actualiser</button>
+                        <button id="refresh-meta-rules-status"
+                            style="margin-left: auto; padding: 0.25rem 0.5rem; font-size: 0.875rem; background: #e5e7eb; border: none; border-radius: 4px; cursor: pointer;">🔄
+                            Actualiser</button>
                     </div>
                 </div>
-                
-                <div class="admin-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 2rem; background: #f7fafc; padding: 0.5rem; border-radius: 8px;">
+
+                <div class="admin-tabs"
+                    style="display: flex; gap: 0.5rem; margin-bottom: 2rem; background: #f7fafc; padding: 0.5rem; border-radius: 8px;">
                     <button class="admin-tab-btn active" data-admin-tab="creneaux">Gestion des créneaux</button>
                     <button class="admin-tab-btn" data-admin-tab="users">Gestion des utilisateurs</button>
                     <button class="admin-tab-btn" data-admin-tab="limites">Limites de séances</button>
@@ -193,12 +203,17 @@
                             <input type="time" id="creneau-fin" required>
                             <input type="number" id="creneau-capacite" placeholder="Capacité max" min="1" required>
                             <div style="grid-column: 1 / -1;">
-                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
-                                <div id="licences-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences
+                                    autorisées :</label>
+                                <div id="licences-checkboxes"
+                                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
                                     <label><input type="checkbox" value="Compétition" checked> 🏆 Compétition</label>
-                                    <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️ Loisir/Senior</label>
-                                    <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒 Benjamins/Junior</label>
-                                    <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶 Poussins/Pupilles</label>
+                                    <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️
+                                        Loisir/Senior</label>
+                                    <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒
+                                        Benjamins/Junior</label>
+                                    <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶
+                                        Poussins/Pupilles</label>
                                 </div>
                             </div>
                             <button type="submit">Créer le créneau</button>
@@ -207,23 +222,25 @@
 
                     <div class="admin-section">
                         <h3>Gestion des créneaux</h3>
-                        
+
                         <!-- Section de remise à zéro hebdomadaire -->
-                        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 1rem; margin-bottom: 2rem;">
+                        <div
+                            style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 1rem; margin-bottom: 2rem;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <div>
                                     <h4 style="margin: 0 0 0.5rem 0; color: #856404;">🔄 Remise à zéro hebdomadaire</h4>
                                     <p style="margin: 0; color: #856404; font-size: 0.9rem;">
-                                        Désinscrire tous les utilisateurs de tous les créneaux pour commencer une nouvelle semaine
+                                        Désinscrire tous les utilisateurs de tous les créneaux pour commencer une
+                                        nouvelle semaine
                                     </p>
                                 </div>
-                                <button onclick="remiseAZeroHebdomadaire()" 
-                                        style="background: #dc3545; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap;">
+                                <button onclick="remiseAZeroHebdomadaire()"
+                                    style="background: #dc3545; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap;">
                                     🗑️ Vider tous les créneaux
                                 </button>
                             </div>
                         </div>
-                        
+
                         <div id="admin-creneaux-list"></div>
                     </div>
                 </div>
@@ -252,11 +269,13 @@
                     <div class="admin-section">
                         <h3>Méta-règles d'inscription</h3>
                         <p style="color: #718096; margin-bottom: 1.5rem;">
-                            Définissez des règles avancées qui empêchent certaines combinaisons d'inscriptions selon le type de licence.
+                            Définissez des règles avancées qui empêchent certaines combinaisons d'inscriptions selon le
+                            type de licence.
                         </p>
 
                         <!-- Configuration globale -->
-                        <div style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                        <div
+                            style="background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
                             <h4 style="margin-bottom: 1rem;">Configuration globale</h4>
                             <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
                                 <label style="display: flex; align-items: center; gap: 0.5rem;">
@@ -266,15 +285,19 @@
                             </div>
                             <div class="form-group">
                                 <label for="meta-rules-description">Description</label>
-                                <textarea id="meta-rules-description" placeholder="Description de la configuration des méta-règles" rows="2"></textarea>
+                                <textarea id="meta-rules-description"
+                                    placeholder="Description de la configuration des méta-règles" rows="2"></textarea>
                             </div>
-                            <button onclick="updateMetaRulesConfig()" class="btn-success">Sauvegarder la configuration</button>
+                            <button onclick="updateMetaRulesConfig()" class="btn-success">Sauvegarder la
+                                configuration</button>
                         </div>
 
                         <!-- Création de nouvelle règle -->
-                        <div style="background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                        <div
+                            style="background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
                             <h4 style="margin-bottom: 1rem;">Créer une nouvelle règle</h4>
-                            <form id="create-meta-rule-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <form id="create-meta-rule-form"
+                                style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                 <div class="form-group">
                                     <label for="rule-licence-type">Type de licence</label>
                                     <select id="rule-licence-type" required>
@@ -326,7 +349,9 @@
                                 </div>
                                 <div class="form-group" style="grid-column: 1 / -1;">
                                     <label for="rule-description">Description de la règle</label>
-                                    <textarea id="rule-description" placeholder="Ex: Récupération obligatoire après séance intensive" rows="2"></textarea>
+                                    <textarea id="rule-description"
+                                        placeholder="Ex: Récupération obligatoire après séance intensive"
+                                        rows="2"></textarea>
                                 </div>
                                 <div style="grid-column: 1 / -1;">
                                     <button type="submit" class="btn-success">Créer la règle</button>
@@ -349,4 +374,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>
