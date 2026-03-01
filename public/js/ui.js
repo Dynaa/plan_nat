@@ -361,7 +361,7 @@ function displayInscriptionsModal(inscriptions, creneauId) {
     content.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
             <h3>Inscriptions au créneau</h3>
-            <button onclick="this.closest('div').remove()" style="background: #e53e3e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Fermer</button>
+            <button onclick="this.closest('.modal').remove()" style="background: #e53e3e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Fermer</button>
         </div>
         
         <div style="margin-bottom: 2rem;">
@@ -628,4 +628,4 @@ function displayMetaRules(rules) {
             </div>
         `;
     }).join('');
-}
+}
