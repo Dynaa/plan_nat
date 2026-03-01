@@ -1120,11 +1120,13 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
     }
 
     try {
+        const capaciteMaxCalculee = parseInt(nombre_lignes) * parseInt(personnes_par_ligne);
+
         const sql = db.isPostgres ?
-            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id` :
-            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`;
+            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, licences_autorisees) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id` :
+            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, licences_autorisees) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
         const result = await db.run(sql, [
             nom,
@@ -1133,6 +1135,7 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
             heure_fin,
             parseInt(nombre_lignes),
             parseInt(personnes_par_ligne),
+            capaciteMaxCalculee,
             licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'
         ]);
 
@@ -1157,9 +1160,11 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     }
 
     try {
+        const capaciteMaxCalculee = parseInt(nombre_lignes) * parseInt(personnes_par_ligne);
+
         const sql = db.isPostgres ?
-            `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, nombre_lignes = $5, personnes_par_ligne = $6, licences_autorisees = $7 WHERE id = $8` :
-            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, licences_autorisees = ? WHERE id = ?`;
+            `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, nombre_lignes = $5, personnes_par_ligne = $6, capacite_max = $7, licences_autorisees = $8 WHERE id = $9` :
+            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, capacite_max = ?, licences_autorisees = ? WHERE id = ?`;
 
         const result = await db.run(sql, [
             nom,
@@ -1168,6 +1173,7 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
             heure_fin,
             parseInt(nombre_lignes),
             parseInt(personnes_par_ligne),
+            capaciteMaxCalculee,
             licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
             creneauId
         ]);
