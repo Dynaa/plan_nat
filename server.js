@@ -409,24 +409,30 @@ async function initializeDatabase() {
 
             // Si les créneaux ont été créés (count > 0 avant l'insert), les associer aux blocs
             const creneauxActuels = await db.query(`SELECT id, nom FROM creneaux ORDER BY id`);
-            if (creneauxActuels.length >= 9) {
-                const blocDebutId = (await db.get(`SELECT id FROM blocs WHERE ordre = 1`)).id;
-                const blocMilieuId = (await db.get(`SELECT id FROM blocs WHERE ordre = 2`)).id;
-                const blocFinId = (await db.get(`SELECT id FROM blocs WHERE ordre = 3`)).id;
+            if (creneauxActuels && creneauxActuels.length >= 9) {
+                const blocDebut = await db.get(`SELECT id FROM blocs WHERE ordre = 1`);
+                const blocMilieu = await db.get(`SELECT id FROM blocs WHERE ordre = 2`);
+                const blocFin = await db.get(`SELECT id FROM blocs WHERE ordre = 3`);
 
-                // Début de semaine : créneaux 1-4
-                for (const c of creneauxActuels.slice(0, 4)) {
-                    await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocDebutId, c.id]);
+                if (blocDebut && blocMilieu && blocFin) {
+                    const blocDebutId = blocDebut.id;
+                    const blocMilieuId = blocMilieu.id;
+                    const blocFinId = blocFin.id;
+
+                    // Début de semaine : créneaux 1-4
+                    for (const c of creneauxActuels.slice(0, 4)) {
+                        await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocDebutId, c.id]);
+                    }
+                    // Milieu de semaine : créneaux 5-8
+                    for (const c of creneauxActuels.slice(4, 8)) {
+                        await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocMilieuId, c.id]);
+                    }
+                    // Fin de semaine : créneau 9
+                    for (const c of creneauxActuels.slice(8, 9)) {
+                        await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocFinId, c.id]);
+                    }
+                    console.log('✅ Blocs et associations créés');
                 }
-                // Milieu de semaine : créneaux 5-8
-                for (const c of creneauxActuels.slice(4, 8)) {
-                    await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocMilieuId, c.id]);
-                }
-                // Fin de semaine : créneau 9
-                for (const c of creneauxActuels.slice(8, 9)) {
-                    await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocFinId, c.id]);
-                }
-                console.log('✅ Blocs et associations créés');
             }
         }
 

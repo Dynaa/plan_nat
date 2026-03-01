@@ -5,7 +5,8 @@ const sqlite3 = require('sqlite3').verbose();
 class DatabaseAdapter {
     constructor() {
         this.isTest = process.env.NODE_ENV === 'test';
-        this.isPostgres = !this.isTest; // Le code de server.js se basera dessus pour choisir la syntaxe SQL
+        // Utiliser PostgreSQL seulement si DATABASE_URL est définie
+        this.isPostgres = !!process.env.DATABASE_URL;
 
         if (this.isTest) {
             console.log('🧪 Mode Test : Initialisation SQLite en mémoire...');
@@ -14,7 +15,9 @@ class DatabaseAdapter {
         }
 
         if (!process.env.DATABASE_URL) {
-            console.error('❌ DATABASE_URL non définie, configuration DB échouée.');
+            console.log('💾 Mode Développement : Initialisation SQLite (database.sqlite)...');
+            this.db = new sqlite3.Database('./database.sqlite');
+            return;
         }
 
         console.log('🐘 Initialisation du pool PostgreSQL...');
@@ -31,13 +34,18 @@ class DatabaseAdapter {
         return sql.replace(/\?/g, () => `$${paramIndex++}`);
     }
 
-    // Compatibilité ascendante
-    adaptSQL(sql) {
-        return this.convertSQLParams(sql);
+    // Méthode pour choisir entre SQLite et PostgreSQL SQL
+    adaptSQL(sqliteSql, postgresSql) {
+        // Si un seul paramètre, c'est l'ancien format (convertir les ?)
+        if (postgresSql === undefined) {
+            return this.convertSQLParams(sqliteSql);
+        }
+        // Nouveau format : choisir selon le type de DB
+        return this.isPostgres ? postgresSql : sqliteSql;
     }
 
     async query(sql, params = []) {
-        if (this.isTest) {
+        if (this.isTest || !this.isPostgres) {
             return new Promise((resolve, reject) => {
                 this.db.all(sql, params, (err, rows) => {
                     if (err) reject(err);
@@ -52,9 +60,9 @@ class DatabaseAdapter {
     }
 
     async get(sql, params = []) {
-        if (this.isTest) {
+        if (this.isTest || !this.isPostgres) {
             // BACKDOOR E2E : Fourniture statique pour les tests de login
-            if (sql.includes('SELECT * FROM users WHERE email')) {
+            if (this.isTest && sql.includes('SELECT * FROM users WHERE email')) {
                 if (params[0] === 'fake@test.com') return null;
                 if (params[0] === 'test@playwright.com') {
                     const bcrypt = require('bcrypt');
@@ -83,7 +91,7 @@ class DatabaseAdapter {
     }
 
     async run(sql, params = []) {
-        if (this.isTest) {
+        if (this.isTest || !this.isPostgres) {
             return new Promise((resolve, reject) => {
                 this.db.run(sql, params, function (err) {
                     if (err) reject(err);
