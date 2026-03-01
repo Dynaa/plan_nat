@@ -7,7 +7,7 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
-const { verifierLimitesSeances, verifierMetaRegles } = require('./services/businessRules');
+const { verifierLimitesSeances, verifierRegleBloc } = require('./services/businessRules');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -181,7 +181,8 @@ async function initializeDatabase() {
                 jour_semaine INTEGER NOT NULL,
                 heure_debut TEXT NOT NULL,
                 heure_fin TEXT NOT NULL,
-                capacite_max INTEGER NOT NULL,
+                nombre_lignes INTEGER NOT NULL DEFAULT 2,
+                personnes_par_ligne INTEGER NOT NULL DEFAULT 6,
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
                 actif BOOLEAN DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -193,7 +194,8 @@ async function initializeDatabase() {
                 jour_semaine INTEGER NOT NULL,
                 heure_debut VARCHAR(10) NOT NULL,
                 heure_fin VARCHAR(10) NOT NULL,
-                capacite_max INTEGER NOT NULL,
+                nombre_lignes INTEGER NOT NULL DEFAULT 2,
+                personnes_par_ligne INTEGER NOT NULL DEFAULT 6,
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
                 actif BOOLEAN DEFAULT true,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -255,61 +257,51 @@ async function initializeDatabase() {
         await db.run(limitsSQL);
         console.log('✅ Table licence_limits créée');
 
-        // Table de configuration des méta-règles
-        const metaConfigSQL = db.adaptSQL(
+        // Table des blocs hebdomadaires
+        const blocsSQL = db.adaptSQL(
             // SQLite
-            `CREATE TABLE IF NOT EXISTS meta_rules_config (
+            `CREATE TABLE IF NOT EXISTS blocs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                enabled BOOLEAN DEFAULT FALSE,
+                nom TEXT NOT NULL,
                 description TEXT,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_by INTEGER,
-                FOREIGN KEY (updated_by) REFERENCES users(id)
+                ordre INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
             // PostgreSQL
-            `CREATE TABLE IF NOT EXISTS meta_rules_config (
+            `CREATE TABLE IF NOT EXISTS blocs (
                 id SERIAL PRIMARY KEY,
-                enabled BOOLEAN DEFAULT false,
+                nom VARCHAR(255) NOT NULL,
                 description TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_by INTEGER,
-                FOREIGN KEY (updated_by) REFERENCES users(id)
+                ordre INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )`
         );
-        console.log('🔧 Création table meta_rules_config...');
-        await db.run(metaConfigSQL);
-        console.log('✅ Table meta_rules_config créée');
+        console.log('🔧 Création table blocs...');
+        await db.run(blocsSQL);
+        console.log('✅ Table blocs créée');
 
-        // Table des méta-règles par licence
-        const metaRulesSQL = db.adaptSQL(
+        // Table de liaison blocs ↔ créneaux
+        const blocCreneauxSQL = db.adaptSQL(
             // SQLite
-            `CREATE TABLE IF NOT EXISTS meta_rules (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                licence_type TEXT NOT NULL,
-                jour_source INTEGER NOT NULL,
-                jours_interdits TEXT NOT NULL,
-                description TEXT,
-                active BOOLEAN DEFAULT TRUE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                created_by INTEGER,
-                FOREIGN KEY (created_by) REFERENCES users(id)
+            `CREATE TABLE IF NOT EXISTS bloc_creneaux (
+                bloc_id INTEGER NOT NULL,
+                creneau_id INTEGER NOT NULL,
+                PRIMARY KEY (bloc_id, creneau_id),
+                FOREIGN KEY (bloc_id) REFERENCES blocs(id) ON DELETE CASCADE,
+                FOREIGN KEY (creneau_id) REFERENCES creneaux(id) ON DELETE CASCADE
             )`,
             // PostgreSQL
-            `CREATE TABLE IF NOT EXISTS meta_rules (
-                id SERIAL PRIMARY KEY,
-                licence_type VARCHAR(100) NOT NULL,
-                jour_source INTEGER NOT NULL,
-                jours_interdits TEXT NOT NULL,
-                description TEXT,
-                active BOOLEAN DEFAULT true,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                created_by INTEGER,
-                FOREIGN KEY (created_by) REFERENCES users(id)
+            `CREATE TABLE IF NOT EXISTS bloc_creneaux (
+                bloc_id INTEGER NOT NULL,
+                creneau_id INTEGER NOT NULL,
+                PRIMARY KEY (bloc_id, creneau_id),
+                FOREIGN KEY (bloc_id) REFERENCES blocs(id) ON DELETE CASCADE,
+                FOREIGN KEY (creneau_id) REFERENCES creneaux(id) ON DELETE CASCADE
             )`
         );
-        console.log('🔧 Création table meta_rules...');
-        await db.run(metaRulesSQL);
-        console.log('✅ Table meta_rules créée');
+        console.log('🔧 Création table bloc_creneaux...');
+        await db.run(blocCreneauxSQL);
+        console.log('✅ Table bloc_creneaux créée');
 
         // Table des tokens d'inscription pour la liste d'attente
         const waitlistTokensSQL = db.adaptSQL(
@@ -366,17 +358,25 @@ async function initializeDatabase() {
         const creneauxCount = await db.get(`SELECT COUNT(*) as count FROM creneaux`);
         if (!creneauxCount || creneauxCount.count === 0) {
             console.log('Création des créneaux de test...');
+            // Créneaux de référence (Lundi=1, Mardi=2, Mercredi=3, Jeudi=4, Vendredi=5, Samedi=6)
             const creneauxTest = [
-                ['Natation Débutants', 1, '18:00', '19:00', 8, 'Loisir/Senior'],
-                ['Natation Confirmés', 1, '19:00', '20:00', 6, 'Compétition,Loisir/Senior'],
-                ['École de Natation', 3, '12:00', '13:00', 10, 'Poussins/Pupilles,Benjamins/Junior'],
-                ['Entraînement Compétition', 5, '18:30', '19:30', 12, 'Compétition'],
-                ['Natation Libre', 6, '10:00', '11:00', 15, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles']
+                // Bloc début de semaine
+                ['Lundi Matin 7h-8h', 1, '07:00', '08:00', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Lundi 11h15-12h30', 1, '11:15', '12:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Lundi 12h30-13h30', 1, '12:30', '13:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Mardi Matin 7h-8h30', 2, '07:00', '08:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                // Bloc milieu de semaine
+                ['Mercredi Matin 7h-8h', 3, '07:00', '08:00', 1, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Jeudi Matin 7h-8h', 4, '07:00', '08:00', 1, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Jeudi Soir 20h30-21h30', 4, '20:30', '21:30', 3, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Vendredi Midi 12h-13h30', 5, '12:00', '13:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                // Bloc fin de semaine
+                ['Samedi Matin 8h-9h', 6, '08:00', '09:00', 4, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
             ];
 
-            for (const [nom, jour, debut, fin, capacite, licences] of creneauxTest) {
-                await db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) VALUES (?, ?, ?, ?, ?, ?)`,
-                    [nom, jour, debut, fin, capacite, licences]);
+            for (const [nom, jour, debut, fin, lignes, personnes, licences] of creneauxTest) {
+                await db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [nom, jour, debut, fin, lignes, personnes, licences]);
             }
         }
 
@@ -396,11 +396,38 @@ async function initializeDatabase() {
             }
         }
 
-        // Initialiser la configuration des méta-règles
-        const configCount = await db.get(`SELECT COUNT(*) as count FROM meta_rules_config`);
-        if (!configCount || configCount.count === 0) {
-            await db.run(`INSERT INTO meta_rules_config (enabled, description) VALUES (?, ?)`,
-                [false, 'Configuration des méta-règles d\'inscription par licence']);
+        // Créer les 3 blocs hebdomadaires de référence
+        const blocsCount = await db.get(`SELECT COUNT(*) as count FROM blocs`);
+        if (!blocsCount || blocsCount.count === 0) {
+            console.log('Création des blocs de référence...');
+            await db.run(`INSERT INTO blocs (nom, description, ordre) VALUES (?, ?, ?)`,
+                ['Début de semaine', 'Lundi et Mardi', 1]);
+            await db.run(`INSERT INTO blocs (nom, description, ordre) VALUES (?, ?, ?)`,
+                ['Milieu de semaine', 'Mercredi, Jeudi et Vendredi', 2]);
+            await db.run(`INSERT INTO blocs (nom, description, ordre) VALUES (?, ?, ?)`,
+                ['Fin de semaine', 'Samedi', 3]);
+
+            // Si les créneaux ont été créés (count > 0 avant l'insert), les associer aux blocs
+            const creneauxActuels = await db.query(`SELECT id, nom FROM creneaux ORDER BY id`);
+            if (creneauxActuels.length >= 9) {
+                const blocDebutId = (await db.get(`SELECT id FROM blocs WHERE ordre = 1`)).id;
+                const blocMilieuId = (await db.get(`SELECT id FROM blocs WHERE ordre = 2`)).id;
+                const blocFinId = (await db.get(`SELECT id FROM blocs WHERE ordre = 3`)).id;
+
+                // Début de semaine : créneaux 1-4
+                for (const c of creneauxActuels.slice(0, 4)) {
+                    await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocDebutId, c.id]);
+                }
+                // Milieu de semaine : créneaux 5-8
+                for (const c of creneauxActuels.slice(4, 8)) {
+                    await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocMilieuId, c.id]);
+                }
+                // Fin de semaine : créneau 9
+                for (const c of creneauxActuels.slice(8, 9)) {
+                    await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [blocFinId, c.id]);
+                }
+                console.log('✅ Blocs et associations créés');
+            }
         }
 
         console.log('✅ Base de données initialisée avec succès');
@@ -728,25 +755,63 @@ app.get('/api/auth-status', async (req, res) => {
 
 // Routes des créneaux
 app.get('/api/creneaux', async (req, res) => {
-    const query = `
-        SELECT c.*, 
+    const userId = req.session ? req.session.userId : null;
+
+    const query = db.isPostgres ? `
+        SELECT c.*,
+               (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
                COUNT(CASE WHEN i.statut = 'inscrit' THEN 1 END) as inscrits,
-               COUNT(CASE WHEN i.statut = 'attente' THEN 1 END) as en_attente
+               COUNT(CASE WHEN i.statut = 'attente' THEN 1 END) as en_attente,
+               b.id as bloc_id,
+               b.nom as bloc_nom,
+               CASE WHEN ub.user_id IS NOT NULL THEN ub.creneau_nom ELSE NULL END as inscrit_dans_bloc
         FROM creneaux c
         LEFT JOIN inscriptions i ON c.id = i.creneau_id
-        WHERE c.actif = ${db.isPostgres ? 'true' : '1'}
-        GROUP BY c.id
+        LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
+        LEFT JOIN blocs b ON bc.bloc_id = b.id
+        LEFT JOIN (
+            SELECT i2.user_id, bc2.bloc_id, c2.nom as creneau_nom
+            FROM inscriptions i2
+            JOIN creneaux c2 ON i2.creneau_id = c2.id
+            JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
+            WHERE i2.statut = 'inscrit' AND i2.user_id = $1
+        ) ub ON b.id = ub.bloc_id
+        WHERE c.actif = true
+        GROUP BY c.id, b.id, b.nom, ub.user_id, ub.creneau_nom
+        ORDER BY c.jour_semaine, c.heure_debut
+    ` : `
+        SELECT c.*,
+               (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
+               COUNT(CASE WHEN i.statut = 'inscrit' THEN 1 END) as inscrits,
+               COUNT(CASE WHEN i.statut = 'attente' THEN 1 END) as en_attente,
+               b.id as bloc_id,
+               b.nom as bloc_nom,
+               ub.creneau_nom as inscrit_dans_bloc
+        FROM creneaux c
+        LEFT JOIN inscriptions i ON c.id = i.creneau_id
+        LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
+        LEFT JOIN blocs b ON bc.bloc_id = b.id
+        LEFT JOIN (
+            SELECT i2.user_id, bc2.bloc_id, c2.nom as creneau_nom
+            FROM inscriptions i2
+            JOIN creneaux c2 ON i2.creneau_id = c2.id
+            JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
+            WHERE i2.statut = 'inscrit' AND i2.user_id = ?
+        ) ub ON b.id = ub.bloc_id
+        WHERE c.actif = 1
+        GROUP BY c.id, b.id, b.nom, ub.creneau_nom
         ORDER BY c.jour_semaine, c.heure_debut
     `;
 
     try {
-        const rows = await db.query(query, []);
+        const rows = await db.query(query, [userId || null, userId || null]);
         res.json(rows);
     } catch (err) {
         console.error('Erreur récupération créneaux:', err);
         return res.status(500).json({ error: 'Erreur lors de la récupération des créneaux' });
     }
 });
+
 
 app.get('/api/creneaux/:creneauId', async (req, res) => {
     const creneauId = req.params.creneauId;
@@ -983,23 +1048,28 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
     }
 });
 
-// Routes de création de créneaux (ADMIN)
+// Route de création de créneaux (ADMIN)
 app.post('/api/creneaux', requireAdmin, async (req, res) => {
-    const { nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees } = req.body;
+    const { nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees } = req.body;
+
+    if (!nom || jour_semaine === undefined || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
+        return res.status(400).json({ error: 'Tous les champs sont requis (nom, jour, horaires, nombre_lignes, personnes_par_ligne)' });
+    }
 
     try {
         const sql = db.isPostgres ?
-            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) 
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id` :
-            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) 
-             VALUES (?, ?, ?, ?, ?, ?)`;
+            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id` :
+            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
         const result = await db.run(sql, [
             nom,
             jour_semaine,
             heure_debut,
             heure_fin,
-            capacite_max,
+            parseInt(nombre_lignes),
+            parseInt(personnes_par_ligne),
             licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'
         ]);
 
@@ -1013,29 +1083,28 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
     }
 });
 
-// Route de modification de créneaux (ADMIN) - Version simplifiée
+
+// Route de modification de créneaux (ADMIN)
 app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
-    const { nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees } = req.body;
+    const { nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees } = req.body;
 
-    console.log('Modification du créneau:', creneauId, req.body);
-
-    if (!nom || jour_semaine === undefined || !heure_debut || !heure_fin || !capacite_max) {
+    if (!nom || jour_semaine === undefined || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
         return res.status(400).json({ error: 'Tous les champs sont requis' });
     }
 
     try {
-        // Mise à jour simplifiée (sans gestion avancée des capacités pour l'instant)
         const sql = db.isPostgres ?
-            `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, capacite_max = $5, licences_autorisees = $6 WHERE id = $7` :
-            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, capacite_max = ?, licences_autorisees = ? WHERE id = ?`;
+            `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, nombre_lignes = $5, personnes_par_ligne = $6, licences_autorisees = $7 WHERE id = $8` :
+            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, licences_autorisees = ? WHERE id = ?`;
 
         const result = await db.run(sql, [
             nom,
             jour_semaine,
             heure_debut,
             heure_fin,
-            capacite_max,
+            parseInt(nombre_lignes),
+            parseInt(personnes_par_ligne),
             licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
             creneauId
         ]);
@@ -1044,13 +1113,13 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
             return res.status(404).json({ error: 'Créneau non trouvé' });
         }
 
-        console.log('Créneau modifié avec succès:', creneauId);
         res.json({ message: 'Créneau modifié avec succès' });
     } catch (err) {
         console.error('Erreur modification créneau:', err);
         return res.status(500).json({ error: 'Erreur lors de la modification du créneau' });
     }
 });
+
 
 // Route de suppression de créneaux (ADMIN)
 app.delete('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
@@ -1465,6 +1534,126 @@ app.put('/api/changer-mot-de-passe', requireAuth, async (req, res) => {
     }
 });
 
+// ===== ROUTES CRUD BLOCS (ADMIN) =====
+
+// GET : liste des blocs avec leurs créneaux
+app.get('/api/admin/blocs', requireAdmin, async (req, res) => {
+    try {
+        const blocs = await db.query(`SELECT * FROM blocs ORDER BY ordre, nom`);
+        for (const bloc of blocs) {
+            const creneauxSql = db.isPostgres ?
+                `SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.nombre_lignes, c.personnes_par_ligne
+                 FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id
+                 WHERE bc.bloc_id = $1 ORDER BY c.jour_semaine, c.heure_debut` :
+                `SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.nombre_lignes, c.personnes_par_ligne
+                 FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id
+                 WHERE bc.bloc_id = ? ORDER BY c.jour_semaine, c.heure_debut`;
+            bloc.creneaux = await db.query(creneauxSql, [bloc.id]);
+        }
+        res.json(blocs);
+    } catch (err) {
+        console.error('Erreur récupération blocs:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// POST : créer un bloc
+app.post('/api/admin/blocs', requireAdmin, async (req, res) => {
+    const { nom, description, ordre } = req.body;
+    if (!nom) return res.status(400).json({ error: 'Le nom du bloc est requis' });
+    try {
+        const sql = db.isPostgres ?
+            `INSERT INTO blocs (nom, description, ordre) VALUES ($1, $2, $3) RETURNING id` :
+            `INSERT INTO blocs (nom, description, ordre) VALUES (?, ?, ?)`;
+        const result = await db.run(sql, [nom, description || '', parseInt(ordre) || 0]);
+        res.json({ message: 'Bloc créé', blocId: result.lastID || result.id });
+    } catch (err) {
+        console.error('Erreur création bloc:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// PUT : modifier un bloc
+app.put('/api/admin/blocs/:blocId', requireAdmin, async (req, res) => {
+    const { blocId } = req.params;
+    const { nom, description, ordre } = req.body;
+    if (!nom) return res.status(400).json({ error: 'Le nom du bloc est requis' });
+    try {
+        const sql = db.isPostgres ?
+            `UPDATE blocs SET nom = $1, description = $2, ordre = $3 WHERE id = $4` :
+            `UPDATE blocs SET nom = ?, description = ?, ordre = ? WHERE id = ?`;
+        const result = await db.run(sql, [nom, description || '', parseInt(ordre) || 0, blocId]);
+        if (result.changes === 0) return res.status(404).json({ error: 'Bloc non trouvé' });
+        res.json({ message: 'Bloc modifié' });
+    } catch (err) {
+        console.error('Erreur modification bloc:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// DELETE : supprimer un bloc
+app.delete('/api/admin/blocs/:blocId', requireAdmin, async (req, res) => {
+    const { blocId } = req.params;
+    try {
+        // ON DELETE CASCADE gère la table bloc_creneaux
+        const sql = db.isPostgres ? `DELETE FROM blocs WHERE id = $1` : `DELETE FROM blocs WHERE id = ?`;
+        const result = await db.run(sql, [blocId]);
+        if (result.changes === 0) return res.status(404).json({ error: 'Bloc non trouvé' });
+        res.json({ message: 'Bloc supprimé' });
+    } catch (err) {
+        console.error('Erreur suppression bloc:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// POST : associer un créneau à un bloc
+app.post('/api/admin/blocs/:blocId/creneaux/:creneauId', requireAdmin, async (req, res) => {
+    const { blocId, creneauId } = req.params;
+    try {
+        const sql = db.isPostgres ?
+            `INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES ($1, $2) ON CONFLICT DO NOTHING` :
+            `INSERT OR IGNORE INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`;
+        await db.run(sql, [blocId, creneauId]);
+        res.json({ message: 'Créneau associé au bloc' });
+    } catch (err) {
+        console.error('Erreur association créneau-bloc:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// DELETE : détacher un créneau d'un bloc
+app.delete('/api/admin/blocs/:blocId/creneaux/:creneauId', requireAdmin, async (req, res) => {
+    const { blocId, creneauId } = req.params;
+    try {
+        const sql = db.isPostgres ?
+            `DELETE FROM bloc_creneaux WHERE bloc_id = $1 AND creneau_id = $2` :
+            `DELETE FROM bloc_creneaux WHERE bloc_id = ? AND creneau_id = ?`;
+        await db.run(sql, [blocId, creneauId]);
+        res.json({ message: 'Créneau retiré du bloc' });
+    } catch (err) {
+        console.error('Erreur suppression association créneau-bloc:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// GET : liste des créneaux non encore associés à un bloc (pour le formulaire d'association)
+app.get('/api/admin/creneaux-sans-bloc', requireAdmin, async (req, res) => {
+    try {
+        const sql = `
+            SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin
+            FROM creneaux c
+            WHERE c.id NOT IN (SELECT creneau_id FROM bloc_creneaux)
+            AND c.actif = ${db.isPostgres ? 'true' : '1'}
+            ORDER BY c.jour_semaine, c.heure_debut
+        `;
+        const rows = await db.query(sql, []);
+        res.json(rows);
+    } catch (err) {
+        console.error('Erreur récupération créneaux sans bloc:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
 // Routes d'administration des créneaux
 app.get('/api/admin/inscriptions/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
@@ -1658,27 +1847,31 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
             });
         }
 
-        // Vérifier les méta-règles d'inscription
-        const metaReglesCheck = await verifierMetaRegles(db, userId, creneauId);
+        // Vérifier la règle de bloc (1 séance par bloc maximum)
+        const regleBloc = await verifierRegleBloc(db, userId, creneauId);
 
-        if (!metaReglesCheck.autorise) {
+        if (!regleBloc.autorise) {
             return res.status(400).json({
-                error: metaReglesCheck.message
+                error: regleBloc.message
             });
         }
 
         // Vérifier la capacité du créneau et les inscriptions actuelles
         const creneauSql = db.isPostgres ?
-            `SELECT c.capacite_max, c.nom, COUNT(i.id) as inscrits_actuels
+            `SELECT c.nombre_lignes, c.personnes_par_ligne, c.nom,
+                    (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
+                    COUNT(i.id) as inscrits_actuels
              FROM creneaux c
              LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit'
              WHERE c.id = $1
-             GROUP BY c.id, c.capacite_max, c.nom` :
-            `SELECT c.capacite_max, c.nom, COUNT(i.id) as inscrits_actuels
+             GROUP BY c.id, c.nombre_lignes, c.personnes_par_ligne, c.nom` :
+            `SELECT c.nombre_lignes, c.personnes_par_ligne, c.nom,
+                    (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
+                    COUNT(i.id) as inscrits_actuels
              FROM creneaux c
              LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit'
              WHERE c.id = ?
-             GROUP BY c.id, c.capacite_max, c.nom`;
+             GROUP BY c.id, c.nombre_lignes, c.personnes_par_ligne, c.nom`;
 
         const creneauInfo = await db.get(creneauSql, [creneauId]);
 
@@ -1687,7 +1880,7 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
         }
 
         const inscritActuels = parseInt(creneauInfo.inscrits_actuels) || 0;
-        const capaciteMax = creneauInfo.capacite_max;
+        const capaciteMax = parseInt(creneauInfo.capacite_max);
 
         // Déterminer le statut d'inscription
         let statut = 'inscrit';

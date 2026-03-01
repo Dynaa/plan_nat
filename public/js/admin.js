@@ -5,7 +5,8 @@ async function handleCreateCreneau(e) {
     const jour_semaine = document.getElementById('creneau-jour').value;
     const heure_debut = document.getElementById('creneau-debut').value;
     const heure_fin = document.getElementById('creneau-fin').value;
-    const capacite_max = document.getElementById('creneau-capacite').value;
+    const nombre_lignes = document.getElementById('creneau-lignes').value;
+    const personnes_par_ligne = document.getElementById('creneau-personnes').value;
 
     // Récupérer les licences sélectionnées
     const licencesCheckboxes = document.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked');
@@ -15,7 +16,7 @@ async function handleCreateCreneau(e) {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees })
+            body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees })
         });
 
         const data = await response.json();
@@ -250,11 +251,16 @@ async function editerCreneau(creneauId) {
                 </div>
                 
                 <div style="margin-bottom: 1.5rem;">
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Capacité maximale</label>
-                    <input type="number" id="edit-capacite" value="${creneau.capacite_max}" min="1" required 
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nombre de lignes</label>
+                    <input type="number" id="edit-lignes" value="${creneau.nombre_lignes || 2}" min="1" required 
+                           style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                </div>
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Personnes par ligne</label>
+                    <input type="number" id="edit-personnes" value="${creneau.personnes_par_ligne || 6}" min="1" required 
                            style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
                     <small style="color: #718096; font-size: 0.8rem;">
-                        Si vous réduisez la capacité, les derniers inscrits seront automatiquement mis sur liste d'attente.
+                        Capacité totale = lignes × personnes/ligne = ${(creneau.nombre_lignes || 2) * (creneau.personnes_par_ligne || 6)} places
                     </small>
                 </div>
                 
@@ -299,7 +305,8 @@ async function editerCreneau(creneauId) {
                 jour_semaine: document.getElementById('edit-jour').value,
                 heure_debut: document.getElementById('edit-debut').value,
                 heure_fin: document.getElementById('edit-fin').value,
-                capacite_max: document.getElementById('edit-capacite').value,
+                nombre_lignes: parseInt(document.getElementById('edit-lignes').value),
+                personnes_par_ligne: parseInt(document.getElementById('edit-personnes').value),
                 licences_autorisees: licences_autorisees
             };
 
@@ -714,4 +721,4 @@ async function loadMetaRulesStatus() {
         console.error('Erreur lors du chargement du statut des méta-règles:', error);
         updateMetaRulesStatusDisplay(null);
     }
-}
+}

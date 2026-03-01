@@ -176,7 +176,8 @@ function displayCreneaux() {
     };
 
     container.innerHTML = creneaux.map(creneau => {
-        const disponible = creneau.inscrits < creneau.capacite_max;
+        const capaciteMax = creneau.capacite_max || (creneau.nombre_lignes * creneau.personnes_par_ligne);
+        const disponible = creneau.inscrits < capaciteMax;
         const statusClass = disponible ? 'available' : 'full';
         const statusText = disponible ? 'Places disponibles' : 'Complet';
 
@@ -186,10 +187,24 @@ function displayCreneaux() {
         const peutSinscrire = !currentUser || !userLicence || licencesAutorisees.includes(userLicence);
         const licencesText = licencesAutorisees.length > 0 ? licencesAutorisees.join(', ') : 'Toutes licences';
 
-        // Debug pour identifier le problème
-        if (currentUser && userLicence) {
-            console.log(`Créneau: ${creneau.nom}, Licences autorisées: [${licencesAutorisees.join(', ')}], Licence utilisateur: ${userLicence}, Peut s'inscrire: ${peutSinscrire}`);
-        }
+        // Vérifier si l'utilisateur est déjà dans ce bloc (autre créneau)
+        const blocqueParBloc = creneau.inscrit_dans_bloc && creneau.inscrit_dans_bloc !== creneau.nom;
+        const messageBloc = blocqueParBloc
+            ? `Vous avez déjà « ${creneau.inscrit_dans_bloc} » dans ce bloc`
+            : null;
+
+        const blocBadge = creneau.bloc_nom
+            ? `<div style="display:inline-block;background:#ebf8ff;color:#2b6cb0;border:1px solid #bee3f8;border-radius:999px;padding:2px 10px;font-size:0.75rem;margin-top:0.25rem;">🗂 ${creneau.bloc_nom}</div>`
+            : '';
+
+        const lignesTooltip = creneau.nombre_lignes
+            ? `${creneau.nombre_lignes} ligne(s) × ${creneau.personnes_par_ligne} pers.`
+            : '';
+
+        const btnDisabled = !peutSinscrire || blocqueParBloc;
+        const btnLabel = !peutSinscrire ? 'Licence incompatible'
+            : blocqueParBloc ? 'Bloc déjà utilisé'
+                : disponible ? 'S\'inscrire' : 'Liste d\'attente';
 
         return `
             <div class="creneau-card">
@@ -200,19 +215,22 @@ function displayCreneaux() {
                         <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
                             🎫 ${licencesText}
                         </div>
+                        ${blocBadge}
+                        ${messageBloc ? `<div style="color:#c05621;font-size:0.8rem;margin-top:0.25rem;">⚠️ ${messageBloc}</div>` : ''}
                     </div>
                 </div>
                 <div class="creneau-status">
                     <div class="capacite ${statusClass}">
-                        ${creneau.inscrits}/${creneau.capacite_max} inscrits
+                        ${creneau.inscrits}/${capaciteMax} inscrits
+                        ${lignesTooltip ? `<span style="color:#718096;font-size:0.75rem;"> (${lignesTooltip})</span>` : ''}
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
                     <div>${statusText}</div>
                     <button onclick="inscrireCreneau(${creneau.id})" 
                             class="btn-success" 
-                            ${!peutSinscrire ? 'disabled title="Votre licence ne permet pas l\'accès à ce créneau"' : ''}
-                            ${!peutSinscrire ? 'style="background: #a0aec0; cursor: not-allowed;"' : ''}>
-                        ${!peutSinscrire ? 'Licence incompatible' : (disponible ? 'S\'inscrire' : 'Liste d\'attente')}
+                            ${btnDisabled ? 'disabled' : ''}
+                            ${btnDisabled ? 'style="background: #a0aec0; cursor: not-allowed;"' : ''}>
+                        ${btnLabel}
                     </button>
                 </div>
             </div>

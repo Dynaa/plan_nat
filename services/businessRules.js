@@ -48,75 +48,65 @@ const verifierLimitesSeances = async (db, userId) => {
     }
 };
 
-// Fonction pour vérifier les méta-règles d'inscription
-const verifierMetaRegles = async (db, userId, creneauId) => {
+// Vérifier la règle de bloc : un utilisateur ne peut s'inscrire qu'à 1 séance par bloc
+const verifierRegleBloc = async (db, userId, creneauId) => {
     try {
-        // Vérifier si les méta-règles sont activées
-        const config = await db.get(`SELECT enabled FROM meta_rules_config ORDER BY id DESC LIMIT 1`);
+        // Trouver le bloc auquel appartient ce créneau
+        const bloc = await db.get(
+            db.isPostgres
+                ? `SELECT b.id, b.nom FROM blocs b
+                   JOIN bloc_creneaux bc ON b.id = bc.bloc_id
+                   WHERE bc.creneau_id = $1`
+                : `SELECT b.id, b.nom FROM blocs b
+                   JOIN bloc_creneaux bc ON b.id = bc.bloc_id
+                   WHERE bc.creneau_id = ?`,
+            [creneauId]
+        );
 
-        if (!config || !config.enabled) {
-            return { autorise: true, message: null };
+        // Si le créneau n'appartient à aucun bloc, pas de restriction
+        if (!bloc) {
+            return { autorise: true, message: null, blocNom: null, creneauExistant: null };
         }
 
-        // Récupérer les informations de l'utilisateur et du créneau
-        const userInfo = await db.get(`SELECT licence_type FROM users WHERE id = $1`, [userId]);
-        const creneauInfo = await db.get(`SELECT jour_semaine FROM creneaux WHERE id = $1`, [creneauId]);
+        // Vérifier si l'utilisateur est déjà inscrit à un créneau de ce même bloc
+        const inscriptionExistante = await db.get(
+            db.isPostgres
+                ? `SELECT i.id, c.nom as creneau_nom, c.jour_semaine, c.heure_debut, c.heure_fin
+                   FROM inscriptions i
+                   JOIN creneaux c ON i.creneau_id = c.id
+                   JOIN bloc_creneaux bc ON c.id = bc.creneau_id
+                   WHERE i.user_id = $1
+                     AND bc.bloc_id = $2
+                     AND i.creneau_id != $3
+                     AND i.statut = 'inscrit'
+                   LIMIT 1`
+                : `SELECT i.id, c.nom as creneau_nom, c.jour_semaine, c.heure_debut, c.heure_fin
+                   FROM inscriptions i
+                   JOIN creneaux c ON i.creneau_id = c.id
+                   JOIN bloc_creneaux bc ON c.id = bc.creneau_id
+                   WHERE i.user_id = ?
+                     AND bc.bloc_id = ?
+                     AND i.creneau_id != ?
+                     AND i.statut = 'inscrit'
+                   LIMIT 1`,
+            [userId, bloc.id, creneauId]
+        );
 
-        if (!userInfo || !creneauInfo) {
-            return { autorise: false, message: 'Informations utilisateur ou créneau introuvables' };
+        if (inscriptionExistante) {
+            const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+            return {
+                autorise: false,
+                message: `Vous êtes déjà inscrit au créneau « ${inscriptionExistante.creneau_nom} » (${joursNoms[inscriptionExistante.jour_semaine]} ${inscriptionExistante.heure_debut}) dans le bloc « ${bloc.nom} ». Un seul créneau par bloc est autorisé.`,
+                blocNom: bloc.nom,
+                creneauExistant: inscriptionExistante.creneau_nom
+            };
         }
 
-        // Récupérer les méta-règles actives pour ce type de licence
-        const metaRegles = await db.query(`
-            SELECT jour_source, jours_interdits, description 
-            FROM meta_rules 
-            WHERE licence_type = $1 AND active = true
-        `, [userInfo.licence_type]);
-
-        if (!metaRegles || metaRegles.length === 0) {
-            return { autorise: true, message: null };
-        }
-
-        // Vérifier chaque méta-règle
-        for (const regle of metaRegles) {
-            // Vérifier si l'utilisateur est inscrit au jour source cette semaine
-            const inscriptionSource = await db.get(`
-                SELECT i.id 
-                FROM inscriptions i
-                JOIN creneaux c ON i.creneau_id = c.id
-                WHERE i.user_id = $1 
-                AND c.jour_semaine = $2 
-                AND i.statut = 'inscrit'
-            `, [userId, regle.jour_source]);
-
-            if (inscriptionSource) {
-                // L'utilisateur est inscrit au jour source, vérifier les jours interdits
-                let joursInterdits;
-                try {
-                    // Essayer de parser comme JSON d'abord
-                    joursInterdits = JSON.parse(regle.jours_interdits);
-                } catch (e) {
-                    // Si ça échoue, traiter comme une chaîne séparée par des virgules
-                    joursInterdits = regle.jours_interdits.split(',').map(j => parseInt(j.trim()));
-                }
-
-                const jourCreneau = creneauInfo.jour_semaine;
-
-                if (joursInterdits.includes(jourCreneau)) {
-                    const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-                    return {
-                        autorise: false,
-                        message: `Inscription interdite : vous êtes déjà inscrit le ${joursNoms[regle.jour_source]} cette semaine. ${regle.description || ''}`
-                    };
-                }
-            }
-        }
-
-        return { autorise: true, message: null };
+        return { autorise: true, message: null, blocNom: bloc.nom, creneauExistant: null };
     } catch (err) {
-        console.error('Erreur lors de la vérification des méta-règles:', err);
+        console.error('Erreur lors de la vérification de la règle de bloc:', err);
         return { autorise: false, message: "Erreur lors de la vérification des règles d'inscription" };
     }
 };
 
-module.exports = { verifierLimitesSeances, verifierMetaRegles };
+module.exports = { verifierLimitesSeances, verifierRegleBloc };
