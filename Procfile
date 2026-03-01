@@ -1,1 +1,1 @@
-web: node server.js
+web: node migrate-blocs.js && node server.js
