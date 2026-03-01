@@ -68,14 +68,14 @@ const initEmailTransporter = async () => {
         pass: !!process.env.SMTP_PASS,
         nodeEnv: process.env.NODE_ENV
     });
-    
+
     try {
         // En production, utiliser Ethereal si aucun service email configuré
         if (process.env.NODE_ENV === 'production' && !process.env.RESEND_API_KEY && !process.env.SENDGRID_API_KEY && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS)) {
             console.log('📧 Mode production : utilisation d\'Ethereal Email pour les tests');
             // Ne pas retourner, continuer avec Ethereal
         }
-        
+
         if (!process.env.SMTP_HOST) {
             console.log('📧 Pas de SMTP_HOST défini, création compte Ethereal...');
             const testAccount = await nodemailer.createTestAccount();
@@ -100,7 +100,7 @@ const initEmailTransporter = async () => {
             secure: emailConfig.secure,
             tls: emailConfig.tls
         });
-        
+
         // Diagnostic spécial pour OVH
         if (emailConfig.host.includes('ovh')) {
             console.log('🔍 Diagnostic OVH:');
@@ -129,7 +129,7 @@ if (process.env.NODE_ENV === 'production') {
     console.log('- PORT:', process.env.PORT);
     console.log('- DATABASE_URL présente:', !!process.env.DATABASE_URL);
     console.log('- RAILWAY_ENVIRONMENT:', process.env.RAILWAY_ENVIRONMENT);
-    
+
     // Afficher le début de DATABASE_URL sans exposer les credentials
     if (process.env.DATABASE_URL) {
         const dbUrl = process.env.DATABASE_URL;
@@ -142,7 +142,7 @@ async function initializeDatabase() {
     try {
         console.log('🔧 Début initialisation de la base de données...');
         console.log('🔧 Type de base:', db.isPostgres ? 'PostgreSQL' : 'SQLite');
-        
+
         // Table des utilisateurs
         const usersSQL = db.adaptSQL(
             // SQLite
@@ -345,7 +345,7 @@ async function initializeDatabase() {
         // Créer admin par défaut
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
         const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
-        
+
         const insertAdminSQL = db.adaptSQL(
             `INSERT OR IGNORE INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Admin', 'Système', 'admin')`,
             `INSERT INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Admin', 'Système', 'admin') ON CONFLICT (email) DO NOTHING`
@@ -373,9 +373,9 @@ async function initializeDatabase() {
                 ['Entraînement Compétition', 5, '18:30', '19:30', 12, 'Compétition'],
                 ['Natation Libre', 6, '10:00', '11:00', 15, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles']
             ];
-            
+
             for (const [nom, jour, debut, fin, capacite, licences] of creneauxTest) {
-                await db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) VALUES (?, ?, ?, ?, ?, ?)`, 
+                await db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) VALUES (?, ?, ?, ?, ?, ?)`,
                     [nom, jour, debut, fin, capacite, licences]);
             }
         }
@@ -438,7 +438,7 @@ const notifyWaitlistUser = async (userId, creneauId) => {
         // Récupérer les infos utilisateur et créneau
         const userInfo = await db.get(`SELECT email, nom, prenom FROM users WHERE id = ?`, [userId]);
         const creneauInfo = await db.get(`SELECT nom, jour_semaine, heure_debut, heure_fin FROM creneaux WHERE id = ?`, [creneauId]);
-        
+
         if (!userInfo || !creneauInfo) {
             console.error('❌ Utilisateur ou créneau introuvable pour notification');
             return false;
@@ -504,7 +504,7 @@ const notifyWaitlistUser = async (userId, creneauId) => {
                 </div>
                 
                 <p style="color: #6b7280; font-size: 14px;">
-                    ⚠️ Ce lien expire le ${expiresAt.toLocaleDateString('fr-FR')} à ${expiresAt.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})}
+                    ⚠️ Ce lien expire le ${expiresAt.toLocaleDateString('fr-FR')} à ${expiresAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                 </p>
                 
                 <p style="color: #6b7280; font-size: 14px;">
@@ -545,7 +545,7 @@ const sendEmail = async (to, subject, htmlContent) => {
     if (process.env.RESEND_API_KEY) {
         try {
             const resend = new Resend(process.env.RESEND_API_KEY);
-            
+
             console.log('📧 Envoi via Resend:', { to, subject });
             const result = await resend.emails.send({
                 from: process.env.SMTP_USER || 'noreply@resend.dev',
@@ -553,7 +553,7 @@ const sendEmail = async (to, subject, htmlContent) => {
                 subject: subject,
                 html: htmlContent,
             });
-            
+
             console.log('✅ Email envoyé via Resend:', { id: result.data?.id, to, subject });
             return true;
         } catch (error) {
@@ -561,23 +561,23 @@ const sendEmail = async (to, subject, htmlContent) => {
             // Fallback vers SendGrid si Resend échoue
         }
     }
-    
+
     // Priorité 2 : SMTP si transporteur configuré
     if (!transporter) {
         console.log('📧 Email non envoyé (aucun transporteur configuré):', subject);
         return false;
     }
-    
+
     try {
         console.log('📧 Tentative d\'envoi email via SMTP:', { to, subject, from: process.env.SMTP_USER });
-        
+
         const info = await transporter.sendMail({
             from: `"Club Triathlon 🏊‍♂️" <${process.env.SMTP_USER || 'noreply@triathlon.com'}>`,
             to: to,
             subject: subject,
             html: htmlContent
         });
-        
+
         console.log('✅ Email envoyé via SMTP:', { messageId: info.messageId, to, subject });
         return true;
     } catch (error) {
@@ -598,12 +598,12 @@ const requireAuth = (req, res, next) => {
         userRole: req.session.userRole,
         sessionID: req.sessionID
     });
-    
+
     if (!req.session.userId) {
         console.log('❌ Authentification échouée - Pas de userId dans la session');
         return res.status(401).json({ error: 'Non authentifié' });
     }
-    
+
     console.log('✅ Authentification réussie pour userId:', req.session.userId);
     next();
 };
@@ -618,7 +618,7 @@ const requireAdmin = (req, res, next) => {
 // Routes d'authentification
 app.post('/api/register', async (req, res) => {
     const { email, password, nom, prenom, licence_type } = req.body;
-    
+
     if (!email || !password || !nom || !prenom || !licence_type) {
         return res.status(400).json({ error: 'Tous les champs sont requis' });
     }
@@ -629,17 +629,17 @@ app.post('/api/register', async (req, res) => {
     }
 
     const hashedPassword = bcrypt.hashSync(password, 10);
-    
+
     try {
-        const sql = db.isPostgres ? 
+        const sql = db.isPostgres ?
             `INSERT INTO users (email, password, nom, prenom, licence_type) VALUES ($1, $2, $3, $4, $5) RETURNING id` :
             `INSERT INTO users (email, password, nom, prenom, licence_type) VALUES (?, ?, ?, ?, ?)`;
-        
+
         const result = await db.run(sql, [email, hashedPassword, nom, prenom, licence_type]);
-        
-        res.json({ 
-            message: 'Compte créé avec succès', 
-            userId: result.lastID || result.id 
+
+        res.json({
+            message: 'Compte créé avec succès',
+            userId: result.lastID || result.id
         });
     } catch (err) {
         if (err.message.includes('UNIQUE constraint failed') || err.message.includes('duplicate key')) {
@@ -652,36 +652,36 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
-    
+
     console.log('Tentative de connexion pour:', email);
-    
+
     if (!email || !password) {
         return res.status(400).json({ error: 'Email et mot de passe requis' });
     }
-    
+
     try {
         // Utiliser la syntaxe PostgreSQL avec $1 au lieu de ?
-        const sql = db.isPostgres ? 
-            `SELECT * FROM users WHERE email = $1` : 
+        const sql = db.isPostgres ?
+            `SELECT * FROM users WHERE email = $1` :
             `SELECT * FROM users WHERE email = ?`;
-        
+
         const user = await db.get(sql, [email]);
-        
+
         if (!user) {
             console.log('Utilisateur non trouvé:', email);
             return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
         }
-        
+
         console.log('Utilisateur trouvé:', user.email, 'Role:', user.role);
-        
+
         if (bcrypt.compareSync(password, user.password)) {
             req.session.userId = user.id;
             req.session.userRole = user.role;
             req.session.userName = `${user.prenom} ${user.nom}`;
-            
+
             console.log('Connexion réussie pour:', user.email);
-            
-            res.json({ 
+
+            res.json({
                 message: 'Connexion réussie',
                 user: { id: user.id, nom: user.nom, prenom: user.prenom, role: user.role, licence_type: user.licence_type }
             });
@@ -703,18 +703,18 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/auth-status', async (req, res) => {
     if (req.session.userId) {
         try {
-            const sql = db.isPostgres ? 
+            const sql = db.isPostgres ?
                 `SELECT id, nom, prenom, role, licence_type FROM users WHERE id = $1` :
                 `SELECT id, nom, prenom, role, licence_type FROM users WHERE id = ?`;
-            
+
             const user = await db.get(sql, [req.session.userId]);
-            
+
             if (!user) {
                 return res.status(401).json({ authenticated: false });
             }
-            
-            res.json({ 
-                authenticated: true, 
+
+            res.json({
+                authenticated: true,
                 user: { id: user.id, nom: user.nom, prenom: user.prenom, role: user.role, licence_type: user.licence_type }
             });
         } catch (err) {
@@ -738,7 +738,7 @@ app.get('/api/creneaux', async (req, res) => {
         GROUP BY c.id
         ORDER BY c.jour_semaine, c.heure_debut
     `;
-    
+
     try {
         const rows = await db.query(query, []);
         res.json(rows);
@@ -750,18 +750,18 @@ app.get('/api/creneaux', async (req, res) => {
 
 app.get('/api/creneaux/:creneauId', async (req, res) => {
     const creneauId = req.params.creneauId;
-    
+
     try {
-        const sql = db.isPostgres ? 
+        const sql = db.isPostgres ?
             `SELECT * FROM creneaux WHERE id = $1` :
             `SELECT * FROM creneaux WHERE id = ?`;
-        
+
         const creneau = await db.get(sql, [creneauId]);
-        
+
         if (!creneau) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
         }
-        
+
         res.json(creneau);
     } catch (err) {
         console.error('Erreur récupération créneau:', err);
@@ -772,7 +772,7 @@ app.get('/api/creneaux/:creneauId', async (req, res) => {
 // Route pour les inscriptions de l'utilisateur
 app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
     const userId = req.session.userId;
-    
+
     const query = `
         SELECT i.*, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin
         FROM inscriptions i
@@ -780,16 +780,16 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
         WHERE i.user_id = ${db.isPostgres ? '$1' : '?'}
         ORDER BY c.jour_semaine, c.heure_debut
     `;
-    
+
     console.log('Requête mes-inscriptions pour userId:', userId);
-    
+
     try {
         const rows = await db.query(query, [userId]);
         console.log('Inscriptions trouvées:', rows.length);
         res.json(rows);
     } catch (err) {
         console.error('Erreur SQL mes-inscriptions:', err.message);
-        return res.status(500).json({ 
+        return res.status(500).json({
             error: 'Erreur lors de la récupération des inscriptions'
         });
     }
@@ -825,28 +825,32 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('❌ Promesse rejetée non gérée:', reason);
 });
 
-const server = app.listen(PORT, () => {
-    console.log(`✅ Serveur démarré sur le port ${PORT}`);
-    console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
-    
-    if (process.env.NODE_ENV !== 'production') {
-        console.log('=== Comptes de test ===');
-        console.log('Admin: admin@triathlon.com / admin123');
-        console.log('Utilisateur: test@triathlon.com / test123');
-        console.log('=====================');
-    } else {
-        console.log('🔐 Mode production - Utilisez vos identifiants configurés');
-    }
-});
+module.exports = app; // Mettre à disposition l'application pour les tests (Supertest)
 
-server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-        console.log(`Port ${PORT} occupé, tentative sur le port ${PORT + 1}...`);
-        server.listen(PORT + 1);
-    } else {
-        console.error('Erreur serveur:', err);
-    }
-});
+if (require.main === module) {
+    const server = app.listen(PORT, () => {
+        console.log(`✅ Serveur démarré sur le port ${PORT}`);
+        console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
+
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('=== Comptes de test ===');
+            console.log('Admin: admin@triathlon.com / admin123');
+            console.log('Utilisateur: test@triathlon.com / test123');
+            console.log('=====================');
+        } else {
+            console.log('🔐 Mode production - Utilisez vos identifiants configurés');
+        }
+    });
+
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.log(`Port ${PORT} occupé, tentative sur le port ${PORT + 1}...`);
+            server.listen(PORT + 1);
+        } else {
+            console.error('Erreur serveur:', err);
+        }
+    });
+}
 
 // ===== ENDPOINTS MÉTA-RÈGLES =====
 
@@ -872,7 +876,7 @@ app.put('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
     try {
         // Vérifier s'il y a déjà une config
         const existingConfig = await db.get(`SELECT * FROM meta_rules_config LIMIT 1`);
-        
+
         if (existingConfig) {
             const updateSQL = db.adaptSQL(
                 `UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`,
@@ -883,7 +887,7 @@ app.put('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
             await db.run(`INSERT INTO meta_rules_config (enabled, description, updated_by) VALUES (?, ?, ?)`,
                 [enabled, description, userId]);
         }
-        
+
         console.log('✅ Config méta-règles mise à jour');
         res.json({ message: 'Configuration mise à jour' });
     } catch (err) {
@@ -922,7 +926,7 @@ app.post('/api/admin/meta-rules', requireAdmin, async (req, res) => {
             INSERT INTO meta_rules (licence_type, jour_source, jours_interdits, description, created_by) 
             VALUES (?, ?, ?, ?, ?)
         `, [licence_type, jour_source, jours_interdits, description, userId]);
-        
+
         res.json({ message: 'Méta-règle créée avec succès' });
     } catch (err) {
         console.error('Erreur création méta-règle:', err);
@@ -945,7 +949,7 @@ app.put('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
             SET licence_type = ?, jour_source = ?, jours_interdits = ?, description = ?
             WHERE id = ?
         `, [licence_type, jour_source, jours_interdits, description, id]);
-        
+
         res.json({ message: 'Méta-règle modifiée avec succès' });
     } catch (err) {
         console.error('Erreur modification méta-règle:', err);
@@ -982,26 +986,26 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
 // Routes de création de créneaux (ADMIN)
 app.post('/api/creneaux', requireAdmin, async (req, res) => {
     const { nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees } = req.body;
-    
+
     try {
-        const sql = db.isPostgres ? 
+        const sql = db.isPostgres ?
             `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) 
              VALUES ($1, $2, $3, $4, $5, $6) RETURNING id` :
             `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees) 
              VALUES (?, ?, ?, ?, ?, ?)`;
-        
+
         const result = await db.run(sql, [
-            nom, 
-            jour_semaine, 
-            heure_debut, 
-            heure_fin, 
-            capacite_max, 
+            nom,
+            jour_semaine,
+            heure_debut,
+            heure_fin,
+            capacite_max,
             licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'
         ]);
-        
-        res.json({ 
-            message: 'Créneau créé avec succès', 
-            creneauId: result.lastID || result.id 
+
+        res.json({
+            message: 'Créneau créé avec succès',
+            creneauId: result.lastID || result.id
         });
     } catch (err) {
         console.error('Erreur création créneau:', err);
@@ -1013,33 +1017,33 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
 app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
     const { nom, jour_semaine, heure_debut, heure_fin, capacite_max, licences_autorisees } = req.body;
-    
+
     console.log('Modification du créneau:', creneauId, req.body);
-    
+
     if (!nom || jour_semaine === undefined || !heure_debut || !heure_fin || !capacite_max) {
         return res.status(400).json({ error: 'Tous les champs sont requis' });
     }
-    
+
     try {
         // Mise à jour simplifiée (sans gestion avancée des capacités pour l'instant)
         const sql = db.isPostgres ?
             `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, capacite_max = $5, licences_autorisees = $6 WHERE id = $7` :
             `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, capacite_max = ?, licences_autorisees = ? WHERE id = ?`;
-        
+
         const result = await db.run(sql, [
-            nom, 
-            jour_semaine, 
-            heure_debut, 
-            heure_fin, 
-            capacite_max, 
+            nom,
+            jour_semaine,
+            heure_debut,
+            heure_fin,
+            capacite_max,
             licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
             creneauId
         ]);
-        
+
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
         }
-        
+
         console.log('Créneau modifié avec succès:', creneauId);
         res.json({ message: 'Créneau modifié avec succès' });
     } catch (err) {
@@ -1051,26 +1055,26 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
 // Route de suppression de créneaux (ADMIN)
 app.delete('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
-    
+
     console.log('Tentative de suppression du créneau:', creneauId);
-    
+
     try {
         // Vérifier d'abord s'il y a des inscriptions
         const result = await db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE creneau_id = ?`, [creneauId]);
-        
+
         if (result && result.count > 0) {
-            return res.status(400).json({ 
-                error: `Impossible de supprimer ce créneau car ${result.count} personne(s) y sont inscrites. Veuillez d'abord les désinscrire.` 
+            return res.status(400).json({
+                error: `Impossible de supprimer ce créneau car ${result.count} personne(s) y sont inscrites. Veuillez d'abord les désinscrire.`
             });
         }
-        
+
         // Supprimer le créneau s'il n'y a pas d'inscriptions
         const deleteResult = await db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId]);
-        
+
         if (deleteResult.changes === 0) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
         }
-        
+
         console.log('Créneau supprimé avec succès:', creneauId);
         res.json({ message: 'Créneau supprimé avec succès' });
     } catch (err) {
@@ -1082,20 +1086,20 @@ app.delete('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
 // Route pour forcer la suppression d'un créneau (avec ses inscriptions)
 app.delete('/api/creneaux/:creneauId/force', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
-    
+
     console.log('Suppression forcée du créneau:', creneauId);
-    
+
     try {
         // Supprimer d'abord toutes les inscriptions
         await db.run(`DELETE FROM inscriptions WHERE creneau_id = ?`, [creneauId]);
-        
+
         // Puis supprimer le créneau
         const deleteResult = await db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId]);
-        
+
         if (deleteResult.changes === 0) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
         }
-        
+
         console.log('Créneau et inscriptions supprimés avec succès:', creneauId);
         res.json({ message: 'Créneau et toutes ses inscriptions supprimés avec succès' });
     } catch (err) {
@@ -1112,7 +1116,7 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
         FROM users 
         ORDER BY created_at DESC
     `;
-    
+
     try {
         const rows = await db.query(query, []);
         res.json(rows);
@@ -1125,29 +1129,29 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 app.put('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
     const userId = req.params.userId;
     const { role } = req.body;
-    
+
     console.log('Modification du rôle utilisateur:', userId, 'vers', role);
-    
+
     if (!role || !['membre', 'admin'].includes(role)) {
         return res.status(400).json({ error: 'Rôle invalide. Doit être "membre" ou "admin"' });
     }
-    
+
     // Empêcher de se retirer ses propres droits admin
     if (req.session.userId == userId && role === 'membre') {
         return res.status(400).json({ error: 'Vous ne pouvez pas retirer vos propres droits administrateur' });
     }
-    
+
     try {
         const sql = db.isPostgres ?
             `UPDATE users SET role = $1 WHERE id = $2` :
             `UPDATE users SET role = ? WHERE id = ?`;
-        
+
         const result = await db.run(sql, [role, userId]);
-        
+
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
-        
+
         console.log('Rôle modifié avec succès pour l\'utilisateur:', userId);
         res.json({ message: `Rôle modifié vers "${role}" avec succès` });
     } catch (err) {
@@ -1160,27 +1164,27 @@ app.put('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
 app.put('/api/admin/users/:userId/licence', requireAdmin, async (req, res) => {
     const userId = req.params.userId;
     const { licence_type } = req.body;
-    
+
     console.log('Modification du type de licence utilisateur:', userId, 'vers', licence_type);
-    
+
     const licencesValides = ['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'];
     if (!licence_type || !licencesValides.includes(licence_type)) {
-        return res.status(400).json({ 
-            error: 'Type de licence invalide. Doit être: ' + licencesValides.join(', ') 
+        return res.status(400).json({
+            error: 'Type de licence invalide. Doit être: ' + licencesValides.join(', ')
         });
     }
-    
+
     try {
         const sql = db.isPostgres ?
             `UPDATE users SET licence_type = $1 WHERE id = $2` :
             `UPDATE users SET licence_type = ? WHERE id = ?`;
-        
+
         const result = await db.run(sql, [licence_type, userId]);
-        
+
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
-        
+
         console.log('Type de licence modifié avec succès pour l\'utilisateur:', userId);
         res.json({ message: `Type de licence modifié vers "${licence_type}" avec succès` });
     } catch (err) {
@@ -1193,32 +1197,32 @@ app.put('/api/admin/users/:userId/licence', requireAdmin, async (req, res) => {
 app.put('/api/admin/users/:userId/reset-password', requireAdmin, async (req, res) => {
     const userId = req.params.userId;
     const { nouveauMotDePasse } = req.body;
-    
+
     console.log('Réinitialisation mot de passe pour utilisateur:', userId);
-    
+
     if (!nouveauMotDePasse) {
         return res.status(400).json({ error: 'Nouveau mot de passe requis' });
     }
-    
+
     if (nouveauMotDePasse.length < 6) {
         return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
     }
-    
+
     try {
         // Hasher le nouveau mot de passe
         const hashedPassword = bcrypt.hashSync(nouveauMotDePasse, 10);
-        
+
         // Mettre à jour le mot de passe
         const sql = db.isPostgres ?
             `UPDATE users SET password = $1 WHERE id = $2` :
             `UPDATE users SET password = ? WHERE id = ?`;
-        
+
         const result = await db.run(sql, [hashedPassword, userId]);
-        
+
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
-        
+
         console.log('Mot de passe réinitialisé avec succès pour l\'utilisateur:', userId);
         res.json({ message: 'Mot de passe réinitialisé avec succès' });
     } catch (err) {
@@ -1229,31 +1233,31 @@ app.put('/api/admin/users/:userId/reset-password', requireAdmin, async (req, res
 
 app.delete('/api/admin/users/:userId', requireAdmin, async (req, res) => {
     const userId = req.params.userId;
-    
+
     console.log('Tentative de suppression de l\'utilisateur:', userId);
-    
+
     // Empêcher de se supprimer soi-même
     if (req.session.userId == userId) {
         return res.status(400).json({ error: 'Vous ne pouvez pas supprimer votre propre compte' });
     }
-    
+
     try {
         // Vérifier s'il y a des inscriptions
         const result = await db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE user_id = ?`, [userId]);
-        
+
         if (result && result.count > 0) {
-            return res.status(400).json({ 
-                error: `Impossible de supprimer cet utilisateur car il a ${result.count} inscription(s) active(s). Veuillez d'abord le désinscrire de tous les créneaux.` 
+            return res.status(400).json({
+                error: `Impossible de supprimer cet utilisateur car il a ${result.count} inscription(s) active(s). Veuillez d'abord le désinscrire de tous les créneaux.`
             });
         }
-        
+
         // Supprimer l'utilisateur
         const deleteResult = await db.run(`DELETE FROM users WHERE id = ?`, [userId]);
-        
+
         if (deleteResult.changes === 0) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
-        
+
         console.log('Utilisateur supprimé avec succès:', userId);
         res.json({ message: 'Utilisateur supprimé avec succès' });
     } catch (err) {
@@ -1262,191 +1266,23 @@ app.delete('/api/admin/users/:userId', requireAdmin, async (req, res) => {
     }
 });
 
-// Fonction pour vérifier les limites de séances par semaine
-const verifierLimitesSeances = async (userId) => {
-    // Calculer le début et la fin de la semaine courante (lundi à dimanche)
-    const maintenant = new Date();
-    const jourSemaine = maintenant.getDay(); // 0 = dimanche, 1 = lundi, etc.
-    const joursDepuisLundi = jourSemaine === 0 ? 6 : jourSemaine - 1; // Ajuster pour que lundi = 0
-    
-    const debutSemaine = new Date(maintenant);
-    debutSemaine.setDate(maintenant.getDate() - joursDepuisLundi);
-    debutSemaine.setHours(0, 0, 0, 0);
-    
-    const finSemaine = new Date(debutSemaine);
-    finSemaine.setDate(debutSemaine.getDate() + 6);
-    finSemaine.setHours(23, 59, 59, 999);
 
-    const query = db.isPostgres ? `
-        SELECT 
-            u.licence_type,
-            ll.max_seances_semaine,
-            COUNT(i.id) as seances_cette_semaine
-        FROM users u
-        LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
-        LEFT JOIN inscriptions i ON u.id = i.user_id 
-            AND i.statut = 'inscrit'
-            AND i.created_at >= $1 
-            AND i.created_at <= $2
-        WHERE u.id = $3
-        GROUP BY u.id, u.licence_type, ll.max_seances_semaine
-    ` : `
-        SELECT 
-            u.licence_type,
-            ll.max_seances_semaine,
-            COUNT(i.id) as seances_cette_semaine
-        FROM users u
-        LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
-        LEFT JOIN inscriptions i ON u.id = i.user_id 
-            AND i.statut = 'inscrit'
-            AND i.created_at >= ? 
-            AND i.created_at <= ?
-        WHERE u.id = ?
-        GROUP BY u.id, u.licence_type, ll.max_seances_semaine
-    `;
-
-    try {
-        const result = await db.get(query, [debutSemaine.toISOString(), finSemaine.toISOString(), userId]);
-
-        if (!result) {
-            throw new Error('Utilisateur non trouvé');
-        }
-
-        const limiteAtteinte = result.seances_cette_semaine >= (result.max_seances_semaine || 3);
-        
-        return {
-            licenceType: result.licence_type,
-            maxSeances: result.max_seances_semaine || 3,
-            seancesActuelles: parseInt(result.seances_cette_semaine) || 0,
-            limiteAtteinte: limiteAtteinte,
-            seancesRestantes: Math.max(0, (result.max_seances_semaine || 3) - (parseInt(result.seances_cette_semaine) || 0))
-        };
-    } catch (err) {
-        console.error('Erreur lors de la vérification des limites:', err);
-        throw err;
-    }
-};
-
-// Fonction pour vérifier les méta-règles d'inscription
-const verifierMetaRegles = async (userId, creneauId) => {
-    try {
-        // Vérifier si les méta-règles sont activées
-        const config = await db.get(`SELECT enabled FROM meta_rules_config ORDER BY id DESC LIMIT 1`);
-        
-        if (!config || !config.enabled) {
-            return { autorise: true, message: null };
-        }
-
-        // Récupérer les informations de l'utilisateur et du créneau
-        const userInfo = await db.get(`SELECT licence_type FROM users WHERE id = ?`, [userId]);
-        const creneauInfo = await db.get(`SELECT jour_semaine FROM creneaux WHERE id = ?`, [creneauId]);
-        
-        if (!userInfo || !creneauInfo) {
-            return { autorise: false, message: 'Informations utilisateur ou créneau introuvables' };
-        }
-
-        // Récupérer les méta-règles actives pour ce type de licence
-        const metaRegles = await db.query(`
-            SELECT jour_source, jours_interdits, description 
-            FROM meta_rules 
-            WHERE licence_type = ? AND active = true
-        `, [userInfo.licence_type]);
-
-        if (!metaRegles || metaRegles.length === 0) {
-            return { autorise: true, message: null };
-        }
-
-        // Calculer le début et la fin de la semaine courante
-        const maintenant = new Date();
-        const jourSemaine = maintenant.getDay();
-        const joursDepuisLundi = jourSemaine === 0 ? 6 : jourSemaine - 1;
-        
-        const debutSemaine = new Date(maintenant);
-        debutSemaine.setDate(maintenant.getDate() - joursDepuisLundi);
-        debutSemaine.setHours(0, 0, 0, 0);
-        
-        const finSemaine = new Date(debutSemaine);
-        finSemaine.setDate(debutSemaine.getDate() + 6);
-        finSemaine.setHours(23, 59, 59, 999);
-
-        // Vérifier chaque méta-règle
-        for (const regle of metaRegles) {
-            console.log('🔍 Vérification méta-règle:', {
-                licenceType: userInfo.licence_type,
-                jourSource: regle.jour_source,
-                jourCreneau: creneauInfo.jour_semaine,
-                joursInterdits: regle.jours_interdits
-            });
-
-            // Vérifier si l'utilisateur est inscrit au jour source cette semaine
-            const inscriptionSource = await db.get(`
-                SELECT i.id 
-                FROM inscriptions i
-                JOIN creneaux c ON i.creneau_id = c.id
-                WHERE i.user_id = ? 
-                AND c.jour_semaine = ? 
-                AND i.statut = 'inscrit'
-                AND i.created_at >= ? 
-                AND i.created_at <= ?
-            `, [userId, regle.jour_source, debutSemaine.toISOString(), finSemaine.toISOString()]);
-
-            console.log('📅 Inscription au jour source trouvée:', !!inscriptionSource);
-
-            if (inscriptionSource) {
-                // L'utilisateur est inscrit au jour source, vérifier les jours interdits
-                console.log('🔍 Données brutes jours_interdits:', regle.jours_interdits, typeof regle.jours_interdits);
-                
-                let joursInterdits;
-                try {
-                    // Essayer de parser comme JSON d'abord
-                    joursInterdits = JSON.parse(regle.jours_interdits);
-                } catch (e) {
-                    // Si ça échoue, traiter comme une chaîne séparée par des virgules
-                    console.log('⚠️ Parsing JSON échoué, traitement comme chaîne CSV');
-                    joursInterdits = regle.jours_interdits.split(',').map(j => parseInt(j.trim()));
-                }
-                
-                const jourCreneau = creneauInfo.jour_semaine;
-                
-                console.log('⚠️ Vérification interdiction:', {
-                    jourCreneau,
-                    joursInterdits,
-                    estInterdit: joursInterdits.includes(jourCreneau)
-                });
-                
-                if (joursInterdits.includes(jourCreneau)) {
-                    const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-                    console.log('🚫 Inscription bloquée par méta-règle');
-                    return {
-                        autorise: false,
-                        message: `Inscription interdite : vous êtes déjà inscrit le ${joursNoms[regle.jour_source]} cette semaine. ${regle.description || ''}`
-                    };
-                }
-            }
-        }
-
-        return { autorise: true, message: null };
-    } catch (err) {
-        console.error('Erreur lors de la vérification des méta-règles:', err);
-        return { autorise: false, message: 'Erreur lors de la vérification des règles d\'inscription' };
-    }
-};
 
 // Endpoint pour récupérer les méta-règles applicables à l'utilisateur
 app.get('/api/mes-meta-regles', requireAuth, async (req, res) => {
     const userId = req.session.userId;
-    
+
     try {
         // Vérifier si les méta-règles sont activées
         const config = await db.get(`SELECT enabled FROM meta_rules_config ORDER BY id DESC LIMIT 1`);
-        
+
         if (!config || !config.enabled) {
             return res.json({ enabled: false, rules: [] });
         }
 
         // Récupérer le type de licence de l'utilisateur
         const userInfo = await db.get(`SELECT licence_type FROM users WHERE id = ?`, [userId]);
-        
+
         if (!userInfo) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
@@ -1469,7 +1305,7 @@ app.get('/api/mes-meta-regles', requireAuth, async (req, res) => {
             }
 
             const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-            
+
             return {
                 jourSource: regle.jour_source,
                 jourSourceNom: joursNoms[regle.jour_source],
@@ -1492,9 +1328,9 @@ app.get('/api/mes-meta-regles', requireAuth, async (req, res) => {
 
 app.get('/api/mes-limites', requireAuth, async (req, res) => {
     const userId = req.session.userId;
-    
+
     try {
-        const limites = await verifierLimitesSeances(userId);
+        const limites = await verifierLimitesSeances(db, userId);
         res.json(limites);
     } catch (err) {
         console.error('Erreur vérification limites:', err);
@@ -1505,18 +1341,18 @@ app.get('/api/mes-limites', requireAuth, async (req, res) => {
 // Route pour récupérer le profil utilisateur
 app.get('/api/mon-profil', requireAuth, async (req, res) => {
     const userId = req.session.userId;
-    
+
     try {
         const sql = db.isPostgres ?
             `SELECT id, email, nom, prenom, licence_type, created_at FROM users WHERE id = $1` :
             `SELECT id, email, nom, prenom, licence_type, created_at FROM users WHERE id = ?`;
-        
+
         const user = await db.get(sql, [userId]);
-        
+
         if (!user) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
-        
+
         res.json(user);
     } catch (err) {
         console.error('Erreur récupération profil:', err);
@@ -1528,45 +1364,45 @@ app.get('/api/mon-profil', requireAuth, async (req, res) => {
 app.put('/api/mon-profil', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     const { nom, prenom, email } = req.body;
-    
+
     console.log('Modification profil utilisateur:', userId, { nom, prenom, email });
-    
+
     if (!nom || !prenom || !email) {
         return res.status(400).json({ error: 'Nom, prénom et email sont requis' });
     }
-    
+
     // Validation email basique
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         return res.status(400).json({ error: 'Format d\'email invalide' });
     }
-    
+
     try {
         // Vérifier si l'email n'est pas déjà utilisé par un autre utilisateur
         const checkEmailSql = db.isPostgres ?
             `SELECT id FROM users WHERE email = $1 AND id != $2` :
             `SELECT id FROM users WHERE email = ? AND id != ?`;
-        
+
         const existingUser = await db.get(checkEmailSql, [email, userId]);
-        
+
         if (existingUser) {
             return res.status(400).json({ error: 'Cet email est déjà utilisé par un autre utilisateur' });
         }
-        
+
         // Mettre à jour le profil
         const updateSql = db.isPostgres ?
             `UPDATE users SET nom = $1, prenom = $2, email = $3 WHERE id = $4` :
             `UPDATE users SET nom = ?, prenom = ?, email = ? WHERE id = ?`;
-        
+
         const result = await db.run(updateSql, [nom, prenom, email, userId]);
-        
+
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
-        
+
         // Mettre à jour le nom dans la session
         req.session.userName = `${prenom} ${nom}`;
-        
+
         console.log('Profil modifié avec succès:', userId);
         res.json({ message: 'Profil modifié avec succès' });
     } catch (err) {
@@ -1579,48 +1415,48 @@ app.put('/api/mon-profil', requireAuth, async (req, res) => {
 app.put('/api/changer-mot-de-passe', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     const { motDePasseActuel, nouveauMotDePasse, confirmerMotDePasse } = req.body;
-    
+
     console.log('Changement mot de passe pour utilisateur:', userId);
-    
+
     if (!motDePasseActuel || !nouveauMotDePasse || !confirmerMotDePasse) {
         return res.status(400).json({ error: 'Tous les champs sont requis' });
     }
-    
+
     if (nouveauMotDePasse !== confirmerMotDePasse) {
         return res.status(400).json({ error: 'Les nouveaux mots de passe ne correspondent pas' });
     }
-    
+
     if (nouveauMotDePasse.length < 6) {
         return res.status(400).json({ error: 'Le nouveau mot de passe doit contenir au moins 6 caractères' });
     }
-    
+
     try {
         // Récupérer le mot de passe actuel
         const sql = db.isPostgres ?
             `SELECT password FROM users WHERE id = $1` :
             `SELECT password FROM users WHERE id = ?`;
-        
+
         const user = await db.get(sql, [userId]);
-        
+
         if (!user) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
-        
+
         // Vérifier le mot de passe actuel
         if (!bcrypt.compareSync(motDePasseActuel, user.password)) {
             return res.status(400).json({ error: 'Mot de passe actuel incorrect' });
         }
-        
+
         // Hasher le nouveau mot de passe
         const hashedPassword = bcrypt.hashSync(nouveauMotDePasse, 10);
-        
+
         // Mettre à jour le mot de passe
         const updateSql = db.isPostgres ?
             `UPDATE users SET password = $1 WHERE id = $2` :
             `UPDATE users SET password = ? WHERE id = ?`;
-        
+
         await db.run(updateSql, [hashedPassword, userId]);
-        
+
         console.log('Mot de passe changé avec succès:', userId);
         res.json({ message: 'Mot de passe changé avec succès' });
     } catch (err) {
@@ -1632,7 +1468,7 @@ app.put('/api/changer-mot-de-passe', requireAuth, async (req, res) => {
 // Routes d'administration des créneaux
 app.get('/api/admin/inscriptions/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
-    
+
     const query = db.isPostgres ? `
         SELECT i.*, u.nom, u.prenom, u.email
         FROM inscriptions i
@@ -1652,7 +1488,7 @@ app.get('/api/admin/inscriptions/:creneauId', requireAdmin, async (req, res) => 
             i.position_attente ASC,
             i.created_at ASC
     `;
-    
+
     try {
         const rows = await db.query(query, [creneauId]);
         res.json(rows);
@@ -1665,58 +1501,58 @@ app.get('/api/admin/inscriptions/:creneauId', requireAdmin, async (req, res) => 
 // Route pour inscrire un utilisateur à un créneau (ADMIN)
 app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
     const { email, creneauId } = req.body;
-    
+
     console.log('Admin inscription:', { email, creneauId });
-    
+
     if (!email || !creneauId) {
         return res.status(400).json({ error: 'Email et ID du créneau requis' });
     }
-    
+
     try {
         // Trouver l'utilisateur par email
         const userSql = db.isPostgres ?
             `SELECT id FROM users WHERE email = $1` :
             `SELECT id FROM users WHERE email = ?`;
-        
+
         const user = await db.get(userSql, [email]);
-        
+
         if (!user) {
             return res.status(404).json({ error: 'Utilisateur non trouvé avec cet email' });
         }
-        
+
         // Vérifier si déjà inscrit
         const checkSql = db.isPostgres ?
             `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
             `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
-        
+
         const existingInscription = await db.get(checkSql, [user.id, creneauId]);
-        
+
         if (existingInscription) {
             return res.status(400).json({ error: 'Cet utilisateur est déjà inscrit à ce créneau' });
         }
 
         // Vérifier les méta-règles (avec avertissement pour l'admin)
-        const metaReglesCheck = await verifierMetaRegles(user.id, creneauId);
-        
+        const metaReglesCheck = await verifierMetaRegles(db, user.id, creneauId);
+
         if (!metaReglesCheck.autorise) {
             // Pour l'admin, on retourne un avertissement mais on permet l'inscription
             console.log('⚠️ Admin outrepasse méta-règle:', metaReglesCheck.message);
         }
-        
+
         // Inscrire l'utilisateur (inscription directe par l'admin)
         const insertSql = db.isPostgres ?
             `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES ($1, $2, 'inscrit') RETURNING id` :
             `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES (?, ?, 'inscrit')`;
-        
+
         await db.run(insertSql, [user.id, creneauId]);
-        
+
         console.log('Inscription admin réussie:', { email, creneauId });
-        
+
         let message = `Utilisateur ${email} inscrit avec succès`;
         if (!metaReglesCheck.autorise) {
             message += ` (Avertissement: ${metaReglesCheck.message})`;
         }
-        
+
         res.json({ message });
     } catch (err) {
         console.error('Erreur inscription admin:', err);
@@ -1727,28 +1563,28 @@ app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
 // Route pour désinscrire un utilisateur d'un créneau (ADMIN)
 app.delete('/api/admin/inscriptions/:userId/:creneauId', requireAdmin, async (req, res) => {
     const { userId, creneauId } = req.params;
-    
+
     console.log('Admin désinscription:', { userId, creneauId });
-    
+
     try {
         // Vérifier l'inscription existante
         const checkSql = db.isPostgres ?
             `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
             `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
-        
+
         const inscription = await db.get(checkSql, [userId, creneauId]);
-        
+
         if (!inscription) {
             return res.status(404).json({ error: 'Inscription non trouvée' });
         }
-        
+
         // Supprimer l'inscription
         const deleteSql = db.isPostgres ?
             `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
             `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
-        
+
         await db.run(deleteSql, [userId, creneauId]);
-        
+
         console.log('Désinscription admin réussie:', { userId, creneauId });
         res.json({ message: 'Utilisateur désinscrit avec succès' });
     } catch (err) {
@@ -1760,28 +1596,28 @@ app.delete('/api/admin/inscriptions/:userId/:creneauId', requireAdmin, async (re
 // Route pour promouvoir un utilisateur de la liste d'attente (ADMIN)
 app.put('/api/admin/inscriptions/:userId/:creneauId/promote', requireAdmin, async (req, res) => {
     const { userId, creneauId } = req.params;
-    
+
     console.log('Admin promotion:', { userId, creneauId });
-    
+
     try {
         // Vérifier que l'utilisateur est en attente
         const checkSql = db.isPostgres ?
             `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND statut = 'attente'` :
             `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND statut = 'attente'`;
-        
+
         const inscription = await db.get(checkSql, [userId, creneauId]);
-        
+
         if (!inscription) {
             return res.status(404).json({ error: 'Utilisateur non trouvé en liste d\'attente' });
         }
-        
+
         // Promouvoir l'utilisateur
         const promoteSql = db.isPostgres ?
             `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = $1 AND creneau_id = $2` :
             `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = ? AND creneau_id = ?`;
-        
+
         await db.run(promoteSql, [userId, creneauId]);
-        
+
         console.log('Promotion admin réussie:', { userId, creneauId });
         res.json({ message: 'Utilisateur promu avec succès' });
     } catch (err) {
@@ -1794,43 +1630,43 @@ app.put('/api/admin/inscriptions/:userId/:creneauId/promote', requireAdmin, asyn
 app.post('/api/inscriptions', requireAuth, async (req, res) => {
     const { creneauId } = req.body;
     const userId = req.session.userId;
-    
+
     console.log('Tentative d\'inscription:', { userId, creneauId });
-    
+
     if (!creneauId) {
         return res.status(400).json({ error: 'ID du créneau requis' });
     }
-    
+
     try {
         // Vérifier si l'utilisateur est déjà inscrit
-        const sql = db.isPostgres ? 
+        const sql = db.isPostgres ?
             `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
             `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
-        
+
         const existingInscription = await db.get(sql, [userId, creneauId]);
-        
+
         if (existingInscription) {
             return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau' });
         }
-        
+
         // Vérifier les limites de séances
-        const limites = await verifierLimitesSeances(userId);
-        
+        const limites = await verifierLimitesSeances(db, userId);
+
         if (limites.limiteAtteinte) {
-            return res.status(400).json({ 
-                error: `Vous avez atteint votre limite de ${limites.maxSeances} séances par semaine (${limites.seancesActuelles}/${limites.maxSeances})` 
+            return res.status(400).json({
+                error: `Vous avez atteint votre limite de ${limites.maxSeances} séances par semaine (${limites.seancesActuelles}/${limites.maxSeances})`
             });
         }
 
         // Vérifier les méta-règles d'inscription
-        const metaReglesCheck = await verifierMetaRegles(userId, creneauId);
-        
+        const metaReglesCheck = await verifierMetaRegles(db, userId, creneauId);
+
         if (!metaReglesCheck.autorise) {
-            return res.status(400).json({ 
-                error: metaReglesCheck.message 
+            return res.status(400).json({
+                error: metaReglesCheck.message
             });
         }
-        
+
         // Vérifier la capacité du créneau et les inscriptions actuelles
         const creneauSql = db.isPostgres ?
             `SELECT c.capacite_max, c.nom, COUNT(i.id) as inscrits_actuels
@@ -1843,25 +1679,25 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
              LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit'
              WHERE c.id = ?
              GROUP BY c.id, c.capacite_max, c.nom`;
-        
+
         const creneauInfo = await db.get(creneauSql, [creneauId]);
-        
+
         if (!creneauInfo) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
         }
-        
+
         const inscritActuels = parseInt(creneauInfo.inscrits_actuels) || 0;
         const capaciteMax = creneauInfo.capacite_max;
-        
+
         // Déterminer le statut d'inscription
         let statut = 'inscrit';
         let positionAttente = null;
         let message = `Inscription réussie au créneau "${creneauInfo.nom}" ! Il vous reste ${limites.seancesRestantes - 1} séance(s) cette semaine.`;
-        
+
         if (inscritActuels >= capaciteMax) {
             // Créneau complet, mettre en liste d'attente
             statut = 'attente';
-            
+
             // Obtenir la prochaine position sur la liste d'attente
             const positionSql = db.isPostgres ?
                 `SELECT COALESCE(MAX(position_attente), 0) + 1 as next_pos 
@@ -1870,23 +1706,23 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
                 `SELECT COALESCE(MAX(position_attente), 0) + 1 as next_pos 
                  FROM inscriptions 
                  WHERE creneau_id = ? AND statut = 'attente'`;
-            
+
             const posResult = await db.get(positionSql, [creneauId]);
             positionAttente = posResult.next_pos;
-            
+
             message = `Créneau complet ! Vous avez été ajouté à la liste d'attente (position ${positionAttente}).`;
         }
-        
+
         // Insérer l'inscription avec le bon statut
         const insertSql = db.isPostgres ?
             `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente) VALUES ($1, $2, $3, $4) RETURNING id` :
             `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente) VALUES (?, ?, ?, ?)`;
-        
+
         const result = await db.run(insertSql, [userId, creneauId, statut, positionAttente]);
-        
+
         console.log('Inscription réussie:', { userId, creneauId, statut, positionAttente, inscritActuels, capaciteMax });
-        
-        res.json({ 
+
+        res.json({
             message,
             statut,
             positionAttente,
@@ -1917,7 +1753,7 @@ app.get('/api/inscription-attente/info/:token', async (req, res) => {
         }
 
         const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-        
+
         res.json({
             user: `${tokenInfo.prenom} ${tokenInfo.nom}`,
             email: tokenInfo.email,
@@ -1971,7 +1807,7 @@ app.post('/api/inscription-attente', async (req, res) => {
         `, [tokenInfo.creneau_id]);
 
         if (inscritActuels.count >= tokenInfo.capacite_max) {
-            return res.status(409).json({ 
+            return res.status(409).json({
                 error: 'Désolé, quelqu\'un d\'autre a pris la place avant vous ! Le créneau est à nouveau complet.',
                 tooLate: true
             });
@@ -1986,7 +1822,7 @@ app.post('/api/inscription-attente', async (req, res) => {
 
         // Marquer le token comme utilisé
         await db.run(`UPDATE waitlist_tokens SET used = ? WHERE token = ?`, [true, token]);
-        
+
         // Invalider tous les autres tokens pour ce créneau pour éviter les tentatives inutiles
         await db.run(`UPDATE waitlist_tokens SET used = ? WHERE creneau_id = ? AND token != ?`, [true, tokenInfo.creneau_id, token]);
 
@@ -1999,7 +1835,7 @@ app.post('/api/inscription-attente', async (req, res) => {
 
         console.log(`✅ Inscription via token réussie: ${tokenInfo.email} -> ${tokenInfo.creneau_nom}`);
 
-        res.json({ 
+        res.json({
             message: `Inscription confirmée pour le créneau "${tokenInfo.creneau_nom}" !`,
             success: true,
             creneau: tokenInfo.creneau_nom
@@ -2015,30 +1851,30 @@ app.post('/api/inscription-attente', async (req, res) => {
 app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
     const creneauId = req.params.creneauId;
     const userId = req.session.userId;
-    
+
     console.log('Tentative de désinscription:', { userId, creneauId });
-    
+
     try {
         // Vérifier l'inscription existante
-        const checkSql = db.isPostgres ? 
+        const checkSql = db.isPostgres ?
             `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
             `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
-        
+
         const inscription = await db.get(checkSql, [userId, creneauId]);
-        
+
         if (!inscription) {
             return res.status(404).json({ error: 'Inscription non trouvée' });
         }
-        
+
         // Supprimer l'inscription
         const deleteSql = db.isPostgres ?
             `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
             `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
-        
+
         await db.run(deleteSql, [userId, creneauId]);
-        
+
         console.log('Désinscription réussie:', { userId, creneauId });
-        
+
         // Si c'était un inscrit (pas en attente), notifier le premier de la liste d'attente
         if (inscription.statut === 'inscrit') {
             const premierEnAttenteSql = db.isPostgres ?
@@ -2048,9 +1884,9 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
                 `SELECT * FROM inscriptions 
                  WHERE creneau_id = ? AND statut = 'attente' 
                  ORDER BY position_attente ASC LIMIT 1`;
-            
+
             const premierEnAttente = await db.get(premierEnAttenteSql, [creneauId]);
-            
+
             if (premierEnAttente) {
                 // Récupérer TOUTES les personnes en liste d'attente
                 const toutesPersonnesAttenteSql = db.isPostgres ?
@@ -2060,20 +1896,20 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
                     `SELECT user_id FROM inscriptions 
                      WHERE creneau_id = ? AND statut = 'attente' 
                      ORDER BY position_attente ASC`;
-                
+
                 const personnesEnAttente = await db.query(toutesPersonnesAttenteSql, [creneauId]);
-                
+
                 if (personnesEnAttente && personnesEnAttente.length > 0) {
                     console.log(`📧 Envoi d'emails à ${personnesEnAttente.length} personne(s) en liste d'attente`);
-                    
+
                     // Envoyer un email à chaque personne en liste d'attente
                     let emailsEnvoyes = 0;
                     for (const personne of personnesEnAttente) {
                         const emailSent = await notifyWaitlistUser(personne.user_id, creneauId);
                         if (emailSent) emailsEnvoyes++;
                     }
-                    
-                    res.json({ 
+
+                    res.json({
                         message: `Désinscription réussie. ${emailsEnvoyes} personne(s) en liste d'attente ont été notifiées par email.`,
                         notification: true,
                         emailsEnvoyes
@@ -2094,7 +1930,7 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
                     `UPDATE inscriptions 
                      SET position_attente = position_attente - 1 
                      WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?`;
-                
+
                 await db.run(reorganiserSql, [creneauId, inscription.position_attente]);
             }
             res.json({ message: 'Désinscription réussie' });
@@ -2119,24 +1955,24 @@ app.get('/api/admin/licence-limits', requireAdmin, async (req, res) => {
 app.put('/api/admin/licence-limits/:licenceType', requireAdmin, async (req, res) => {
     const licenceType = req.params.licenceType;
     const { max_seances_semaine } = req.body;
-    
+
     console.log('Modification limite licence:', licenceType, 'vers', max_seances_semaine);
-    
+
     if (!max_seances_semaine || max_seances_semaine < 1 || max_seances_semaine > 10) {
         return res.status(400).json({ error: 'Le nombre de séances doit être entre 1 et 10' });
     }
-    
+
     try {
         const sql = db.isPostgres ?
             `UPDATE licence_limits SET max_seances_semaine = $1 WHERE licence_type = $2` :
             `UPDATE licence_limits SET max_seances_semaine = ? WHERE licence_type = ?`;
-        
+
         const result = await db.run(sql, [max_seances_semaine, licenceType]);
-        
+
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Type de licence non trouvé' });
         }
-        
+
         console.log('Limite modifiée avec succès:', licenceType);
         res.json({ message: 'Limite modifiée avec succès' });
     } catch (err) {
@@ -2148,29 +1984,29 @@ app.put('/api/admin/licence-limits/:licenceType', requireAdmin, async (req, res)
 // Route de remise à zéro hebdomadaire (ADMIN)
 app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
     console.log('🔄 Début de la remise à zéro hebdomadaire par admin:', req.session.userId);
-    
+
     try {
         // Compter le nombre d'inscriptions avant suppression
         const countSql = `SELECT COUNT(*) as total FROM inscriptions`;
         const countResult = await db.get(countSql, []);
         const inscriptionsAvant = countResult.total || 0;
-        
+
         console.log(`📊 Inscriptions à supprimer: ${inscriptionsAvant}`);
-        
+
         // Supprimer toutes les inscriptions de tous les créneaux
         const deleteSql = `DELETE FROM inscriptions`;
         await db.run(deleteSql, []);
-        
+
         // Vérifier que toutes les inscriptions ont été supprimées
         const verificationResult = await db.get(countSql, []);
         const inscriptionsApres = verificationResult.total || 0;
-        
+
         console.log(`✅ Remise à zéro terminée: ${inscriptionsAvant} inscription(s) supprimée(s), ${inscriptionsApres} restante(s)`);
-        
+
         // Log de sécurité
         console.log(`🔒 Remise à zéro hebdomadaire effectuée par l'admin ${req.session.userId} le ${new Date().toISOString()}`);
-        
-        res.json({ 
+
+        res.json({
             message: 'Remise à zéro hebdomadaire réussie',
             inscriptionsSupprimes: inscriptionsAvant,
             inscriptionsRestantes: inscriptionsApres
@@ -2184,23 +2020,23 @@ app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
 // Route temporaire pour promouvoir un utilisateur en admin (À SUPPRIMER APRÈS USAGE)
 app.post('/api/temp-promote-admin', async (req, res) => {
     const { email, secret } = req.body;
-    
+
     // Mot de passe secret pour sécuriser cette route temporaire
     if (secret !== 'promote-me-to-admin-2024') {
         return res.status(403).json({ error: 'Secret incorrect' });
     }
-    
+
     try {
-        const sql = db.isPostgres ? 
+        const sql = db.isPostgres ?
             `UPDATE users SET role = 'admin' WHERE email = $1` :
             `UPDATE users SET role = 'admin' WHERE email = ?`;
-        
+
         const result = await db.run(sql, [email]);
-        
+
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
         }
-        
+
         console.log(`🔑 Utilisateur ${email} promu administrateur`);
         res.json({ message: `Utilisateur ${email} promu administrateur avec succès` });
     } catch (err) {
