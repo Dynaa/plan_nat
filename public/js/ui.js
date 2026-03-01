@@ -585,13 +585,25 @@ function displayAdminLimites(limites) {
         </div>
     `;
 }
+let messageTimeout;
+
 function showMessage(text, type) {
     const message = document.getElementById('message');
+
+    // Annuler le timeout précédent s'il existe
+    if (messageTimeout) {
+        clearTimeout(messageTimeout);
+    }
+
     message.textContent = text;
     message.className = `message ${type}`;
+
+    // Forcer le reflow pour relancer l'animation si le message était déjà visible
+    void message.offsetWidth;
+
     message.classList.add('show');
 
-    setTimeout(() => {
+    messageTimeout = setTimeout(() => {
         message.classList.remove('show');
     }, 4000);
 }
