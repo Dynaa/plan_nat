@@ -2,19 +2,6 @@
 
 // Fonction pour vérifier les limites de séances par semaine
 const verifierLimitesSeances = async (db, userId) => {
-    // Calculer le début et la fin de la semaine courante (lundi à dimanche)
-    const maintenant = new Date();
-    const jourSemaine = maintenant.getDay(); // 0 = dimanche, 1 = lundi, etc.
-    const joursDepuisLundi = jourSemaine === 0 ? 6 : jourSemaine - 1; // Ajuster pour que lundi = 0
-
-    const debutSemaine = new Date(maintenant);
-    debutSemaine.setDate(maintenant.getDate() - joursDepuisLundi);
-    debutSemaine.setHours(0, 0, 0, 0);
-
-    const finSemaine = new Date(debutSemaine);
-    finSemaine.setDate(debutSemaine.getDate() + 6);
-    finSemaine.setHours(23, 59, 59, 999);
-
     const query = db.isPostgres ? `
         SELECT 
             u.licence_type,
@@ -24,9 +11,7 @@ const verifierLimitesSeances = async (db, userId) => {
         LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
         LEFT JOIN inscriptions i ON u.id = i.user_id 
             AND i.statut = 'inscrit'
-            AND i.created_at >= $1 
-            AND i.created_at <= $2
-        WHERE u.id = $3
+        WHERE u.id = $1
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     ` : `
         SELECT 
@@ -37,14 +22,12 @@ const verifierLimitesSeances = async (db, userId) => {
         LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
         LEFT JOIN inscriptions i ON u.id = i.user_id 
             AND i.statut = 'inscrit'
-            AND i.created_at >= ? 
-            AND i.created_at <= ?
         WHERE u.id = ?
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     `;
 
     try {
-        const result = await db.get(query, [debutSemaine.toISOString(), finSemaine.toISOString(), userId]);
+        const result = await db.get(query, [userId]);
 
         if (!result) {
             throw new Error('Utilisateur non trouvé');
@@ -94,19 +77,6 @@ const verifierMetaRegles = async (db, userId, creneauId) => {
             return { autorise: true, message: null };
         }
 
-        // Calculer le début et la fin de la semaine courante
-        const maintenant = new Date();
-        const jourSemaine = maintenant.getDay();
-        const joursDepuisLundi = jourSemaine === 0 ? 6 : jourSemaine - 1;
-
-        const debutSemaine = new Date(maintenant);
-        debutSemaine.setDate(maintenant.getDate() - joursDepuisLundi);
-        debutSemaine.setHours(0, 0, 0, 0);
-
-        const finSemaine = new Date(debutSemaine);
-        finSemaine.setDate(debutSemaine.getDate() + 6);
-        finSemaine.setHours(23, 59, 59, 999);
-
         // Vérifier chaque méta-règle
         for (const regle of metaRegles) {
             // Vérifier si l'utilisateur est inscrit au jour source cette semaine
@@ -117,9 +87,7 @@ const verifierMetaRegles = async (db, userId, creneauId) => {
                 WHERE i.user_id = $1 
                 AND c.jour_semaine = $2 
                 AND i.statut = 'inscrit'
-                AND i.created_at >= $3 
-                AND i.created_at <= $4
-            `, [userId, regle.jour_source, debutSemaine.toISOString(), finSemaine.toISOString()]);
+            `, [userId, regle.jour_source]);
 
             if (inscriptionSource) {
                 // L'utilisateur est inscrit au jour source, vérifier les jours interdits
