@@ -102,8 +102,14 @@ class DatabaseAdapter {
 
         const convertedSQL = this.convertSQLParams(sql);
         const result = await this.pool.query(convertedSQL, params);
+
+        let lastID = result.insertId || null;
+        if (result.rows && result.rows.length > 0 && result.rows[0].id) {
+            lastID = result.rows[0].id;
+        }
+
         return {
-            lastID: result.insertId || null,
+            lastID: lastID,
             changes: result.rowCount || 0
         };
     }

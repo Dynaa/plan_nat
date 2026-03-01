@@ -163,7 +163,7 @@
 
                 <!-- Indicateur de statut des méta-règles -->
                 <div id="meta-rules-status"
-                    style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 8px; border: 2px solid #e2e8f0; background: #f8fafc;">
+                    style="display: none; margin-bottom: 1.5rem; padding: 1rem; border-radius: 8px; border: 2px solid #e2e8f0; background: #f8fafc;">
                     <div style="display: flex; align-items: center; gap: 0.75rem;">
                         <div id="meta-rules-indicator"
                             style="width: 12px; height: 12px; border-radius: 50%; background: #94a3b8;"></div>
@@ -181,7 +181,8 @@
                     <button class="admin-tab-btn" data-admin-tab="users">Gestion des utilisateurs</button>
                     <button class="admin-tab-btn" data-admin-tab="limites">Limites de séances</button>
                     <button class="admin-tab-btn" data-admin-tab="blocs">Blocs hebdomadaires</button>
-                    <button class="admin-tab-btn" data-admin-tab="meta-rules">Méta-règles</button>
+                    <button class="admin-tab-btn" data-admin-tab="meta-rules"
+                        style="display: none;">Méta-règles</button>
                 </div>
 
                 <!-- Sous-onglet Créneaux -->
@@ -272,14 +273,17 @@
                     <div class="admin-section">
                         <h3>Blocs hebdomadaires</h3>
                         <p style="color: #718096; margin-bottom: 1.5rem;">
-                            Les blocs permettent de limiter les inscriptions : un utilisateur ne peut s'inscrire qu'à <strong>1 seul créneau par bloc</strong>.
+                            Les blocs permettent de limiter les inscriptions : un utilisateur ne peut s'inscrire qu'à
+                            <strong>1 seul créneau par bloc</strong>.
                             Organisez vos créneaux en blocs pour gérer la charge d'entraînement.
                         </p>
 
                         <!-- Création d'un nouveau bloc -->
-                        <div style="background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                        <div
+                            style="background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
                             <h4 style="margin-bottom: 1rem;">Créer un nouveau bloc</h4>
-                            <form id="create-bloc-form" style="display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 1rem; align-items: end;">
+                            <form id="create-bloc-form"
+                                style="display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 1rem; align-items: end;">
                                 <div class="form-group" style="margin: 0;">
                                     <label for="bloc-nom">Nom du bloc</label>
                                     <input type="text" id="bloc-nom" placeholder="Ex: Début de semaine" required>
