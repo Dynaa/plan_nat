@@ -16,6 +16,9 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
+// Healthcheck pour Railway
+app.get('/health', (req, res) => res.status(200).send('OK'));
+
 // Configuration de session adaptée à l'environnement
 const sessionConfig = {
     secret: process.env.SESSION_SECRET || 'triathlon-natation-secret-key-dev',
