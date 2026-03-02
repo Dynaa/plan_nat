@@ -1,6 +1,5 @@
 // Adaptateur de base de données (PostgreSQL en Prod/Dev, SQLite en Test)
 const { Pool } = require('pg');
-const sqlite3 = require('sqlite3').verbose();
 
 class DatabaseAdapter {
     constructor() {
@@ -10,12 +9,14 @@ class DatabaseAdapter {
 
         if (this.isTest) {
             console.log('🧪 Mode Test : Initialisation SQLite en mémoire...');
+            const sqlite3 = require('sqlite3').verbose();
             this.db = new sqlite3.Database(':memory:');
             return;
         }
 
         if (!process.env.DATABASE_URL) {
             console.log('💾 Mode Développement : Initialisation SQLite (database.sqlite)...');
+            const sqlite3 = require('sqlite3').verbose();
             this.db = new sqlite3.Database('./database.sqlite');
             return;
         }
