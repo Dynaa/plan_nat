@@ -215,24 +215,26 @@ async function initializeDatabase() {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 creneau_id INTEGER NOT NULL,
+                date_seance TEXT NOT NULL,
                 statut TEXT DEFAULT 'inscrit',
                 position_attente INTEGER NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (creneau_id) REFERENCES creneaux (id),
-                UNIQUE(user_id, creneau_id)
+                UNIQUE(user_id, creneau_id, date_seance)
             )`,
             // PostgreSQL
             `CREATE TABLE IF NOT EXISTS inscriptions (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL,
                 creneau_id INTEGER NOT NULL,
+                date_seance DATE NOT NULL,
                 statut VARCHAR(50) DEFAULT 'inscrit',
                 position_attente INTEGER NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (creneau_id) REFERENCES creneaux (id),
-                UNIQUE(user_id, creneau_id)
+                UNIQUE(user_id, creneau_id, date_seance)
             )`
         );
         console.log('🔧 Création table inscriptions...');
@@ -526,7 +528,7 @@ const generateWaitlistToken = () => {
 };
 
 // Fonction pour créer un token d'inscription et envoyer l'email
-const notifyWaitlistUser = async (userId, creneauId) => {
+const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
     try {
         // Récupérer les infos utilisateur et créneau
         const userInfo = await db.get(`SELECT email, nom, prenom FROM users WHERE id = ?`, [userId]);
@@ -543,8 +545,8 @@ const notifyWaitlistUser = async (userId, creneauId) => {
         expiresAt.setHours(expiresAt.getHours() + 24); // Expire dans 24h
 
         // Sauvegarder le token
-        await db.run(`INSERT INTO waitlist_tokens (token, user_id, creneau_id, expires_at) VALUES (?, ?, ?, ?)`,
-            [token, userId, creneauId, expiresAt.toISOString()]);
+        await db.run(`INSERT INTO waitlist_tokens (token, user_id, creneau_id, date_seance, expires_at) VALUES (?, ?, ?, ?, ?)`,
+            [token, userId, creneauId, date_seance, expiresAt.toISOString()]);
 
         // Créer le lien d'inscription
         const baseUrl = process.env.BASE_URL || process.env.RAILWAY_STATIC_URL || 'http://localhost:3000';
@@ -819,9 +821,31 @@ app.get('/api/auth-status', async (req, res) => {
     }
 });
 
+// --- Utilitaires de dates ---
+function getSeanceDate(jourSemaine, offsetSemaines = 0) {
+    // jourSemaine: 0=Dimanche, 1=Lundi, ..., 6=Samedi
+    const today = new Date();
+    // Ajuster pour que la semaine commence le Lundi (1) et finisse le Dimanche (7 dans ce calcul interne)
+    let currentDayOfWeek = today.getDay();
+    if (currentDayOfWeek === 0) currentDayOfWeek = 7;
+
+    let targetDayOfWeek = jourSemaine;
+    if (targetDayOfWeek === 0) targetDayOfWeek = 7;
+
+    // Différence en jours par rapport à aujourd'hui pour atteindre le même jour de cette semaine
+    const diff = targetDayOfWeek - currentDayOfWeek;
+
+    const targetDate = new Date(today);
+    targetDate.setDate(today.getDate() + diff + (offsetSemaines * 7));
+
+    // Formater en YYYY-MM-DD
+    return targetDate.toISOString().split('T')[0];
+}
+
 // Routes des créneaux
 app.get('/api/creneaux', async (req, res) => {
     const userId = req.session ? req.session.userId : null;
+    const offsetSemaines = parseInt(req.query.semaine || '0', 10); // 0 = cette semaine, 1 = semaine pro
 
     const query = db.isPostgres ? `
         SELECT c.*,
@@ -832,7 +856,7 @@ app.get('/api/creneaux', async (req, res) => {
                b.nom as bloc_nom,
                CASE WHEN ub.user_id IS NOT NULL THEN ub.creneau_nom ELSE NULL END as inscrit_dans_bloc
         FROM creneaux c
-        LEFT JOIN inscriptions i ON c.id = i.creneau_id
+        LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.date_seance = $2
         LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
         LEFT JOIN blocs b ON bc.bloc_id = b.id
         LEFT JOIN (
@@ -840,7 +864,7 @@ app.get('/api/creneaux', async (req, res) => {
             FROM inscriptions i2
             JOIN creneaux c2 ON i2.creneau_id = c2.id
             JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
-            WHERE i2.statut = 'inscrit' AND i2.user_id = $1::integer
+            WHERE i2.statut = 'inscrit' AND i2.user_id = $1::integer AND i2.date_seance = $2
         ) ub ON b.id = ub.bloc_id
         WHERE c.actif = true
         GROUP BY c.id, b.id, b.nom, ub.user_id, ub.creneau_nom
@@ -854,7 +878,7 @@ app.get('/api/creneaux', async (req, res) => {
                b.nom as bloc_nom,
                ub.creneau_nom as inscrit_dans_bloc
         FROM creneaux c
-        LEFT JOIN inscriptions i ON c.id = i.creneau_id
+        LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.date_seance = ?
         LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
         LEFT JOIN blocs b ON bc.bloc_id = b.id
         LEFT JOIN (
@@ -862,7 +886,7 @@ app.get('/api/creneaux', async (req, res) => {
             FROM inscriptions i2
             JOIN creneaux c2 ON i2.creneau_id = c2.id
             JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
-            WHERE i2.statut = 'inscrit' AND i2.user_id = ?
+            WHERE i2.statut = 'inscrit' AND i2.user_id = ? AND i2.date_seance = ?
         ) ub ON b.id = ub.bloc_id
         WHERE c.actif = 1
         GROUP BY c.id, b.id, b.nom, ub.creneau_nom
@@ -870,7 +894,72 @@ app.get('/api/creneaux', async (req, res) => {
     `;
 
     try {
-        const rows = await db.query(query, [userId || null]);
+        // Au lieu d'utiliser une seule requête avec la même date, le LEFT JOIN GROUP BY est délicat si la date dépend de `c.jour_semaine`.
+        // Une approche plus fiable est de récupérer les créneaux et leurs blocs d'abord,
+        // puis de faire les requêtes de comptage et de statuts séparément, ou d'injecter la date depuis le code.
+        // Puisque SQLite ne supporte pas facilement d'injecter une fonction JS dans la query,
+        // on va récupérer les créneaux, puis boucler pour générer les compteurs avec la date_seance correcte pour chaque.
+
+        let creneauxQuery = db.isPostgres ?
+            `SELECT c.*, (c.nombre_lignes * c.personnes_par_ligne) as capacite_max, b.id as bloc_id, b.nom as bloc_nom
+             FROM creneaux c 
+             LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
+             LEFT JOIN blocs b ON bc.bloc_id = b.id
+             WHERE c.actif = true
+             ORDER BY c.jour_semaine, c.heure_debut` :
+            `SELECT c.*, (c.nombre_lignes * c.personnes_par_ligne) as capacite_max, b.id as bloc_id, b.nom as bloc_nom
+             FROM creneaux c 
+             LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
+             LEFT JOIN blocs b ON bc.bloc_id = b.id
+             WHERE c.actif = 1
+             ORDER BY c.jour_semaine, c.heure_debut`;
+
+        let rows = await db.query(creneauxQuery, []);
+
+        // Enrichir chaque créneau avec ses dates et les infos d'inscription
+        const today = new Date().toISOString().split('T')[0];
+
+        for (let row of rows) {
+            row.date_seance = getSeanceDate(row.jour_semaine, offsetSemaines);
+            row.est_passe = row.date_seance < today;
+
+            // Compter les inscrits et en attente
+            const statsQuery = db.isPostgres ?
+                `SELECT 
+                    COUNT(CASE WHEN statut = 'inscrit' THEN 1 END) as inscrits,
+                    COUNT(CASE WHEN statut = 'attente' THEN 1 END) as en_attente
+                 FROM inscriptions WHERE creneau_id = $1 AND date_seance = $2` :
+                `SELECT 
+                    COUNT(CASE WHEN statut = 'inscrit' THEN 1 END) as inscrits,
+                    COUNT(CASE WHEN statut = 'attente' THEN 1 END) as en_attente
+                 FROM inscriptions WHERE creneau_id = ? AND date_seance = ?`;
+
+            const stats = await db.get(statsQuery, [row.id, row.date_seance]);
+            row.inscrits = stats.inscrits || 0;
+            row.en_attente = stats.en_attente || 0;
+
+            row.inscrit_dans_bloc = null;
+            if (userId && row.bloc_id) {
+                // Vérifier si l'user est inscrit dans un créneau de ce bloc à la même date
+                const blocQuery = db.isPostgres ?
+                    `SELECT c2.nom as creneau_nom
+                     FROM inscriptions i2
+                     JOIN creneaux c2 ON i2.creneau_id = c2.id
+                     JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
+                     WHERE i2.statut = 'inscrit' AND i2.user_id = $1 AND bc2.bloc_id = $2 AND i2.date_seance = $3 LIMIT 1` :
+                    `SELECT c2.nom as creneau_nom
+                     FROM inscriptions i2
+                     JOIN creneaux c2 ON i2.creneau_id = c2.id
+                     JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
+                     WHERE i2.statut = 'inscrit' AND i2.user_id = ? AND bc2.bloc_id = ? AND i2.date_seance = ? LIMIT 1`;
+
+                const blocResult = await db.get(blocQuery, [userId, row.bloc_id, row.date_seance]);
+                if (blocResult) {
+                    row.inscrit_dans_bloc = blocResult.creneau_nom;
+                }
+            }
+        }
+
         res.json(rows);
     } catch (err) {
         console.error('Erreur récupération créneaux:', err);
@@ -885,7 +974,7 @@ app.get('/api/creneaux/:creneauId', async (req, res) => {
     try {
         const sql = db.isPostgres ?
             `SELECT * FROM creneaux WHERE id = $1` :
-            `SELECT * FROM creneaux WHERE id = ?`;
+            `SELECT * FROM creneaux WHERE id = ? `;
 
         const creneau = await db.get(sql, [creneauId]);
 
@@ -903,12 +992,17 @@ app.get('/api/creneaux/:creneauId', async (req, res) => {
 // Route pour récupérer la liste des inscrits à un créneau (PUBLIC)
 app.get('/api/creneaux/:creneauId/inscrits', requireAuth, async (req, res) => {
     const creneauId = req.params.creneauId;
+    const date_seance = req.query.date_seance;
+
+    if (!date_seance) {
+        return res.status(400).json({ error: 'La date de séance est requise' });
+    }
 
     const query = db.isPostgres ? `
         SELECT u.nom, u.prenom, i.statut, i.position_attente
         FROM inscriptions i
         JOIN users u ON i.user_id = u.id
-        WHERE i.creneau_id = $1
+        WHERE i.creneau_id = $1 AND i.date_seance = $2
         ORDER BY 
             CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
             i.position_attente ASC,
@@ -917,7 +1011,7 @@ app.get('/api/creneaux/:creneauId/inscrits', requireAuth, async (req, res) => {
         SELECT u.nom, u.prenom, i.statut, i.position_attente
         FROM inscriptions i
         JOIN users u ON i.user_id = u.id
-        WHERE i.creneau_id = ?
+        WHERE i.creneau_id = ? AND i.date_seance = ?
         ORDER BY 
             CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
             i.position_attente ASC,
@@ -925,7 +1019,7 @@ app.get('/api/creneaux/:creneauId/inscrits', requireAuth, async (req, res) => {
     `;
 
     try {
-        const rows = await db.query(query, [creneauId]);
+        const rows = await db.query(query, [creneauId, date_seance]);
         res.json(rows);
     } catch (err) {
         console.error('Erreur récupération inscrits publics:', err);
@@ -943,7 +1037,7 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
         JOIN creneaux c ON i.creneau_id = c.id
         WHERE i.user_id = ${db.isPostgres ? '$1' : '?'}
         ORDER BY c.jour_semaine, c.heure_debut
-    `;
+            `;
 
     console.log('Requête mes-inscriptions pour userId:', userId);
 
@@ -993,8 +1087,8 @@ module.exports = app; // Mettre à disposition l'application pour les tests (Sup
 
 if (require.main === module) {
     const server = app.listen(PORT, () => {
-        console.log(`✅ Serveur démarré sur le port ${PORT}`);
-        console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
+        console.log(`✅ Serveur démarré sur le port ${PORT} `);
+        console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'} `);
 
         if (process.env.NODE_ENV !== 'production') {
             console.log('=== Comptes de test ===');
@@ -1043,12 +1137,12 @@ app.put('/api/admin/meta-rules-config', requireAdmin, async (req, res) => {
 
         if (existingConfig) {
             const updateSQL = db.adaptSQL(
-                `UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`,
-                `UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?`
+                `UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ? `,
+                `UPDATE meta_rules_config SET enabled = ?, description = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ? `
             );
             await db.run(updateSQL, [enabled, description, userId]);
         } else {
-            await db.run(`INSERT INTO meta_rules_config (enabled, description, updated_by) VALUES (?, ?, ?)`,
+            await db.run(`INSERT INTO meta_rules_config(enabled, description, updated_by) VALUES(?, ?, ?)`,
                 [enabled, description, userId]);
         }
 
@@ -1068,7 +1162,7 @@ app.get('/api/admin/meta-rules', requireAdmin, async (req, res) => {
             FROM meta_rules mr 
             LEFT JOIN users u ON mr.created_by = u.id 
             ORDER BY mr.licence_type, mr.jour_source
-        `);
+    `);
         res.json(rules);
     } catch (err) {
         console.error('Erreur récupération méta-règles:', err);
@@ -1087,8 +1181,8 @@ app.post('/api/admin/meta-rules', requireAdmin, async (req, res) => {
 
     try {
         await db.run(`
-            INSERT INTO meta_rules (licence_type, jour_source, jours_interdits, description, created_by) 
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO meta_rules(licence_type, jour_source, jours_interdits, description, created_by) 
+            VALUES(?, ?, ?, ?, ?)
         `, [licence_type, jour_source, jours_interdits, description, userId]);
 
         res.json({ message: 'Méta-règle créée avec succès' });
@@ -1111,7 +1205,7 @@ app.put('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
         await db.run(`
             UPDATE meta_rules 
             SET licence_type = ?, jour_source = ?, jours_interdits = ?, description = ?
-            WHERE id = ?
+    WHERE id = ?
         `, [licence_type, jour_source, jours_interdits, description, id]);
 
         res.json({ message: 'Méta-règle modifiée avec succès' });
@@ -1126,7 +1220,7 @@ app.delete('/api/admin/meta-rules/:id', requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
-        await db.run(`DELETE FROM meta_rules WHERE id = ?`, [id]);
+        await db.run(`DELETE FROM meta_rules WHERE id = ? `, [id]);
         res.json({ message: 'Méta-règle supprimée' });
     } catch (err) {
         console.error('Erreur suppression méta-règle:', err);
@@ -1139,7 +1233,7 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
-        await db.run(`UPDATE meta_rules SET active = NOT active WHERE id = ?`, [id]);
+        await db.run(`UPDATE meta_rules SET active = NOT active WHERE id = ? `, [id]);
         res.json({ message: 'Statut de la règle mis à jour' });
     } catch (err) {
         console.error('Erreur toggle méta-règle:', err);
@@ -1159,10 +1253,10 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
         const capaciteMaxCalculee = parseInt(nombre_lignes) * parseInt(personnes_par_ligne);
 
         const sql = db.isPostgres ?
-            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, licences_autorisees) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id` :
-            `INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, licences_autorisees) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+            `INSERT INTO creneaux(nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, licences_autorisees) 
+             VALUES($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id` :
+            `INSERT INTO creneaux(nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, licences_autorisees) 
+             VALUES(?, ?, ?, ?, ?, ?, ?, ?)`;
 
         const result = await db.run(sql, [
             nom,
@@ -1200,7 +1294,7 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
 
         const sql = db.isPostgres ?
             `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, nombre_lignes = $5, personnes_par_ligne = $6, capacite_max = $7, licences_autorisees = $8 WHERE id = $9` :
-            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, capacite_max = ?, licences_autorisees = ? WHERE id = ?`;
+            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, capacite_max = ?, licences_autorisees = ? WHERE id = ? `;
 
         const result = await db.run(sql, [
             nom,
@@ -1234,11 +1328,11 @@ app.delete('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
 
     try {
         // Vérifier d'abord s'il y a des inscriptions
-        const result = await db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE creneau_id = ?`, [creneauId]);
+        const result = await db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE creneau_id = ? `, [creneauId]);
 
         if (result && result.count > 0) {
             return res.status(400).json({
-                error: `Impossible de supprimer ce créneau car ${result.count} personne(s) y sont inscrites. Veuillez d'abord les désinscrire.`
+                error: `Impossible de supprimer ce créneau car ${result.count} personne(s) y sont inscrites.Veuillez d'abord les désinscrire.`
             });
         }
 
@@ -1823,29 +1917,58 @@ app.get('/api/admin/creneaux-sans-bloc', requireAdmin, async (req, res) => {
 // Routes d'administration des créneaux
 app.get('/api/admin/inscriptions/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
+    const date_seance = req.query.date_seance; // Optionnel, pour filtrer
 
-    const query = db.isPostgres ? `
-        SELECT i.*, u.nom, u.prenom, u.email
-        FROM inscriptions i
-        JOIN users u ON i.user_id = u.id
-        WHERE i.creneau_id = $1
-        ORDER BY 
-            CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
-            i.position_attente ASC,
-            i.created_at ASC
-    ` : `
-        SELECT i.*, u.nom, u.prenom, u.email
-        FROM inscriptions i
-        JOIN users u ON i.user_id = u.id
-        WHERE i.creneau_id = ?
-        ORDER BY 
-            CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
-            i.position_attente ASC,
-            i.created_at ASC
-    `;
+    let query = '';
+    let params = [creneauId];
+
+    if (date_seance) {
+        query = db.isPostgres ? `
+            SELECT i.*, u.nom, u.prenom, u.email
+            FROM inscriptions i
+            JOIN users u ON i.user_id = u.id
+            WHERE i.creneau_id = $1 AND i.date_seance = $2
+            ORDER BY 
+                CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+                i.position_attente ASC,
+                i.created_at ASC
+        ` : `
+            SELECT i.*, u.nom, u.prenom, u.email
+            FROM inscriptions i
+            JOIN users u ON i.user_id = u.id
+            WHERE i.creneau_id = ? AND i.date_seance = ?
+            ORDER BY 
+                CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+                i.position_attente ASC,
+                i.created_at ASC
+        `;
+        params.push(date_seance);
+    } else {
+        query = db.isPostgres ? `
+            SELECT i.*, u.nom, u.prenom, u.email
+            FROM inscriptions i
+            JOIN users u ON i.user_id = u.id
+            WHERE i.creneau_id = $1
+            ORDER BY 
+                i.date_seance DESC,
+                CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+                i.position_attente ASC,
+                i.created_at ASC
+        ` : `
+            SELECT i.*, u.nom, u.prenom, u.email
+            FROM inscriptions i
+            JOIN users u ON i.user_id = u.id
+            WHERE i.creneau_id = ?
+            ORDER BY 
+                i.date_seance DESC,
+                CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+                i.position_attente ASC,
+                i.created_at ASC
+        `;
+    }
 
     try {
-        const rows = await db.query(query, [creneauId]);
+        const rows = await db.query(query, params);
         res.json(rows);
     } catch (err) {
         console.error('Erreur récupération inscriptions:', err);
@@ -1855,12 +1978,12 @@ app.get('/api/admin/inscriptions/:creneauId', requireAdmin, async (req, res) => 
 
 // Route pour inscrire un utilisateur à un créneau (ADMIN)
 app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
-    const { email, creneauId } = req.body;
+    const { email, creneauId, date_seance } = req.body;
 
-    console.log('Admin inscription:', { email, creneauId });
+    console.log('Admin inscription:', { email, creneauId, date_seance });
 
-    if (!email || !creneauId) {
-        return res.status(400).json({ error: 'Email et ID du créneau requis' });
+    if (!email || !creneauId || !date_seance) {
+        return res.status(400).json({ error: 'Email, ID du créneau et date de séance requis' });
     }
 
     try {
@@ -1877,13 +2000,13 @@ app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
 
         // Vérifier si déjà inscrit
         const checkSql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
 
-        const existingInscription = await db.get(checkSql, [user.id, creneauId]);
+        const existingInscription = await db.get(checkSql, [user.id, creneauId, date_seance]);
 
         if (existingInscription) {
-            return res.status(400).json({ error: 'Cet utilisateur est déjà inscrit à ce créneau' });
+            return res.status(400).json({ error: 'Cet utilisateur est déjà inscrit à ce créneau pour cette date' });
         }
 
         // Vérifier les méta-règles (avec avertissement pour l'admin)
@@ -1896,12 +2019,12 @@ app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
 
         // Inscrire l'utilisateur (inscription directe par l'admin)
         const insertSql = db.isPostgres ?
-            `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES ($1, $2, 'inscrit') RETURNING id` :
-            `INSERT INTO inscriptions (user_id, creneau_id, statut) VALUES (?, ?, 'inscrit')`;
+            `INSERT INTO inscriptions (user_id, creneau_id, statut, date_seance) VALUES ($1, $2, 'inscrit', $3) RETURNING id` :
+            `INSERT INTO inscriptions (user_id, creneau_id, statut, date_seance) VALUES (?, ?, 'inscrit', ?)`;
 
-        await db.run(insertSql, [user.id, creneauId]);
+        await db.run(insertSql, [user.id, creneauId, date_seance]);
 
-        console.log('Inscription admin réussie:', { email, creneauId });
+        console.log('Inscription admin réussie:', { email, creneauId, date_seance });
 
         let message = `Utilisateur ${email} inscrit avec succès`;
         if (!metaReglesCheck.autorise) {
@@ -1918,16 +2041,19 @@ app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
 // Route pour désinscrire un utilisateur d'un créneau (ADMIN)
 app.delete('/api/admin/inscriptions/:userId/:creneauId', requireAdmin, async (req, res) => {
     const { userId, creneauId } = req.params;
+    const { date_seance } = req.body;
 
-    console.log('Admin désinscription:', { userId, creneauId });
+    console.log('Admin désinscription:', { userId, creneauId, date_seance });
+
+    if (!date_seance) return res.status(400).json({ error: 'Date de séance requise' });
 
     try {
         // Vérifier l'inscription existante
         const checkSql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
 
-        const inscription = await db.get(checkSql, [userId, creneauId]);
+        const inscription = await db.get(checkSql, [userId, creneauId, date_seance]);
 
         if (!inscription) {
             return res.status(404).json({ error: 'Inscription non trouvée' });
@@ -1935,12 +2061,12 @@ app.delete('/api/admin/inscriptions/:userId/:creneauId', requireAdmin, async (re
 
         // Supprimer l'inscription
         const deleteSql = db.isPostgres ?
-            `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
-            `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+            `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
+            `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
 
-        await db.run(deleteSql, [userId, creneauId]);
+        await db.run(deleteSql, [userId, creneauId, date_seance]);
 
-        console.log('Désinscription admin réussie:', { userId, creneauId });
+        console.log('Désinscription admin réussie:', { userId, creneauId, date_seance });
         res.json({ message: 'Utilisateur désinscrit avec succès' });
     } catch (err) {
         console.error('Erreur désinscription admin:', err);
@@ -1951,16 +2077,19 @@ app.delete('/api/admin/inscriptions/:userId/:creneauId', requireAdmin, async (re
 // Route pour promouvoir un utilisateur de la liste d'attente (ADMIN)
 app.put('/api/admin/inscriptions/:userId/:creneauId/promote', requireAdmin, async (req, res) => {
     const { userId, creneauId } = req.params;
+    const { date_seance } = req.body;
 
-    console.log('Admin promotion:', { userId, creneauId });
+    console.log('Admin promotion:', { userId, creneauId, date_seance });
+
+    if (!date_seance) return res.status(400).json({ error: 'Date de séance requise' });
 
     try {
         // Vérifier que l'utilisateur est en attente
         const checkSql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND statut = 'attente'` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND statut = 'attente'`;
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3 AND statut = 'attente'` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ? AND statut = 'attente'`;
 
-        const inscription = await db.get(checkSql, [userId, creneauId]);
+        const inscription = await db.get(checkSql, [userId, creneauId, date_seance]);
 
         if (!inscription) {
             return res.status(404).json({ error: 'Utilisateur non trouvé en liste d\'attente' });
@@ -1968,12 +2097,12 @@ app.put('/api/admin/inscriptions/:userId/:creneauId/promote', requireAdmin, asyn
 
         // Promouvoir l'utilisateur
         const promoteSql = db.isPostgres ?
-            `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = $1 AND creneau_id = $2` :
-            `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = ? AND creneau_id = ?`;
+            `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
+            `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
 
-        await db.run(promoteSql, [userId, creneauId]);
+        await db.run(promoteSql, [userId, creneauId, date_seance]);
 
-        console.log('Promotion admin réussie:', { userId, creneauId });
+        console.log('Promotion admin réussie:', { userId, creneauId, date_seance });
         res.json({ message: 'Utilisateur promu avec succès' });
     } catch (err) {
         console.error('Erreur promotion admin:', err);
@@ -1983,25 +2112,25 @@ app.put('/api/admin/inscriptions/:userId/:creneauId/promote', requireAdmin, asyn
 
 // Route d'inscription à un créneau
 app.post('/api/inscriptions', requireAuth, async (req, res) => {
-    const { creneauId } = req.body;
+    const { creneauId, date_seance } = req.body;
     const userId = req.session.userId;
 
-    console.log('Tentative d\'inscription:', { userId, creneauId });
+    console.log('Tentative d\'inscription:', { userId, creneauId, date_seance });
 
-    if (!creneauId) {
-        return res.status(400).json({ error: 'ID du créneau requis' });
+    if (!creneauId || !date_seance) {
+        return res.status(400).json({ error: 'ID du créneau et date de séance requis' });
     }
 
     try {
         // Vérifier si l'utilisateur est déjà inscrit
         const sql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
 
-        const existingInscription = await db.get(sql, [userId, creneauId]);
+        const existingInscription = await db.get(sql, [userId, creneauId, date_seance]);
 
         if (existingInscription) {
-            return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau' });
+            return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau pour cette date' });
         }
 
         // Vérifier les limites de séances
@@ -2028,18 +2157,18 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
                     (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
                     COUNT(i.id) as inscrits_actuels
              FROM creneaux c
-             LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit'
+             LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit' AND i.date_seance = $2
              WHERE c.id = $1
              GROUP BY c.id, c.nombre_lignes, c.personnes_par_ligne, c.nom` :
             `SELECT c.nombre_lignes, c.personnes_par_ligne, c.nom,
                     (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
                     COUNT(i.id) as inscrits_actuels
              FROM creneaux c
-             LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit'
+             LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit' AND i.date_seance = ?
              WHERE c.id = ?
              GROUP BY c.id, c.nombre_lignes, c.personnes_par_ligne, c.nom`;
 
-        const creneauInfo = await db.get(creneauSql, [creneauId]);
+        const creneauInfo = await db.get(creneauSql, db.isPostgres ? [creneauId, date_seance] : [date_seance, creneauId]);
 
         if (!creneauInfo) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
@@ -2061,12 +2190,12 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
             const positionSql = db.isPostgres ?
                 `SELECT COALESCE(MAX(position_attente), 0) + 1 as next_pos 
                  FROM inscriptions 
-                 WHERE creneau_id = $1 AND statut = 'attente'` :
+                 WHERE creneau_id = $1 AND statut = 'attente' AND date_seance = $2` :
                 `SELECT COALESCE(MAX(position_attente), 0) + 1 as next_pos 
                  FROM inscriptions 
-                 WHERE creneau_id = ? AND statut = 'attente'`;
+                 WHERE creneau_id = ? AND statut = 'attente' AND date_seance = ?`;
 
-            const posResult = await db.get(positionSql, [creneauId]);
+            const posResult = await db.get(positionSql, [creneauId, date_seance]);
             positionAttente = posResult.next_pos;
 
             message = `Créneau complet ! Vous avez été ajouté à la liste d'attente (position ${positionAttente}).`;
@@ -2074,12 +2203,12 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
 
         // Insérer l'inscription avec le bon statut
         const insertSql = db.isPostgres ?
-            `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente) VALUES ($1, $2, $3, $4) RETURNING id` :
-            `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente) VALUES (?, ?, ?, ?)`;
+            `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente, date_seance) VALUES ($1, $2, $3, $4, $5) RETURNING id` :
+            `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente, date_seance) VALUES (?, ?, ?, ?, ?)`;
 
-        const result = await db.run(insertSql, [userId, creneauId, statut, positionAttente]);
+        const result = await db.run(insertSql, [userId, creneauId, statut, positionAttente, date_seance]);
 
-        console.log('Inscription réussie:', { userId, creneauId, statut, positionAttente, inscritActuels, capaciteMax });
+        console.log('Inscription réussie:', { userId, creneauId, statut, positionAttente, date_seance, inscritActuels, capaciteMax });
 
         res.json({
             message,
@@ -2151,8 +2280,8 @@ app.post('/api/inscription-attente', async (req, res) => {
         // Vérifier si l'utilisateur est toujours en liste d'attente
         const currentInscription = await db.get(`
             SELECT * FROM inscriptions 
-            WHERE user_id = ? AND creneau_id = ? AND statut = 'attente'
-        `, [tokenInfo.user_id, tokenInfo.creneau_id]);
+            WHERE user_id = ? AND creneau_id = ? AND date_seance = ? AND statut = 'attente'
+        `, [tokenInfo.user_id, tokenInfo.creneau_id, tokenInfo.date_seance]);
 
         if (!currentInscription) {
             return res.status(400).json({ error: 'Vous n\'êtes plus en liste d\'attente pour ce créneau' });
@@ -2162,8 +2291,8 @@ app.post('/api/inscription-attente', async (req, res) => {
         const inscritActuels = await db.get(`
             SELECT COUNT(*) as count 
             FROM inscriptions 
-            WHERE creneau_id = ? AND statut = 'inscrit'
-        `, [tokenInfo.creneau_id]);
+            WHERE creneau_id = ? AND date_seance = ? AND statut = 'inscrit'
+        `, [tokenInfo.creneau_id, tokenInfo.date_seance]);
 
         if (inscritActuels.count >= tokenInfo.capacite_max) {
             return res.status(409).json({
@@ -2176,21 +2305,21 @@ app.post('/api/inscription-attente', async (req, res) => {
         await db.run(`
             UPDATE inscriptions 
             SET statut = 'inscrit', position_attente = NULL 
-            WHERE user_id = ? AND creneau_id = ?
-        `, [tokenInfo.user_id, tokenInfo.creneau_id]);
+            WHERE user_id = ? AND creneau_id = ? AND date_seance = ?
+        `, [tokenInfo.user_id, tokenInfo.creneau_id, tokenInfo.date_seance]);
 
         // Marquer le token comme utilisé
         await db.run(`UPDATE waitlist_tokens SET used = ? WHERE token = ?`, [true, token]);
 
-        // Invalider tous les autres tokens pour ce créneau pour éviter les tentatives inutiles
-        await db.run(`UPDATE waitlist_tokens SET used = ? WHERE creneau_id = ? AND token != ?`, [true, tokenInfo.creneau_id, token]);
+        // Invalider tous les autres tokens pour ce créneau et cette date pour éviter les tentatives inutiles
+        await db.run(`UPDATE waitlist_tokens SET used = ? WHERE creneau_id = ? AND date_seance = ? AND token != ?`, [true, tokenInfo.creneau_id, tokenInfo.date_seance, token]);
 
         // Réorganiser les positions d'attente
         await db.run(`
             UPDATE inscriptions 
             SET position_attente = position_attente - 1 
-            WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?
-        `, [tokenInfo.creneau_id, currentInscription.position_attente]);
+            WHERE creneau_id = ? AND date_seance = ? AND statut = 'attente' AND position_attente > ?
+        `, [tokenInfo.creneau_id, tokenInfo.date_seance, currentInscription.position_attente]);
 
         console.log(`✅ Inscription via token réussie: ${tokenInfo.email} -> ${tokenInfo.creneau_nom}`);
 
@@ -2209,17 +2338,22 @@ app.post('/api/inscription-attente', async (req, res) => {
 // Route de désinscription
 app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
     const creneauId = req.params.creneauId;
+    const { date_seance } = req.body;
     const userId = req.session.userId;
 
-    console.log('Tentative de désinscription:', { userId, creneauId });
+    console.log('Tentative de désinscription:', { userId, creneauId, date_seance });
+
+    if (!date_seance) {
+        return res.status(400).json({ error: 'La date de séance est requise' });
+    }
 
     try {
         // Vérifier l'inscription existante
         const checkSql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
+            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
 
-        const inscription = await db.get(checkSql, [userId, creneauId]);
+        const inscription = await db.get(checkSql, [userId, creneauId, date_seance]);
 
         if (!inscription) {
             return res.status(404).json({ error: 'Inscription non trouvée' });
@@ -2227,10 +2361,10 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
 
         // Supprimer l'inscription
         const deleteSql = db.isPostgres ?
-            `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2` :
-            `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ?`;
+            `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
+            `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
 
-        await db.run(deleteSql, [userId, creneauId]);
+        await db.run(deleteSql, [userId, creneauId, date_seance]);
 
         console.log('Désinscription réussie:', { userId, creneauId });
 
@@ -2238,25 +2372,25 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
         if (inscription.statut === 'inscrit') {
             const premierEnAttenteSql = db.isPostgres ?
                 `SELECT * FROM inscriptions 
-                 WHERE creneau_id = $1 AND statut = 'attente' 
+                 WHERE creneau_id = $1 AND statut = 'attente' AND date_seance = $2
                  ORDER BY position_attente ASC LIMIT 1` :
                 `SELECT * FROM inscriptions 
-                 WHERE creneau_id = ? AND statut = 'attente' 
+                 WHERE creneau_id = ? AND statut = 'attente' AND date_seance = ?
                  ORDER BY position_attente ASC LIMIT 1`;
 
-            const premierEnAttente = await db.get(premierEnAttenteSql, [creneauId]);
+            const premierEnAttente = await db.get(premierEnAttenteSql, [creneauId, date_seance]);
 
             if (premierEnAttente) {
                 // Récupérer TOUTES les personnes en liste d'attente
                 const toutesPersonnesAttenteSql = db.isPostgres ?
                     `SELECT user_id FROM inscriptions 
-                     WHERE creneau_id = $1 AND statut = 'attente' 
+                     WHERE creneau_id = $1 AND statut = 'attente' AND date_seance = $2
                      ORDER BY position_attente ASC` :
                     `SELECT user_id FROM inscriptions 
-                     WHERE creneau_id = ? AND statut = 'attente' 
+                     WHERE creneau_id = ? AND statut = 'attente' AND date_seance = ?
                      ORDER BY position_attente ASC`;
 
-                const personnesEnAttente = await db.query(toutesPersonnesAttenteSql, [creneauId]);
+                const personnesEnAttente = await db.query(toutesPersonnesAttenteSql, [creneauId, date_seance]);
 
                 if (personnesEnAttente && personnesEnAttente.length > 0) {
                     console.log(`📧 Envoi d'emails à ${personnesEnAttente.length} personne(s) en liste d'attente`);
@@ -2264,7 +2398,7 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
                     // Envoyer un email à chaque personne en liste d'attente
                     let emailsEnvoyes = 0;
                     for (const personne of personnesEnAttente) {
-                        const emailSent = await notifyWaitlistUser(personne.user_id, creneauId);
+                        const emailSent = await notifyWaitlistUser(personne.user_id, creneauId, date_seance);
                         if (emailSent) emailsEnvoyes++;
                     }
 

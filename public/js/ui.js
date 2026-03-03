@@ -201,17 +201,23 @@ function displayCreneaux() {
             ? `${creneau.nombre_lignes} ligne(s) × ${creneau.personnes_par_ligne} pers.`
             : '';
 
-        const btnDisabled = !peutSinscrire || blocqueParBloc;
-        const btnLabel = !peutSinscrire ? 'Licence incompatible'
-            : blocqueParBloc ? 'Bloc déjà utilisé'
-                : disponible ? 'S\'inscrire' : 'Liste d\'attente';
+        // Formater la date
+        const dateObj = new Date(creneau.date_seance);
+        const dateStr = dateObj.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+        const estPasse = creneau.est_passe;
+
+        const btnDisabled = !peutSinscrire || blocqueParBloc || estPasse;
+        const btnLabel = estPasse ? 'Terminé'
+            : !peutSinscrire ? 'Licence incompatible'
+                : blocqueParBloc ? 'Bloc déjà utilisé'
+                    : disponible ? 'S\'inscrire' : 'Liste d\'attente';
 
         return `
-            <div class="creneau-card">
+            <div class="creneau-card ${estPasse ? 'passe' : ''}">
                 <div class="creneau-info">
                     <h3>${creneau.nom}</h3>
                     <div class="creneau-details">
-                        <div>${joursMap[creneau.jour_semaine]} • ${creneau.heure_debut} - ${creneau.heure_fin}</div>
+                        <div>${joursMap[creneau.jour_semaine]} ${dateStr} • ${creneau.heure_debut} - ${creneau.heure_fin}</div>
                         <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
                             🎫 ${licencesText}
                         </div>
@@ -227,10 +233,10 @@ function displayCreneaux() {
                     </div>
                     <div>${statusText}</div>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <button onclick="voirInscritsPublic(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}')" class="btn-warning" ${creneau.inscrits === 0 && creneau.en_attente === 0 ? 'style="display:none;"' : ''}>
+                        <button onclick="voirInscritsPublic(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', '${creneau.date_seance}')" class="btn-warning" ${creneau.inscrits === 0 && creneau.en_attente === 0 ? 'style="display:none;"' : ''}>
                             👥 Voir inscrits
                         </button>
-                        <button onclick="inscrireCreneau(${creneau.id})" 
+                        <button onclick="inscrireCreneau(${creneau.id}, '${creneau.date_seance}')" 
                                 class="btn-success" 
                                 ${btnDisabled ? 'disabled' : ''}
                                 ${btnDisabled ? 'style="background: #a0aec0; cursor: not-allowed;"' : ''}>
@@ -295,17 +301,21 @@ function displayMesInscriptions(inscriptions) {
         const statutText = inscription.statut === 'inscrit' ? 'Inscrit' :
             `Liste d'attente (${inscription.position_attente})`;
 
+        // Formater la date
+        const dateObj = new Date(inscription.date_seance);
+        const dateStr = dateObj.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+
         return `
             <div class="inscription-item">
                 <div>
                     <h4>${inscription.nom}</h4>
                     <div class="creneau-details">
-                        ${joursMap[inscription.jour_semaine]} • ${inscription.heure_debut} - ${inscription.heure_fin}
+                        ${joursMap[inscription.jour_semaine]} ${dateStr} • ${inscription.heure_debut} - ${inscription.heure_fin}
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <span class="statut-badge ${statutClass}">${statutText}</span>
-                    <button onclick="desinscrireCreneau(${inscription.creneau_id})" 
+                    <button onclick="desinscrireCreneau(${inscription.creneau_id}, '${inscription.date_seance}')" 
                             class="btn-danger">
                         Se désinscrire
                     </button>
@@ -452,13 +462,13 @@ function displayInscriptionsModal(inscriptions, creneauId) {
     });
 }
 
-async function voirInscritsPublic(creneauId, nomCreneau) {
+async function voirInscritsPublic(creneauId, nomCreneau, date_seance) {
     try {
-        const response = await fetch(`/api/creneaux/${creneauId}/inscrits`);
+        const response = await fetch(`/api/creneaux/${creneauId}/inscrits?date_seance=${date_seance}`);
         const data = await response.json();
 
         if (response.ok) {
-            displayInscritsPublicModal(data, nomCreneau);
+            displayInscritsPublicModal(data, nomCreneau, date_seance);
         } else {
             showMessage(data.error || 'Erreur lors du chargement des inscrits', 'error');
         }
@@ -467,8 +477,13 @@ async function voirInscritsPublic(creneauId, nomCreneau) {
         showMessage('Erreur de connexion', 'error');
     }
 }
+function displayInscritsPublicModal(inscrits, nomCreneau, date_seance) {
+    const existingModal = document.querySelector('.modal');
+    if (existingModal) existingModal.remove();
 
-function displayInscritsPublicModal(inscrits, nomCreneau) {
+    const dateObj = new Date(date_seance);
+    const dateStr = dateObj.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+
     const modal = document.createElement('div');
     modal.style.cssText = `
         position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -487,7 +502,7 @@ function displayInscritsPublicModal(inscrits, nomCreneau) {
 
     content.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-            <h3>Inscrits à ${nomCreneau}</h3>
+            <h3>Inscrits à ${nomCreneau} (${dateStr})</h3>
             <button onclick="this.closest('.modal').remove()" style="background: #e53e3e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Fermer</button>
         </div>
         

@@ -23,6 +23,46 @@ function setupEventListeners() {
         });
     });
 
+    // Toggle de semaine
+    const btnCetteSemaine = document.getElementById('btn-cette-semaine');
+    const btnSemainePro = document.getElementById('btn-semaine-pro');
+
+    if (btnCetteSemaine && btnSemainePro) {
+        btnCetteSemaine.addEventListener('click', () => {
+            if (currentSemaineOffset !== 0) {
+                currentSemaineOffset = 0;
+                btnCetteSemaine.classList.add('active');
+                btnCetteSemaine.style.background = '#ebf8ff';
+                btnCetteSemaine.style.color = '#2b6cb0';
+                btnCetteSemaine.style.fontWeight = 'bold';
+
+                btnSemainePro.classList.remove('active');
+                btnSemainePro.style.background = 'white';
+                btnSemainePro.style.color = '#4a5568';
+                btnSemainePro.style.fontWeight = 'normal';
+
+                loadCreneaux();
+            }
+        });
+
+        btnSemainePro.addEventListener('click', () => {
+            if (currentSemaineOffset !== 1) {
+                currentSemaineOffset = 1;
+                btnSemainePro.classList.add('active');
+                btnSemainePro.style.background = '#ebf8ff';
+                btnSemainePro.style.color = '#2b6cb0';
+                btnSemainePro.style.fontWeight = 'bold';
+
+                btnCetteSemaine.classList.remove('active');
+                btnCetteSemaine.style.background = 'white';
+                btnCetteSemaine.style.color = '#4a5568';
+                btnCetteSemaine.style.fontWeight = 'normal';
+
+                loadCreneaux();
+            }
+        });
+    }
+
     // Formulaires
     document.getElementById('login-form').addEventListener('submit', handleLogin);
     document.getElementById('register-form').addEventListener('submit', handleRegister);

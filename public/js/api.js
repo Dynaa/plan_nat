@@ -1,6 +1,9 @@
+// Ajout d'une variable globale pour tracker la semaine sélectionnée
+let currentSemaineOffset = 0; // 0 = cette semaine, 1 = semaine pro
+
 async function loadCreneaux() {
     try {
-        const response = await fetch('/api/creneaux');
+        const response = await fetch(`/api/creneaux?semaine=${currentSemaineOffset}`);
         const data = await response.json();
 
         if (response.ok) {
@@ -13,12 +16,12 @@ async function loadCreneaux() {
         showMessage('Erreur de connexion', 'error');
     }
 }
-async function inscrireCreneau(creneauId) {
+async function inscrireCreneau(creneauId, date_seance) {
     try {
         const response = await fetch('/api/inscriptions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ creneauId })
+            body: JSON.stringify({ creneauId, date_seance })
         });
 
         const data = await response.json();
@@ -64,14 +67,16 @@ async function loadMesInscriptions() {
         showMessage('Erreur de connexion', 'error');
     }
 }
-async function desinscrireCreneau(creneauId) {
+async function desinscrireCreneau(creneauId, date_seance) {
     if (!confirm('Êtes-vous sûr de vouloir vous désinscrire de ce créneau ?')) {
         return;
     }
 
     try {
         const response = await fetch(`/api/inscriptions/${creneauId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date_seance })
         });
 
         const data = await response.json();
@@ -86,4 +91,4 @@ async function desinscrireCreneau(creneauId) {
     } catch (error) {
         showMessage('Erreur lors de la désinscription', 'error');
     }
-}
+}
