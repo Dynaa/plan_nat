@@ -900,6 +900,39 @@ app.get('/api/creneaux/:creneauId', async (req, res) => {
     }
 });
 
+// Route pour récupérer la liste des inscrits à un créneau (PUBLIC)
+app.get('/api/creneaux/:creneauId/inscrits', requireAuth, async (req, res) => {
+    const creneauId = req.params.creneauId;
+
+    const query = db.isPostgres ? `
+        SELECT u.nom, u.prenom, i.statut, i.position_attente
+        FROM inscriptions i
+        JOIN users u ON i.user_id = u.id
+        WHERE i.creneau_id = $1
+        ORDER BY 
+            CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+            i.position_attente ASC,
+            i.created_at ASC
+    ` : `
+        SELECT u.nom, u.prenom, i.statut, i.position_attente
+        FROM inscriptions i
+        JOIN users u ON i.user_id = u.id
+        WHERE i.creneau_id = ?
+        ORDER BY 
+            CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+            i.position_attente ASC,
+            i.created_at ASC
+    `;
+
+    try {
+        const rows = await db.query(query, [creneauId]);
+        res.json(rows);
+    } catch (err) {
+        console.error('Erreur récupération inscrits publics:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des inscrits' });
+    }
+});
+
 // Route pour les inscriptions de l'utilisateur
 app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
     const userId = req.session.userId;

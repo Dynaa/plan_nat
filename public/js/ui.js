@@ -226,12 +226,17 @@ function displayCreneaux() {
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
                     <div>${statusText}</div>
-                    <button onclick="inscrireCreneau(${creneau.id})" 
-                            class="btn-success" 
-                            ${btnDisabled ? 'disabled' : ''}
-                            ${btnDisabled ? 'style="background: #a0aec0; cursor: not-allowed;"' : ''}>
-                        ${btnLabel}
-                    </button>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button onclick="voirInscritsPublic(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}')" class="btn-warning" ${creneau.inscrits === 0 && creneau.en_attente === 0 ? 'style="display:none;"' : ''}>
+                            👥 Voir inscrits
+                        </button>
+                        <button onclick="inscrireCreneau(${creneau.id})" 
+                                class="btn-success" 
+                                ${btnDisabled ? 'disabled' : ''}
+                                ${btnDisabled ? 'style="background: #a0aec0; cursor: not-allowed;"' : ''}>
+                            ${btnLabel}
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -434,6 +439,82 @@ function displayInscriptionsModal(inscriptions, creneauId) {
                 </button>
             </div>
         </div>
+    `;
+
+    modal.className = 'modal';
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
+}
+
+async function voirInscritsPublic(creneauId, nomCreneau) {
+    try {
+        const response = await fetch(`/api/creneaux/${creneauId}/inscrits`);
+        const data = await response.json();
+
+        if (response.ok) {
+            displayInscritsPublicModal(data, nomCreneau);
+        } else {
+            showMessage(data.error || 'Erreur lors du chargement des inscrits', 'error');
+        }
+    } catch (error) {
+        console.error('Erreur voir inscrits:', error);
+        showMessage('Erreur de connexion', 'error');
+    }
+}
+
+function displayInscritsPublicModal(inscrits, nomCreneau) {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); display: flex; align-items: center;
+        justify-content: center; z-index: 1000;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: white; border-radius: 12px; padding: 2rem;
+        max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;
+    `;
+
+    const inscritsList = inscrits.filter(i => i.statut === 'inscrit');
+    const attenteList = inscrits.filter(i => i.statut === 'attente');
+
+    content.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h3>Inscrits à ${nomCreneau}</h3>
+            <button onclick="this.closest('.modal').remove()" style="background: #e53e3e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Fermer</button>
+        </div>
+        
+        <div style="margin-bottom: 2rem;">
+            <h4 style="color: #38a169; margin-bottom: 1rem;">✅ Inscrits (${inscritsList.length})</h4>
+            ${inscritsList.length === 0 ? '<p style="color: #718096;">Aucun inscrit</p>' :
+            inscritsList.map(i => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 0.5rem; background: #f7fafc;">
+                        <div>
+                            <strong>${i.prenom} ${i.nom}</strong>
+                        </div>
+                    </div>
+                `).join('')}
+        </div>
+        
+        ${attenteList.length > 0 ? `
+        <div style="margin-bottom: 2rem;">
+            <h4 style="color: #ed8936; margin-bottom: 1rem;">⏳ Liste d'attente (${attenteList.length})</h4>
+            ${attenteList.map(i => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid #fed7aa; border-radius: 6px; margin-bottom: 0.5rem; background: #fffbeb;">
+                    <div>
+                        <strong>${i.prenom} ${i.nom}</strong> <span style="color: #ed8936;">(Position ${i.position_attente})</span>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+        ` : ''}
     `;
 
     modal.className = 'modal';
