@@ -241,6 +241,39 @@ async function initializeDatabase() {
         await db.run(inscriptionsSQL);
         console.log('✅ Table inscriptions créée');
 
+        // ==== MIGRATION AUTOMATIQUE : Ajout de date_seance ====
+        try {
+            if (db.isPostgres) {
+                // Vérifier si la colonne existe dans PostgreSQL
+                const checkCol = await db.get(`
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='inscriptions' AND column_name='date_seance'
+                `);
+
+                if (!checkCol) {
+                    console.log('🔄 Migration PostgreSQL en cours : Ajout de la colonne date_seance...');
+                    await db.pool.query(`ALTER TABLE inscriptions ADD COLUMN date_seance DATE;`);
+                    await db.pool.query(`UPDATE inscriptions SET date_seance = CURRENT_DATE WHERE date_seance IS NULL;`);
+                    await db.pool.query(`ALTER TABLE inscriptions ALTER COLUMN date_seance SET NOT NULL;`);
+                    await db.pool.query(`ALTER TABLE inscriptions DROP CONSTRAINT IF EXISTS inscriptions_user_id_creneau_id_key;`);
+                    // Gérer l'éventuelle existence de la contrainte et l'ajouter
+                    await db.pool.query(`ALTER TABLE inscriptions ADD CONSTRAINT inscriptions_user_id_creneau_id_date_seance_key UNIQUE (user_id, creneau_id, date_seance);`);
+                    console.log('✅ Migration PostgreSQL de date_seance terminée.');
+                }
+            } else {
+                // sqlite check
+                const cols = await db.query(`PRAGMA table_info(inscriptions)`);
+                const hasDateSeance = cols.some(c => c.name === 'date_seance');
+                if (!hasDateSeance) {
+                    console.log('🔄 Migration SQLite en cours : Veuillez exécuter node migrate-dates.js manuellement ou supprimer database.sqlite pour recréer la table.');
+                }
+            }
+        } catch (migrationErr) {
+            console.error('❌ Erreur critique lors de la vérification/migration de date_seance:', migrationErr);
+        }
+        // ======================================================
+
         // Table des limites de séances
         const limitsSQL = db.adaptSQL(
             // SQLite
