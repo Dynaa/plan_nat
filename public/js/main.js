@@ -28,6 +28,27 @@ function setupEventListeners() {
     const btnSemainePro = document.getElementById('btn-semaine-pro');
 
     if (btnCetteSemaine && btnSemainePro) {
+        // Ajouter les dates pour plus de lisibilité
+        const btnFormatDate = (date) => {
+            return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+        };
+
+        const today = new Date();
+        const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
+
+        const startWeek0 = new Date(today);
+        startWeek0.setDate(today.getDate() - dayOfWeek + 1);
+        const endWeek0 = new Date(startWeek0);
+        endWeek0.setDate(startWeek0.getDate() + 6);
+
+        const startWeek1 = new Date(startWeek0);
+        startWeek1.setDate(startWeek1.getDate() + 7);
+        const endWeek1 = new Date(startWeek1);
+        endWeek1.setDate(startWeek1.getDate() + 6);
+
+        btnCetteSemaine.innerHTML = `Cette semaine<br><small style="font-weight: normal; font-size: 0.85em;">(${btnFormatDate(startWeek0)} - ${btnFormatDate(endWeek0)})</small>`;
+        btnSemainePro.innerHTML = `Semaine pro.<br><small style="font-weight: normal; font-size: 0.85em;">(${btnFormatDate(startWeek1)} - ${btnFormatDate(endWeek1)})</small>`;
+
         btnCetteSemaine.addEventListener('click', () => {
             if (currentSemaineOffset !== 0) {
                 currentSemaineOffset = 0;
