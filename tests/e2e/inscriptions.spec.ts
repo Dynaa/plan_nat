@@ -4,7 +4,7 @@ test.describe('Interface / Inscription au créneau', () => {
 
     test.beforeEach(async ({ page }) => {
         // ⚡ Les mocks réseau DOIVENT être enregistrés AVANT page.goto()
-        await page.route('**/api/creneaux', async route => {
+        await page.route('**/api/creneaux*', async route => {
             await route.fulfill({
                 json: [{
                     id: 1,
