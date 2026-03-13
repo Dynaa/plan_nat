@@ -613,16 +613,17 @@ function displayAdminUsers(users) {
                                 <option value="Benjamins/Junior" ${user.licence_type === 'Benjamins/Junior' ? 'selected' : ''}>🧒 Benjamins/Junior</option>
                                 <option value="Poussins/Pupilles" ${user.licence_type === 'Poussins/Pupilles' ? 'selected' : ''}>👶 Poussins/Pupilles</option>
                             </select>
-                        <button onclick="reinitialiserMotDePasse(${user.id}, '${user.prenom} ${user.nom}')" 
-                                class="btn-warning" title="Réinitialiser le mot de passe">
-                            🔑 Reset MDP
-                        </button>
-                        <button onclick="supprimerUtilisateur(${user.id}, '${user.prenom} ${user.nom}', ${user.nb_inscriptions})" 
-                                class="btn-danger"
-                                ${isCurrentUser ? 'disabled title="Vous ne pouvez pas supprimer votre propre compte"' : ''}
-                                ${user.nb_inscriptions > 0 ? 'title="Cet utilisateur a des inscriptions actives"' : ''}>
-                            🗑️ Supprimer
-                        </button>
+                            <button onclick="reinitialiserMotDePasse(${user.id}, '${user.prenom} ${user.nom}')" 
+                                    class="btn-warning" title="Réinitialiser le mot de passe">
+                                🔑 Reset MDP
+                            </button>
+                            <button onclick="supprimerUtilisateur(${user.id}, '${user.prenom} ${user.nom}', ${user.nb_inscriptions})" 
+                                    class="btn-danger"
+                                    ${isCurrentUser ? 'disabled title="Vous ne pouvez pas supprimer votre propre compte"' : ''}
+                                    ${user.nb_inscriptions > 0 ? 'title="Cet utilisateur a des inscriptions actives"' : ''}>
+                                🗑️ Supprimer
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
