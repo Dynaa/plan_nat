@@ -157,6 +157,7 @@ async function initializeDatabase() {
                 prenom TEXT NOT NULL,
                 role TEXT DEFAULT 'membre',
                 licence_type TEXT DEFAULT 'Loisir/Senior',
+                public_cible TEXT DEFAULT 'adulte',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
             // PostgreSQL
@@ -168,6 +169,7 @@ async function initializeDatabase() {
                 prenom VARCHAR(255) NOT NULL,
                 role VARCHAR(50) DEFAULT 'membre',
                 licence_type VARCHAR(100) DEFAULT 'Loisir/Senior',
+                public_cible VARCHAR(50) DEFAULT 'adulte',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )`
         );
@@ -187,6 +189,7 @@ async function initializeDatabase() {
                 nombre_lignes INTEGER NOT NULL DEFAULT 2,
                 personnes_par_ligne INTEGER NOT NULL DEFAULT 6,
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
+                public_cible TEXT DEFAULT 'les deux',
                 actif BOOLEAN DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
@@ -200,6 +203,7 @@ async function initializeDatabase() {
                 nombre_lignes INTEGER NOT NULL DEFAULT 2,
                 personnes_par_ligne INTEGER NOT NULL DEFAULT 6,
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
+                public_cible VARCHAR(50) DEFAULT 'les deux',
                 actif BOOLEAN DEFAULT true,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )`
@@ -241,36 +245,76 @@ async function initializeDatabase() {
         await db.run(inscriptionsSQL);
         console.log('✅ Table inscriptions créée');
 
-        // ==== MIGRATION AUTOMATIQUE : Ajout de date_seance ====
+        // ==== MIGRATION AUTOMATIQUE ====
         try {
             if (db.isPostgres) {
-                // Vérifier si la colonne existe dans PostgreSQL
-                const checkCol = await db.get(`
+                // Inscriptions : date_seance
+                const checkColInscr = await db.get(`
                     SELECT column_name 
                     FROM information_schema.columns 
                     WHERE table_name='inscriptions' AND column_name='date_seance'
                 `);
-
-                if (!checkCol) {
-                    console.log('🔄 Migration PostgreSQL en cours : Ajout de la colonne date_seance...');
+                if (!checkColInscr) {
+                    console.log('🔄 Migration PostgreSQL en cours : Ajout date_seance...');
                     await db.pool.query(`ALTER TABLE inscriptions ADD COLUMN date_seance DATE;`);
                     await db.pool.query(`UPDATE inscriptions SET date_seance = CURRENT_DATE WHERE date_seance IS NULL;`);
                     await db.pool.query(`ALTER TABLE inscriptions ALTER COLUMN date_seance SET NOT NULL;`);
                     await db.pool.query(`ALTER TABLE inscriptions DROP CONSTRAINT IF EXISTS inscriptions_user_id_creneau_id_key;`);
-                    // Gérer l'éventuelle existence de la contrainte et l'ajouter
                     await db.pool.query(`ALTER TABLE inscriptions ADD CONSTRAINT inscriptions_user_id_creneau_id_date_seance_key UNIQUE (user_id, creneau_id, date_seance);`);
                     console.log('✅ Migration PostgreSQL de date_seance terminée.');
                 }
+
+                // Users : public_cible
+                const checkColUsers = await db.get(`
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='users' AND column_name='public_cible'
+                `);
+                if (!checkColUsers) {
+                    console.log('🔄 Migration PostgreSQL en cours : Ajout public_cible dans users...');
+                    await db.pool.query(`ALTER TABLE users ADD COLUMN public_cible VARCHAR(50) DEFAULT 'adulte';`);
+                    console.log('✅ Migration PostgreSQL de public_cible (users) terminée.');
+                }
+
+                // Creneaux : public_cible
+                const checkColCreneaux = await db.get(`
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='creneaux' AND column_name='public_cible'
+                `);
+                if (!checkColCreneaux) {
+                    console.log('🔄 Migration PostgreSQL en cours : Ajout public_cible dans creneaux...');
+                    await db.pool.query(`ALTER TABLE creneaux ADD COLUMN public_cible VARCHAR(50) DEFAULT 'les deux';`);
+                    console.log('✅ Migration PostgreSQL de public_cible (creneaux) terminée.');
+                }
             } else {
-                // sqlite check
-                const cols = await db.query(`PRAGMA table_info(inscriptions)`);
-                const hasDateSeance = cols.some(c => c.name === 'date_seance');
+                // SQLite check inscriptions
+                const colsInscr = await db.query(`PRAGMA table_info(inscriptions)`);
+                const hasDateSeance = colsInscr.some(c => c.name === 'date_seance');
                 if (!hasDateSeance) {
-                    console.log('🔄 Migration SQLite en cours : Veuillez exécuter node migrate-dates.js manuellement ou supprimer database.sqlite pour recréer la table.');
+                    console.log('🔄 Migration SQLite : Vous devez recréer la table inscriptions ou exécuter ALTER TABLE manuellement pour date_seance.');
+                }
+
+                // SQLite check users
+                const colsUsers = await db.query(`PRAGMA table_info(users)`);
+                const hasPublicUsers = colsUsers.some(c => c.name === 'public_cible');
+                if (!hasPublicUsers) {
+                    console.log('🔄 Migration SQLite en cours : Ajout public_cible dans users...');
+                    await db.run(`ALTER TABLE users ADD COLUMN public_cible TEXT DEFAULT 'adulte'`);
+                    console.log('✅ Migration SQLite public_cible terminée pour users.');
+                }
+
+                // SQLite check creneaux
+                const colsCreneaux = await db.query(`PRAGMA table_info(creneaux)`);
+                const hasPublicCreneaux = colsCreneaux.some(c => c.name === 'public_cible');
+                if (!hasPublicCreneaux) {
+                    console.log('🔄 Migration SQLite en cours : Ajout public_cible dans creneaux...');
+                    await db.run(`ALTER TABLE creneaux ADD COLUMN public_cible TEXT DEFAULT 'les deux'`);
+                    console.log('✅ Migration SQLite public_cible terminée pour creneaux.');
                 }
             }
         } catch (migrationErr) {
-            console.error('❌ Erreur critique lors de la vérification/migration de date_seance:', migrationErr);
+            console.error('❌ Erreur critique lors de la vérification/migration:', migrationErr);
         }
         // ======================================================
 
@@ -436,10 +480,18 @@ async function initializeDatabase() {
         if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
             const userPassword = bcrypt.hashSync('test123', 10);
             const insertUserSQL = db.adaptSQL(
-                `INSERT OR IGNORE INTO users (email, password, nom, prenom, licence_type) VALUES (?, ?, 'Dupont', 'Jean', 'Loisir/Senior')`,
-                `INSERT INTO users (email, password, nom, prenom, licence_type) VALUES (?, ?, 'Dupont', 'Jean', 'Loisir/Senior') ON CONFLICT (email) DO NOTHING`
+                `INSERT OR IGNORE INTO users (email, password, nom, prenom, licence_type, public_cible) VALUES (?, ?, 'Dupont', 'Jean', 'Loisir/Senior', 'adulte')`,
+                `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible) VALUES (?, ?, 'Dupont', 'Jean', 'Loisir/Senior', 'adulte') ON CONFLICT (email) DO NOTHING`
             );
             await db.run(insertUserSQL, ['test@triathlon.com', userPassword]);
+
+            // Ajouter un jeune pour tester
+            const enfantPassword = bcrypt.hashSync('enfant123', 10);
+            const insertEnfantSQL = db.adaptSQL(
+                `INSERT OR IGNORE INTO users (email, password, nom, prenom, licence_type, public_cible) VALUES (?, ?, 'Martin', 'Leo', 'Benjamins/Junior', 'jeune')`,
+                `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible) VALUES (?, ?, 'Martin', 'Leo', 'Benjamins/Junior', 'jeune') ON CONFLICT (email) DO NOTHING`
+            );
+            await db.run(insertEnfantSQL, ['testenfant@triathlon.com', enfantPassword]);
         }
 
         // Créer créneaux de test
@@ -449,22 +501,22 @@ async function initializeDatabase() {
             // Créneaux de référence (Lundi=1, Mardi=2, Mercredi=3, Jeudi=4, Vendredi=5, Samedi=6)
             const creneauxTest = [
                 // Bloc début de semaine
-                ['Lundi Matin 7h-8h', 1, '07:00', '08:00', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
-                ['Lundi 11h15-12h30', 1, '11:15', '12:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
-                ['Lundi 12h30-13h30', 1, '12:30', '13:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
-                ['Mardi Matin 7h-8h30', 2, '07:00', '08:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Lundi Matin 7h-8h', 1, '07:00', '08:00', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'les deux'],
+                ['Lundi 11h15-12h30', 1, '11:15', '12:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'adulte'],
+                ['Lundi 12h30-13h30', 1, '12:30', '13:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'adulte'],
+                ['Mardi Matin 7h-8h30', 2, '07:00', '08:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'jeune'],
                 // Bloc milieu de semaine
-                ['Mercredi Matin 7h-8h', 3, '07:00', '08:00', 1, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
-                ['Jeudi Matin 7h-8h', 4, '07:00', '08:00', 1, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
-                ['Jeudi Soir 20h30-21h30', 4, '20:30', '21:30', 3, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
-                ['Vendredi Midi 12h-13h30', 5, '12:00', '13:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Mercredi Matin 7h-8h', 3, '07:00', '08:00', 1, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'les deux'],
+                ['Jeudi Matin 7h-8h', 4, '07:00', '08:00', 1, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'adulte'],
+                ['Jeudi Soir 20h30-21h30', 4, '20:30', '21:30', 3, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'les deux'],
+                ['Vendredi Midi 12h-13h30', 5, '12:00', '13:30', 2, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'les deux'],
                 // Bloc fin de semaine
-                ['Samedi Matin 8h-9h', 6, '08:00', '09:00', 4, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'],
+                ['Samedi Matin 8h-9h', 6, '08:00', '09:00', 4, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'les deux'],
             ];
 
-            for (const [nom, jour, debut, fin, lignes, personnes, licences] of creneauxTest) {
-                await db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [nom, jour, debut, fin, lignes, personnes, licences]);
+            for (const [nom, jour, debut, fin, lignes, personnes, licences, cible] of creneauxTest) {
+                await db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees, public_cible) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [nom, jour, debut, fin, lignes, personnes, licences, cible]);
             }
         }
 
@@ -745,7 +797,7 @@ const requireAdmin = (req, res, next) => {
 
 // Routes d'authentification
 app.post('/api/register', async (req, res) => {
-    const { email, password, nom, prenom, licence_type } = req.body;
+    const { email, password, nom, prenom, licence_type, public_cible } = req.body;
 
     if (!email || !password || !nom || !prenom || !licence_type) {
         return res.status(400).json({ error: 'Tous les champs sont requis' });
@@ -756,14 +808,18 @@ app.post('/api/register', async (req, res) => {
         return res.status(400).json({ error: 'Type de licence invalide' });
     }
 
+    // Définir le public cible (par défaut adulte si non spécifié ou invalide)
+    const cibleValide = ['jeune', 'adulte', 'les deux'];
+    const cible = (public_cible && cibleValide.includes(public_cible)) ? public_cible : 'adulte';
+
     const hashedPassword = bcrypt.hashSync(password, 10);
 
     try {
         const sql = db.isPostgres ?
-            `INSERT INTO users (email, password, nom, prenom, licence_type) VALUES ($1, $2, $3, $4, $5) RETURNING id` :
-            `INSERT INTO users (email, password, nom, prenom, licence_type) VALUES (?, ?, ?, ?, ?)`;
+            `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id` :
+            `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible) VALUES (?, ?, ?, ?, ?, ?)`;
 
-        const result = await db.run(sql, [email, hashedPassword, nom, prenom, licence_type]);
+        const result = await db.run(sql, [email, hashedPassword, nom, prenom, licence_type, cible]);
 
         res.json({
             message: 'Compte créé avec succès',
@@ -927,24 +983,42 @@ app.get('/api/creneaux', async (req, res) => {
     `;
 
     try {
-        // Au lieu d'utiliser une seule requête avec la même date, le LEFT JOIN GROUP BY est délicat si la date dépend de `c.jour_semaine`.
-        // Une approche plus fiable est de récupérer les créneaux et leurs blocs d'abord,
-        // puis de faire les requêtes de comptage et de statuts séparément, ou d'injecter la date depuis le code.
-        // Puisque SQLite ne supporte pas facilement d'injecter une fonction JS dans la query,
-        // on va récupérer les créneaux, puis boucler pour générer les compteurs avec la date_seance correcte pour chaque.
+        // Retrieve user's public_cible if logged in
+        let userPublicCible = 'adulte'; // Default
+        let isAdmin = false;
+
+        if (userId) {
+            const uSql = db.isPostgres ? `SELECT role, public_cible FROM users WHERE id = $1` : `SELECT role, public_cible FROM users WHERE id = ?`;
+            const u = await db.get(uSql, [userId]);
+            if (u) {
+                userPublicCible = u.public_cible || 'adulte';
+                isAdmin = u.role === 'admin';
+            }
+        }
+
+        // Prepare filter condition
+        let targetFilterSql = '';
+        if (!isAdmin) {
+            if (userPublicCible === 'jeune') {
+                targetFilterSql = ` AND c.public_cible IN ('jeune', 'les deux')`;
+            } else if (userPublicCible === 'adulte') {
+                targetFilterSql = ` AND c.public_cible IN ('adulte', 'les deux')`;
+            }
+            // If user is 'les deux', no filter needed
+        }
 
         let creneauxQuery = db.isPostgres ?
             `SELECT c.*, (c.nombre_lignes * c.personnes_par_ligne) as capacite_max, b.id as bloc_id, b.nom as bloc_nom
              FROM creneaux c 
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
-             WHERE c.actif = true
+             WHERE c.actif = true${targetFilterSql}
              ORDER BY c.jour_semaine, c.heure_debut` :
             `SELECT c.*, (c.nombre_lignes * c.personnes_par_ligne) as capacite_max, b.id as bloc_id, b.nom as bloc_nom
              FROM creneaux c 
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
-             WHERE c.actif = 1
+             WHERE c.actif = 1${targetFilterSql}
              ORDER BY c.jour_semaine, c.heure_debut`;
 
         let rows = await db.query(creneauxQuery, []);
@@ -1276,19 +1350,22 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
 
 // Route de création de créneaux (ADMIN)
 app.post('/api/creneaux', requireAdmin, async (req, res) => {
-    const { nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees } = req.body;
+    const { nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
 
-    if (!nom || jour_semaine === undefined || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
-        return res.status(400).json({ error: 'Tous les champs sont requis (nom, jour, horaires, nombre_lignes, personnes_par_ligne)' });
+    if (!nom || !jour_semaine || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
+        return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
     }
 
-    try {
-        const capaciteMaxCalculee = parseInt(nombre_lignes) * parseInt(personnes_par_ligne);
+    const cibles = ['jeune', 'adulte', 'les deux'];
+    const varCible = (public_cible && cibles.includes(public_cible)) ? public_cible : 'les deux';
 
+    const capaciteMax = nombre_lignes * personnes_par_ligne;
+
+    try {
         const sql = db.isPostgres ?
-            `INSERT INTO creneaux(nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, licences_autorisees) 
+            `INSERT INTO creneaux(nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, public_cible) 
              VALUES($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id` :
-            `INSERT INTO creneaux(nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, licences_autorisees) 
+            `INSERT INTO creneaux(nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, public_cible) 
              VALUES(?, ?, ?, ?, ?, ?, ?, ?)`;
 
         const result = await db.run(sql, [
@@ -1296,19 +1373,19 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
             jour_semaine,
             heure_debut,
             heure_fin,
-            parseInt(nombre_lignes),
-            parseInt(personnes_par_ligne),
-            capaciteMaxCalculee,
-            licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'
+            nombre_lignes,
+            personnes_par_ligne,
+            capaciteMax,
+            varCible
         ]);
 
         res.json({
-            message: 'Créneau créé avec succès',
+            message: 'Créneau ajouté',
             creneauId: result.lastID || result.id
         });
     } catch (err) {
-        console.error('Erreur création créneau:', err);
-        return res.status(500).json({ error: 'Erreur lors de la création du créneau' });
+        console.error('Erreur ajout créneau:', err);
+        res.status(500).json({ error: 'Erreur lors de l\'ajout du créneau' });
     }
 });
 
@@ -1316,39 +1393,38 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
 // Route de modification de créneaux (ADMIN)
 app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
-    const { nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees } = req.body;
+    const { nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
 
-    if (!nom || jour_semaine === undefined || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
-        return res.status(400).json({ error: 'Tous les champs sont requis' });
+    if (!nom || !jour_semaine || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
+        return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
     }
 
-    try {
-        const capaciteMaxCalculee = parseInt(nombre_lignes) * parseInt(personnes_par_ligne);
+    const cibles = ['jeune', 'adulte', 'les deux'];
+    const varCible = (public_cible && cibles.includes(public_cible)) ? public_cible : 'les deux';
 
+    const capaciteMax = nombre_lignes * personnes_par_ligne;
+
+    try {
         const sql = db.isPostgres ?
-            `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, nombre_lignes = $5, personnes_par_ligne = $6, capacite_max = $7, licences_autorisees = $8 WHERE id = $9` :
-            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, capacite_max = ?, licences_autorisees = ? WHERE id = ? `;
+            `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, nombre_lignes = $5, personnes_par_ligne = $6, capacite_max = $7, public_cible = $8 WHERE id = $9` :
+            `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, capacite_max = ?, public_cible = ? WHERE id = ? `;
 
         const result = await db.run(sql, [
             nom,
             jour_semaine,
             heure_debut,
             heure_fin,
-            parseInt(nombre_lignes),
-            parseInt(personnes_par_ligne),
-            capaciteMaxCalculee,
-            licences_autorisees || 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
+            nombre_lignes,
+            personnes_par_ligne,
+            capaciteMax,
+            varCible,
             creneauId
         ]);
 
-        if (result.changes === 0) {
-            return res.status(404).json({ error: 'Créneau non trouvé' });
-        }
-
-        res.json({ message: 'Créneau modifié avec succès' });
+        res.json({ message: 'Créneau mis à jour' });
     } catch (err) {
         console.error('Erreur modification créneau:', err);
-        return res.status(500).json({ error: 'Erreur lors de la modification du créneau' });
+        res.status(500).json({ error: 'Erreur lors de la modification' });
     }
 });
 
@@ -1409,55 +1485,75 @@ app.delete('/api/creneaux/:creneauId/force', requireAdmin, async (req, res) => {
     }
 });
 
-// Routes d'administration des utilisateurs
-app.get('/api/admin/users', requireAdmin, async (req, res) => {
-    const query = `
-        SELECT id, email, nom, prenom, role, licence_type, created_at,
-               (SELECT COUNT(*) FROM inscriptions WHERE user_id = users.id) as nb_inscriptions
-        FROM users 
-        ORDER BY created_at DESC
-    `;
+// --- GESTION DES UTILISATEURS (ADMIN) ---
 
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
     try {
-        const rows = await db.query(query, []);
-        res.json(rows);
+        const sql = db.isPostgres ?
+            `SELECT u.id, u.email, u.nom, u.prenom, u.role, u.licence_type, u.public_cible, u.created_at,
+                    COUNT(i.id) as nb_inscriptions
+             FROM users u
+             LEFT JOIN inscriptions i ON u.id = i.user_id
+             GROUP BY u.id
+             ORDER BY u.nom, u.prenom` :
+            `SELECT u.id, u.email, u.nom, u.prenom, u.role, u.licence_type, u.public_cible, u.created_at,
+                    COUNT(i.id) as nb_inscriptions
+             FROM users u
+             LEFT JOIN inscriptions i ON u.id = i.user_id
+             GROUP BY u.id
+             ORDER BY u.nom, u.prenom`;
+
+        const users = await db.query(sql, []);
+        res.json(users);
     } catch (err) {
-        console.error('Erreur lors de la récupération des utilisateurs:', err);
+        console.error('Erreur liste utilisateurs:', err);
         return res.status(500).json({ error: 'Erreur lors de la récupération des utilisateurs' });
     }
 });
 
 app.put('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
     const userId = req.params.userId;
-    const { role } = req.body;
+    const { role, public_cible } = req.body;
 
-    console.log('Modification du rôle utilisateur:', userId, 'vers', role);
-
-    if (!role || !['membre', 'admin'].includes(role)) {
-        return res.status(400).json({ error: 'Rôle invalide. Doit être "membre" ou "admin"' });
-    }
-
-    // Empêcher de se retirer ses propres droits admin
-    if (req.session.userId == userId && role === 'membre') {
-        return res.status(400).json({ error: 'Vous ne pouvez pas retirer vos propres droits administrateur' });
+    if (!role && !public_cible) {
+        return res.status(400).json({ error: 'Rôle ou public cible invalide' });
     }
 
     try {
-        const sql = db.isPostgres ?
-            `UPDATE users SET role = $1 WHERE id = $2` :
-            `UPDATE users SET role = ? WHERE id = ?`;
-
-        const result = await db.run(sql, [role, userId]);
-
-        if (result.changes === 0) {
-            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        // Empêcher un admin de s'enlever ses propres droits
+        if (role && role !== 'admin' && parseInt(userId) === req.session.userId) {
+            return res.status(403).json({ error: 'Vous ne pouvez pas retirer vos propres droits administrateur' });
         }
 
-        console.log('Rôle modifié avec succès pour l\'utilisateur:', userId);
-        res.json({ message: `Rôle modifié vers "${role}" avec succès` });
+        // Mettre à jour progressivement selon ce qui est fourni
+        let updates = [];
+        let values = [];
+        let index = 1;
+
+        if (role && ['admin', 'membre'].includes(role)) {
+            updates.push(`role = ${db.isPostgres ? '$' + index++ : '?'}`);
+            values.push(role);
+        }
+
+        if (public_cible && ['jeune', 'adulte', 'les deux'].includes(public_cible)) {
+            updates.push(`public_cible = ${db.isPostgres ? '$' + index++ : '?'}`);
+            values.push(public_cible);
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'Données invalides fournies.' });
+        }
+
+        values.push(userId); // Pour la clause WHERE
+
+        const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = ${db.isPostgres ? '$' + index : '?'}`;
+
+        const result = await db.run(sql, values);
+
+        res.json({ message: 'Profil utilisateur mis à jour avec succès' });
     } catch (err) {
-        console.error('Erreur modification rôle:', err);
-        return res.status(500).json({ error: 'Erreur lors de la modification du rôle' });
+        console.error('Erreur modification profil admin:', err);
+        return res.status(500).json({ error: 'Erreur serveur' });
     }
 });
 

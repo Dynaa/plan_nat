@@ -181,11 +181,10 @@ function displayCreneaux() {
         const statusClass = disponible ? 'available' : 'full';
         const statusText = disponible ? 'Places disponibles' : 'Complet';
 
-        // Vérifier si l'utilisateur peut s'inscrire (licence compatible)
-        const licencesAutorisees = creneau.licences_autorisees ? creneau.licences_autorisees.split(',') : [];
-        const userLicence = currentUser ? currentUser.licence_type : null;
-        const peutSinscrire = !currentUser || !userLicence || licencesAutorisees.includes(userLicence);
-        const licencesText = licencesAutorisees.length > 0 ? licencesAutorisees.join(', ') : 'Toutes licences';
+        // Formater l'affichage du public cible
+        const publicCibleText = creneau.public_cible === 'jeune' ? '🧒 Jeunes uniquement' :
+            creneau.public_cible === 'adulte' ? '🧑 Adultes uniquement' :
+                '👨‍👩‍👧‍👦 Tous publics';
 
         // Vérifier si l'utilisateur est déjà dans ce bloc (autre créneau)
         const blocqueParBloc = creneau.inscrit_dans_bloc && creneau.inscrit_dans_bloc !== creneau.nom;
@@ -206,11 +205,10 @@ function displayCreneaux() {
         const dateStr = dateObj.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
         const estPasse = creneau.est_passe;
 
-        const btnDisabled = !peutSinscrire || blocqueParBloc || estPasse;
+        const btnDisabled = blocqueParBloc || estPasse;
         const btnLabel = estPasse ? 'Terminé'
-            : !peutSinscrire ? 'Licence incompatible'
-                : blocqueParBloc ? 'Bloc déjà utilisé'
-                    : disponible ? 'S\'inscrire' : 'Liste d\'attente';
+            : blocqueParBloc ? 'Bloc déjà utilisé'
+                : disponible ? 'S\'inscrire' : 'Liste d\'attente';
 
         return `
             <div class="creneau-card ${estPasse ? 'passe' : ''}">
@@ -219,7 +217,7 @@ function displayCreneaux() {
                     <div class="creneau-details">
                         <div>${joursMap[creneau.jour_semaine]} ${dateStr} • ${creneau.heure_debut} - ${creneau.heure_fin}</div>
                         <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
-                            🎫 ${licencesText}
+                            ${publicCibleText}
                         </div>
                         ${blocBadge}
                         ${messageBloc ? `<div style="color:#c05621;font-size:0.8rem;margin-top:0.25rem;">⚠️ ${messageBloc}</div>` : ''}
@@ -338,7 +336,9 @@ function displayAdminCreneaux(creneaux) {
     };
 
     container.innerHTML = creneaux.map(creneau => {
-        const licencesText = creneau.licences_autorisees ? creneau.licences_autorisees.split(',').join(', ') : 'Toutes licences';
+        const publicCibleText = creneau.public_cible === 'jeune' ? '🧒 Jeunes' :
+            creneau.public_cible === 'adulte' ? '🧑 Adultes' :
+                '👨‍👩‍👧‍👦 Tous publics';
 
         return `
             <div class="creneau-card">
@@ -347,7 +347,7 @@ function displayAdminCreneaux(creneaux) {
                     <div class="creneau-details">
                         ${joursMap[creneau.jour_semaine]} • ${creneau.heure_debut} - ${creneau.heure_fin}
                         <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
-                            🎫 ${licencesText}
+                            ${publicCibleText}
                         </div>
                     </div>
                 </div>
@@ -582,7 +582,7 @@ function displayAdminUsers(users) {
                     <h4>${user.prenom} ${user.nom} ${isCurrentUser ? '(Vous)' : ''}</h4>
                     <div class="user-details">
                         <div>📧 ${user.email}</div>
-                        <div>🎫 Licence: ${user.licence_type || 'Non définie'}</div>
+                        <div>Public cible: ${user.public_cible === 'jeune' ? '🧒 Jeune' : user.public_cible === 'adulte' ? '🧑 Adulte' : '👨‍👩‍👧‍👦 Les deux'} (Licence: ${user.licence_type || 'Non définie'})</div>
                         <div>📅 Inscrit le ${createdDate} • ${user.nb_inscriptions} inscription(s)</div>
                     </div>
                 </div>
@@ -590,20 +590,29 @@ function displayAdminUsers(users) {
                     <span class="user-role ${roleClass}">
                         ${user.role === 'admin' ? '👑 Administrateur' : '👤 Membre'}
                     </span>
-                    <div class="user-controls">
-                        <select onchange="changerRoleUtilisateur(${user.id}, this.value)" 
-                                ${isCurrentUser ? 'disabled title="Vous ne pouvez pas modifier votre propre rôle"' : ''}>
-                            <option value="">Changer le rôle</option>
-                            <option value="membre" ${user.role === 'membre' ? 'selected' : ''}>👤 Membre</option>
-                            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>👑 Admin</option>
-                        </select>
-                        <select onchange="changerLicenceUtilisateur(${user.id}, this.value)">
-                            <option value="">Changer la licence</option>
-                            <option value="Compétition" ${user.licence_type === 'Compétition' ? 'selected' : ''}>🏆 Compétition</option>
-                            <option value="Loisir/Senior" ${user.licence_type === 'Loisir/Senior' ? 'selected' : ''}>🏊‍♂️ Loisir/Senior</option>
-                            <option value="Benjamins/Junior" ${user.licence_type === 'Benjamins/Junior' ? 'selected' : ''}>🧒 Benjamins/Junior</option>
-                            <option value="Poussins/Pupilles" ${user.licence_type === 'Poussins/Pupilles' ? 'selected' : ''}>👶 Poussins/Pupilles</option>
-                        </select>
+                    <div class="user-controls" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div style="display: flex; gap: 0.5rem;">
+                            <select onchange="changerRoleUtilisateur(${user.id}, this.value)" 
+                                    ${isCurrentUser ? 'disabled title="Vous ne pouvez pas modifier votre propre rôle"' : ''}>
+                                <option value="">Changer le rôle</option>
+                                <option value="membre" ${user.role === 'membre' ? 'selected' : ''}>👤 Membre</option>
+                                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>👑 Admin</option>
+                            </select>
+                            <select onchange="changerPublicCibleUtilisateur(${user.id}, this.value)">
+                                <option value="">Changer le public cible</option>
+                                <option value="adulte" ${user.public_cible === 'adulte' ? 'selected' : ''}>🧑 Adulte</option>
+                                <option value="jeune" ${user.public_cible === 'jeune' ? 'selected' : ''}>🧒 Jeune</option>
+                                <option value="les deux" ${user.public_cible === 'les deux' ? 'selected' : ''}>👨‍👩‍👧‍👦 Les deux</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <select onchange="changerLicenceUtilisateur(${user.id}, this.value)">
+                                <option value="">Changer la licence</option>
+                                <option value="Compétition" ${user.licence_type === 'Compétition' ? 'selected' : ''}>🏆 Compétition</option>
+                                <option value="Loisir/Senior" ${user.licence_type === 'Loisir/Senior' ? 'selected' : ''}>🏊‍♂️ Loisir/Senior</option>
+                                <option value="Benjamins/Junior" ${user.licence_type === 'Benjamins/Junior' ? 'selected' : ''}>🧒 Benjamins/Junior</option>
+                                <option value="Poussins/Pupilles" ${user.licence_type === 'Poussins/Pupilles' ? 'selected' : ''}>👶 Poussins/Pupilles</option>
+                            </select>
                         <button onclick="reinitialiserMotDePasse(${user.id}, '${user.prenom} ${user.nom}')" 
                                 class="btn-warning" title="Réinitialiser le mot de passe">
                             🔑 Reset MDP

@@ -219,18 +219,14 @@
                             <input type="number" id="creneau-personnes" placeholder="Personnes / ligne" min="1"
                                 required>
                             <div style="grid-column: 1 / -1;">
-                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences
-                                    autorisées :</label>
-                                <div id="licences-checkboxes"
-                                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
-                                    <label><input type="checkbox" value="Compétition" checked> 🏆 Compétition</label>
-                                    <label><input type="checkbox" value="Loisir/Senior" checked> 🏊‍♂️
-                                        Loisir/Senior</label>
-                                    <label><input type="checkbox" value="Benjamins/Junior" checked> 🧒
-                                        Benjamins/Junior</label>
-                                    <label><input type="checkbox" value="Poussins/Pupilles" checked> 👶
-                                        Poussins/Pupilles</label>
-                                </div>
+                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;"
+                                    for="creneau-public-cible">Public cible :</label>
+                                <select id="creneau-public-cible" required
+                                    style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                                    <option value="les deux">Tous publics (Les deux)</option>
+                                    <option value="adulte">Adultes uniquement</option>
+                                    <option value="jeune">Jeunes uniquement</option>
+                                </select>
                             </div>
                             <button type="submit">Créer le créneau</button>
                         </form>

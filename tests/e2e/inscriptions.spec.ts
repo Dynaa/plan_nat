@@ -16,7 +16,7 @@ test.describe('Interface / Inscription au créneau', () => {
                     inscrits: 5,
                     en_attente: 0,
                     statut_user: 'non_inscrit',
-                    licences_autorisees: 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles'
+                    public_cible: 'les deux'
                 }]
             });
         });

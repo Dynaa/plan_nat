@@ -8,15 +8,13 @@ async function handleCreateCreneau(e) {
     const nombre_lignes = document.getElementById('creneau-lignes').value;
     const personnes_par_ligne = document.getElementById('creneau-personnes').value;
 
-    // Récupérer les licences sélectionnées
-    const licencesCheckboxes = document.querySelectorAll('#licences-checkboxes input[type="checkbox"]:checked');
-    const licences_autorisees = Array.from(licencesCheckboxes).map(cb => cb.value).join(',');
+    const public_cible = document.getElementById('creneau-public-cible').value;
 
     try {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees })
+            body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible })
         });
 
         const data = await response.json();
@@ -265,14 +263,12 @@ async function editerCreneau(creneauId) {
                 </div>
                 
                 <div style="margin-bottom: 1.5rem;">
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Licences autorisées :</label>
-                    <div id="edit-licences-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
-                        ${['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'].map(licence => {
-            const isChecked = creneau.licences_autorisees && creneau.licences_autorisees.includes(licence);
-            const emoji = licence === 'Compétition' ? '🏆' : licence === 'Loisir/Senior' ? '🏊‍♂️' : licence === 'Benjamins/Junior' ? '🧒' : '👶';
-            return `<label><input type="checkbox" value="${licence}" ${isChecked ? 'checked' : ''}> ${emoji} ${licence}</label>`;
-        }).join('')}
-                    </div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;" for="edit-public-cible">Public cible :</label>
+                    <select id="edit-public-cible" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                        <option value="les deux" ${creneau.public_cible === 'les deux' ? 'selected' : ''}>Tous publics (Les deux)</option>
+                        <option value="adulte" ${creneau.public_cible === 'adulte' ? 'selected' : ''}>Adultes uniquement</option>
+                        <option value="jeune" ${creneau.public_cible === 'jeune' ? 'selected' : ''}>Jeunes uniquement</option>
+                    </select>
                 </div>
                 
                 <div style="display: flex; gap: 1rem; justify-content: flex-end;">
@@ -296,9 +292,7 @@ async function editerCreneau(creneauId) {
         document.getElementById('edit-creneau-form').addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            // Récupérer les licences sélectionnées
-            const editLicencesCheckboxes = document.querySelectorAll('#edit-licences-checkboxes input[type="checkbox"]:checked');
-            const licences_autorisees = Array.from(editLicencesCheckboxes).map(cb => cb.value).join(',');
+            const public_cible = document.getElementById('edit-public-cible').value;
 
             const formData = {
                 nom: document.getElementById('edit-nom').value,
@@ -307,7 +301,7 @@ async function editerCreneau(creneauId) {
                 heure_fin: document.getElementById('edit-fin').value,
                 nombre_lignes: parseInt(document.getElementById('edit-lignes').value),
                 personnes_par_ligne: parseInt(document.getElementById('edit-personnes').value),
-                licences_autorisees: licences_autorisees
+                public_cible: public_cible
             };
 
             try {
@@ -391,6 +385,44 @@ async function changerRoleUtilisateur(userId, nouveauRole) {
     } catch (error) {
         console.error('Erreur lors du changement de rôle:', error);
         showMessage('Erreur lors du changement de rôle', 'error');
+        loadAdminUsers();
+    }
+}
+
+async function changerPublicCibleUtilisateur(userId, nouveauPublicCible) {
+    if (!nouveauPublicCible) return;
+
+    const nomPublic = nouveauPublicCible === 'jeune' ? 'Jeune' :
+        nouveauPublicCible === 'adulte' ? 'Adulte' : 'Tous publics (Les deux)';
+
+    const confirmation = confirm(
+        `Êtes-vous sûr de vouloir modifier le public cible de cet utilisateur vers "${nomPublic}" ?`
+    );
+
+    if (!confirmation) {
+        loadAdminUsers();
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/role`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ public_cible: nouveauPublicCible })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(data.message, 'success');
+            loadAdminUsers();
+        } else {
+            showMessage(data.error, 'error');
+            loadAdminUsers();
+        }
+    } catch (error) {
+        console.error('Erreur lors du changement de public cible:', error);
+        showMessage('Erreur lors du changement de public cible', 'error');
         loadAdminUsers();
     }
 }
