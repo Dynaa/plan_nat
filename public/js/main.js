@@ -118,6 +118,12 @@ function setupMainEventListeners() {
     if (metaRuleForm) {
         metaRuleForm.addEventListener('submit', handleCreateMetaRule);
     }
+
+    // Event listener pour la création d'utilisateur manuel
+    const createUserForm = document.getElementById('create-user-form');
+    if (createUserForm) {
+        createUserForm.addEventListener('submit', handleCreateUser);
+    }
 }
 
 

@@ -260,6 +260,35 @@
                 <!-- Sous-onglet Utilisateurs -->
                 <div id="admin-users-section" class="admin-tab-content">
                     <div class="admin-section">
+                        <h3>Créer un utilisateur manuellement</h3>
+                        <form id="create-user-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+                            <input type="text" id="create-user-prenom" placeholder="Prénom" required>
+                            <input type="text" id="create-user-nom" placeholder="Nom" required>
+                            <input type="email" id="create-user-email" placeholder="Email" required>
+                            <input type="password" id="create-user-password" placeholder="Mot de passe" required>
+                            <select id="create-user-licence" required>
+                                <option value="">Type de licence</option>
+                                <option value="Compétition">🏆 Compétition</option>
+                                <option value="Loisir/Senior">🏊‍♂️ Loisir/Senior</option>
+                                <option value="Benjamins/Junior">🧒 Benjamins/Junior</option>
+                                <option value="Poussins/Pupilles">👶 Poussins/Pupilles</option>
+                            </select>
+                            <select id="create-user-cible" required>
+                                <option value="adulte">Adultes uniquement (Par défaut)</option>
+                                <option value="jeune">Jeunes uniquement</option>
+                                <option value="les deux">Tous publics (Les deux)</option>
+                            </select>
+                            <select id="create-user-role" required>
+                                <option value="membre">Membre (Par défaut)</option>
+                                <option value="admin">Administrateur</option>
+                            </select>
+                            <div style="grid-column: 1 / -1;">
+                                <button type="submit" class="btn-success">Créer l'utilisateur</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="admin-section">
                         <h3>Gestion des utilisateurs</h3>
                         <div id="admin-users-list"></div>
                     </div>

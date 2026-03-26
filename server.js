@@ -1511,6 +1511,47 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
     }
 });
 
+// Route de création manuelle d'utilisateur (ADMIN)
+app.post('/api/admin/users', requireAdmin, async (req, res) => {
+    const { email, password, nom, prenom, licence_type, public_cible, role } = req.body;
+
+    if (!email || !password || !nom || !prenom || !licence_type) {
+        return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
+    }
+
+    const licencesValides = ['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'];
+    if (!licencesValides.includes(licence_type)) {
+        return res.status(400).json({ error: 'Type de licence invalide' });
+    }
+
+    const cibles = ['jeune', 'adulte', 'les deux'];
+    const pCible = (public_cible && cibles.includes(public_cible)) ? public_cible : 'adulte';
+
+    const rolesValides = ['membre', 'admin'];
+    const userRole = (role && rolesValides.includes(role)) ? role : 'membre';
+
+    const hashedPassword = bcrypt.hashSync(password, 10);
+
+    try {
+        const sql = db.isPostgres ?
+            `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id` :
+            `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible, role) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+
+        const result = await db.run(sql, [email, hashedPassword, nom, prenom, licence_type, pCible, userRole]);
+
+        res.json({
+            message: 'Utilisateur créé avec succès',
+            userId: result.lastID || result.id
+        });
+    } catch (err) {
+        if (err.message && (err.message.includes('UNIQUE constraint failed') || err.message.includes('duplicate key'))) {
+            return res.status(400).json({ error: 'Email déjà utilisé' });
+        }
+        console.error('Erreur création compte manuel:', err);
+        return res.status(500).json({ error: 'Erreur lors de la création de l\'utilisateur' });
+    }
+});
+
 app.put('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
     const userId = req.params.userId;
     const { role, public_cible } = req.body;

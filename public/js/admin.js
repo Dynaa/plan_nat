@@ -339,6 +339,39 @@ async function editerCreneau(creneauId) {
         showMessage('Erreur lors du chargement du créneau', 'error');
     }
 }
+async function handleCreateUser(e) {
+    e.preventDefault();
+
+    const prenom = document.getElementById('create-user-prenom').value;
+    const nom = document.getElementById('create-user-nom').value;
+    const email = document.getElementById('create-user-email').value;
+    const password = document.getElementById('create-user-password').value;
+    const licence_type = document.getElementById('create-user-licence').value;
+    const public_cible = document.getElementById('create-user-cible').value;
+    const role = document.getElementById('create-user-role').value;
+
+    try {
+        const response = await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prenom, nom, email, password, licence_type, public_cible, role })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(data.message || 'Utilisateur créé avec succès', 'success');
+            document.getElementById('create-user-form').reset();
+            loadAdminUsers();
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Erreur création utilisateur:', error);
+        showMessage("Erreur lors de la création de l'utilisateur", 'error');
+    }
+}
+
 async function loadAdminUsers() {
     try {
         const response = await fetch('/api/admin/users');
