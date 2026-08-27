@@ -4,9 +4,19 @@
     box-sizing: border-box;
 }
 
+/* Charte graphique ACC Triathlon (Avenir Cycliste Cusset - Section Triathlon)
+   Couleurs issues du logo : bleu #28A0E8, noir #111111, blanc */
+:root {
+    --primary-color: #28A0E8;
+    --primary-dark: #1B7BC0;
+    --primary-darker: #10486F;
+    --accent-color: #111111;
+    --background-gradient: linear-gradient(135deg, #28A0E8 0%, #10486F 100%);
+}
+
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #00A3E0 0%, #004b87 100%);
+    background: var(--background-gradient);
     min-height: 100vh;
     color: #333;
 }
@@ -37,7 +47,7 @@ header h1 {
 }
 
 button {
-    background: #00A3E0;
+    background: var(--primary-color);
     color: white;
     border: none;
     padding: 0.5rem 1rem;
@@ -48,7 +58,7 @@ button {
 }
 
 button:hover {
-    background: #007bb5;
+    background: var(--primary-dark);
 }
 
 button:disabled {
@@ -88,8 +98,8 @@ main {
 }
 
 .tab-btn.active {
-    color: #00A3E0;
-    border-bottom-color: #00A3E0;
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
 }
 
 .auth-form {
@@ -111,7 +121,7 @@ main {
 
 .auth-form input:focus {
     outline: none;
-    border-color: #00A3E0;
+    border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
 }
 
@@ -136,7 +146,7 @@ main {
 }
 
 .main-tab-btn.active {
-    background: #00A3E0;
+    background: var(--primary-color);
     color: white;
 }
 
@@ -238,7 +248,7 @@ main {
 }
 
 .admin-tab-btn.active {
-    background: #00A3E0;
+    background: var(--primary-color);
     color: white;
 }
 
@@ -437,7 +447,7 @@ Styles pour l'onglet Mon Profil */
 
 .form-group input:focus {
     outline: none;
-    border-color: #00A3E0;
+    border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
 }
 
@@ -465,7 +475,7 @@ Styles pour l'onglet Mon Profil */
 .stat-value {
     font-size: 2rem;
     font-weight: bold;
-    color: #00A3E0;
+    color: var(--primary-color);
     margin-bottom: 0.5rem;
 }
 
@@ -621,7 +631,7 @@ Styles pour l'onglet Mon Profil */
 
 .meta-regle-item {
     background: #f7fafc;
-    border-left: 4px solid #00A3E0;
+    border-left: 4px solid var(--primary-color);
     padding: 1rem;
     border-radius: 6px;
 }

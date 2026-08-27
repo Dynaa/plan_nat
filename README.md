@@ -33,8 +33,12 @@ Application web pour la gestion des inscriptions aux créneaux d'entraînement d
 # Base de données (optionnel - utilise SQLite par défaut)
 DATABASE_URL=postgresql://user:password@host:port/database
 
-# Session (recommandé en production)
+# Session (OBLIGATOIRE en production - le serveur refuse de démarrer sans)
 SESSION_SECRET=your-super-secret-session-key
+
+# Compte admin initial (OBLIGATOIRE en production pour créer l'admin par défaut)
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=un-mot-de-passe-solide
 
 # Email (optionnel)
 SMTP_HOST=smtp.gmail.com
@@ -75,11 +79,11 @@ NODE_ENV=production npm start
 
 ## 🔐 Sécurité
 
-- **Authentification** par session
+- **Authentification** par session (cookies `httpOnly`, `secure` en production)
 - **Hachage des mots de passe** avec bcrypt
 - **Autorisation** par rôles (user/admin)
-- **Protection CSRF** intégrée
 - **Validation** des données côté serveur
+- **Sessions persistantes** en PostgreSQL en production (connect-pg-simple)
 
 ## 📊 Monitoring
 
@@ -87,10 +91,6 @@ NODE_ENV=production npm start
 - **Logs conditionnels** (détaillés en dev, essentiels en prod)
 - **Indicateurs visuels** pour le statut des méta-règles
 - **Gestion d'erreurs** complète
-
-### Notes sur les warnings
-- **MemoryStore warning** : Normal pour une petite application Railway (< 1000 utilisateurs)
-- **npm config warning** : Supprimé via le script `start.js`
 
 ## 🛠️ Technologies
 
@@ -104,7 +104,7 @@ NODE_ENV=production npm start
 
 ### Premier démarrage
 1. Créer un compte utilisateur
-2. Se connecter en tant qu'admin avec : `admin@triathlon.com` / `admin123`
+2. Se connecter en tant qu'admin (identifiants définis par `ADMIN_EMAIL` / `ADMIN_PASSWORD` ; en développement : `admin@triathlon.com` / `admin123`)
 3. Configurer les méta-règles dans Administration > Méta-règles
 4. Créer les créneaux d'entraînement
 

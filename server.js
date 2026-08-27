@@ -19,26 +19,44 @@ app.use(express.static('public'));
 // Healthcheck pour Railway
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
+// Base de données (instanciée tôt : le store de session en a besoin)
+const db = new DatabaseAdapter();
+
+// SESSION_SECRET est obligatoire en production
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+    console.error('❌ SESSION_SECRET doit être définie en production (variable d\'environnement)');
+    process.exit(1);
+}
+
 // Configuration de session adaptée à l'environnement
 const sessionConfig = {
     secret: process.env.SESSION_SECRET || 'triathlon-natation-secret-key-dev',
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false, // Désactivé pour Railway (HTTPS mais proxy)
+        secure: false, // Activé en production ci-dessous
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000, // 24 heures
-        sameSite: 'lax' // Plus permissif que 'strict'
+        sameSite: 'lax'
     }
 };
 
-// Configuration spéciale pour Railway
+// Sessions persistantes en PostgreSQL (survivent aux redéploiements)
+// Désactivé en mode test (express-session y est mocké)
+if (db.isPostgres && process.env.NODE_ENV !== 'test') {
+    const PgStore = require('connect-pg-simple')(session);
+    sessionConfig.store = new PgStore({
+        pool: db.pool,
+        createTableIfMissing: true
+    });
+    console.log('🐘 Store de session PostgreSQL activé');
+}
+
 if (process.env.NODE_ENV === 'production') {
     console.log('🔧 Configuration session pour Railway (production)');
-    // Railway utilise un proxy, donc secure: false même en HTTPS
-    sessionConfig.cookie.secure = false;
-    sessionConfig.cookie.sameSite = 'lax';
-    console.log('⚠️ Utilisation de MemoryStore en production (OK pour petite app)');
+    // Railway est derrière un proxy HTTPS : trust proxy permet secure: true
+    app.set('trust proxy', 1);
+    sessionConfig.cookie.secure = true;
 }
 
 app.use(session(sessionConfig));
@@ -51,10 +69,6 @@ const emailConfig = {
     auth: {
         user: process.env.SMTP_USER || 'ethereal.user@ethereal.email',
         pass: process.env.SMTP_PASS || 'ethereal.pass'
-    },
-    // Options supplémentaires pour OVH
-    tls: {
-        rejectUnauthorized: false
     },
     connectionTimeout: 10000, // 10 secondes
     greetingTimeout: 5000,
@@ -100,8 +114,7 @@ const initEmailTransporter = async () => {
             host: emailConfig.host,
             port: emailConfig.port,
             user: emailConfig.auth.user,
-            secure: emailConfig.secure,
-            tls: emailConfig.tls
+            secure: emailConfig.secure
         });
 
         // Diagnostic spécial pour OVH
@@ -467,14 +480,29 @@ async function initializeDatabase() {
         console.log('✅ Table meta_rules créée');
 
         // Créer admin par défaut
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
-        const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
+        // En production, ADMIN_PASSWORD doit être définie : pas de mot de passe par défaut
+        if (process.env.NODE_ENV === 'production' && !process.env.ADMIN_PASSWORD) {
+            console.log('⚠️ ADMIN_PASSWORD non définie : création du compte admin par défaut ignorée');
+        } else {
+            const adminEmail = process.env.ADMIN_EMAIL || 'admin@triathlon.com';
+            const adminPassword = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
 
-        const insertAdminSQL = db.adaptSQL(
-            `INSERT OR IGNORE INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Admin', 'Système', 'admin')`,
-            `INSERT INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Admin', 'Système', 'admin') ON CONFLICT (email) DO NOTHING`
-        );
-        await db.run(insertAdminSQL, [adminEmail, adminPassword]);
+            const insertAdminSQL = db.adaptSQL(
+                `INSERT OR IGNORE INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Admin', 'Système', 'admin')`,
+                `INSERT INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Admin', 'Système', 'admin') ON CONFLICT (email) DO NOTHING`
+            );
+            await db.run(insertAdminSQL, [adminEmail, adminPassword]);
+        }
+
+        // Utilisateur pour les tests E2E Playwright (base SQLite en mémoire, mode test uniquement)
+        if (process.env.NODE_ENV === 'test') {
+            const e2ePassword = bcrypt.hashSync('correctpassword', 10);
+            const insertE2eSQL = db.adaptSQL(
+                `INSERT OR IGNORE INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Playwright', 'Test', 'admin')`,
+                `INSERT INTO users (email, password, nom, prenom, role) VALUES (?, ?, 'Playwright', 'Test', 'admin') ON CONFLICT (email) DO NOTHING`
+            );
+            await db.run(insertE2eSQL, ['test@playwright.com', e2ePassword]);
+        }
 
         // Créer utilisateur de test (seulement en développement)
         if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
@@ -589,9 +617,6 @@ async function initializeDatabase() {
         throw err;
     }
 }
-
-// Initialisation de la base de données (SQLite ou PostgreSQL)
-const db = new DatabaseAdapter();
 
 // Initialisation de la base de données
 console.log('🔄 Initialisation de la base de données...');
@@ -1158,17 +1183,6 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
             error: 'Erreur lors de la récupération des inscriptions'
         });
     }
-});
-
-// Health check
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0',
-        environment: process.env.NODE_ENV || 'development',
-        database: 'SQLite'
-    });
 });
 
 // Servir les fichiers statiques
@@ -2680,30 +2694,3 @@ app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
     }
 });
 
-// Route temporaire pour promouvoir un utilisateur en admin (À SUPPRIMER APRÈS USAGE)
-app.post('/api/temp-promote-admin', async (req, res) => {
-    const { email, secret } = req.body;
-
-    // Mot de passe secret pour sécuriser cette route temporaire
-    if (secret !== 'promote-me-to-admin-2024') {
-        return res.status(403).json({ error: 'Secret incorrect' });
-    }
-
-    try {
-        const sql = db.isPostgres ?
-            `UPDATE users SET role = 'admin' WHERE email = $1` :
-            `UPDATE users SET role = 'admin' WHERE email = ?`;
-
-        const result = await db.run(sql, [email]);
-
-        if (result.changes === 0) {
-            return res.status(404).json({ error: 'Utilisateur non trouvé' });
-        }
-
-        console.log(`🔑 Utilisateur ${email} promu administrateur`);
-        res.json({ message: `Utilisateur ${email} promu administrateur avec succès` });
-    } catch (err) {
-        console.error('Erreur promotion admin:', err);
-        return res.status(500).json({ error: 'Erreur lors de la promotion' });
-    }
-});

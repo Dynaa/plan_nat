@@ -109,9 +109,6 @@ const verifierRegleBloc = async (db, userId, creneauId) => {
     }
 };
 
-module.exports = { verifierLimitesSeances, verifierRegleBloc };
-
-
 // Vérifier les méta-règles d'inscription
 const verifierMetaRegles = async (db, userId, creneauId) => {
     try {

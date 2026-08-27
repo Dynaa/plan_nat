@@ -62,22 +62,6 @@ class DatabaseAdapter {
 
     async get(sql, params = []) {
         if (this.isTest || !this.isPostgres) {
-            // BACKDOOR E2E : Fourniture statique pour les tests de login
-            if (this.isTest && sql.includes('SELECT * FROM users WHERE email')) {
-                if (params[0] === 'fake@test.com') return null;
-                if (params[0] === 'test@playwright.com') {
-                    const bcrypt = require('bcrypt');
-                    return {
-                        id: 999,
-                        email: 'test@playwright.com',
-                        password: bcrypt.hashSync('correctpassword', 10),
-                        role: 'admin',
-                        nom: 'Playwright',
-                        prenom: 'Test'
-                    };
-                }
-            }
-
             return new Promise((resolve, reject) => {
                 this.db.get(sql, params, (err, row) => {
                     if (err) reject(err);

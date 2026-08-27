@@ -1,14 +1,7 @@
-/* Design Team Life Tri - Version Simple */
+/* Thème ACC Triathlon (Avenir Cycliste Cusset - Section Triathlon) */
+/* La palette de couleurs est définie dans style.css (:root) à partir du logo */
 
-/* Variables de couleurs Team Life Tri */
-:root {
-    --primary-color: #00A3E0;
-    --secondary-color: #007bb5;
-    --accent-color: #111111;
-    --background-gradient: linear-gradient(135deg, #00A3E0 0%, #004b87 100%);
-}
-
-/* Fond avec dégradé Team Life Tri */
+/* Fond avec dégradé aux couleurs du logo */
 body {
     background: var(--background-gradient);
     min-height: 100vh;
@@ -27,7 +20,7 @@ header {
 }
 
 header h1 {
-    color: var(--primary-color);
+    color: var(--accent-color);
     font-weight: 700;
     margin: 0;
     display: flex;
@@ -35,16 +28,17 @@ header h1 {
     gap: 1rem;
 }
 
-/* Logo Team Life Tri */
+/* Logo ACC Triathlon */
 header h1::before {
     content: '';
-    width: 40px;
-    height: 40px;
-    background: url('assets/logo.png') center/contain no-repeat;
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    background: url('assets/ac_cusset_logo.jpeg') center/contain no-repeat;
     border-radius: 50%;
 }
 
-/* Boutons avec couleurs Team Life Tri */
+/* Boutons aux couleurs du club */
 button {
     background: var(--primary-color);
     color: white;
@@ -57,7 +51,7 @@ button {
 }
 
 button:hover {
-    background: var(--secondary-color);
+    background: var(--primary-dark);
     transform: translateY(-2px);
 }
 
@@ -72,7 +66,7 @@ button:hover {
     border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* Onglets avec style Team Life Tri */
+/* Onglets */
 .tabs {
     background: rgba(255, 255, 255, 0.9);
     padding: 1rem;
@@ -85,7 +79,7 @@ button:hover {
     color: white;
 }
 
-/* Logo en arrière-plan */
+/* Logo en filigrane en arrière-plan */
 main::before {
     content: '';
     position: fixed;
@@ -94,8 +88,9 @@ main::before {
     transform: translate(-50%, -50%);
     width: 600px;
     height: 600px;
-    background: url('assets/logo.png') center/contain no-repeat;
-    opacity: 0.1;
+    background: url('assets/ac_cusset_logo.jpeg') center/contain no-repeat;
+    border-radius: 50%;
+    opacity: 0.08;
     z-index: -1;
     pointer-events: none;
 }
