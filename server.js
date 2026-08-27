@@ -429,6 +429,33 @@ async function initializeDatabase() {
         await db.run(waitlistTokensSQL);
         console.log('✅ Table waitlist_tokens créée');
 
+        // Table des tokens de réinitialisation de mot de passe
+        const passwordResetTokensSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL,
+                expires_at DATETIME NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id SERIAL PRIMARY KEY,
+                token VARCHAR(255) UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT false,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )`
+        );
+        console.log('🔧 Création table password_reset_tokens...');
+        await db.run(passwordResetTokensSQL);
+        console.log('✅ Table password_reset_tokens créée');
+
         // Table de configuration des méta-règles
         const metaRulesConfigSQL = db.adaptSQL(
             // SQLite
@@ -631,9 +658,9 @@ initializeDatabase().then(() => {
     console.error('❌ Stack trace:', err.stack);
 });
 
-// Fonction pour générer un token sécurisé
+// Fonction pour générer un token sécurisé (liste d'attente, réinitialisation de mot de passe)
 const crypto = require('crypto');
-const generateWaitlistToken = () => {
+const generateSecureToken = () => {
     return crypto.randomBytes(32).toString('hex');
 };
 
@@ -650,7 +677,7 @@ const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
         }
 
         // Générer un token unique
-        const token = generateWaitlistToken();
+        const token = generateSecureToken();
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 24); // Expire dans 24h
 
@@ -907,6 +934,159 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/logout', (req, res) => {
     req.session.destroy();
     res.json({ message: 'Déconnexion réussie' });
+});
+
+// Mot de passe oublié : envoi d'un lien de réinitialisation par email
+app.post('/api/forgot-password', async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ error: 'Email requis' });
+    }
+
+    // Réponse identique que l'email existe ou non (ne pas révéler les comptes)
+    const genericMessage = 'Si un compte existe avec cet email, un lien de réinitialisation a été envoyé.';
+
+    try {
+        const user = await db.get(
+            db.isPostgres ?
+                `SELECT id, email, nom, prenom FROM users WHERE email = $1` :
+                `SELECT id, email, nom, prenom FROM users WHERE email = ?`,
+            [email]
+        );
+
+        if (!user) {
+            console.log('🔑 Demande de réinitialisation pour un email inconnu');
+            return res.json({ message: genericMessage });
+        }
+
+        // Invalider les anciens tokens de cet utilisateur
+        await db.run(`UPDATE password_reset_tokens SET used = ? WHERE user_id = ?`, [true, user.id]);
+
+        // Générer un nouveau token valable 1 heure
+        const token = generateSecureToken();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 1);
+
+        await db.run(`INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)`,
+            [token, user.id, expiresAt.toISOString()]);
+
+        const baseUrl = process.env.BASE_URL || process.env.RAILWAY_STATIC_URL || 'http://localhost:3000';
+        const resetLink = `${baseUrl}/reset-password?token=${token}`;
+
+        const emailContent = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #28A0E8;">🔑 Réinitialisation de votre mot de passe</h2>
+
+                <p>Bonjour ${user.prenom} ${user.nom},</p>
+
+                <p>Vous avez demandé la réinitialisation de votre mot de passe.
+                Cliquez sur le bouton ci-dessous pour en choisir un nouveau :</p>
+
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${resetLink}"
+                       style="background: #28A0E8; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+                        Réinitialiser mon mot de passe
+                    </a>
+                </div>
+
+                <p style="color: #6b7280; font-size: 14px;">
+                    ⚠️ Ce lien expire dans 1 heure.
+                </p>
+
+                <p style="color: #6b7280; font-size: 14px;">
+                    Si vous n'êtes pas à l'origine de cette demande, ignorez simplement cet email :
+                    votre mot de passe restera inchangé.
+                </p>
+
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    ACC Triathlon - Gestion des créneaux de natation
+                </p>
+            </div>
+        `;
+
+        const emailSent = await sendEmail(user.email, '🔑 Réinitialisation de votre mot de passe', emailContent);
+        if (!emailSent) {
+            console.error(`❌ Échec envoi email de réinitialisation à ${user.email}`);
+        }
+
+        res.json({ message: genericMessage });
+    } catch (err) {
+        console.error('❌ Erreur demande de réinitialisation:', err);
+        return res.status(500).json({ error: 'Erreur lors de la demande de réinitialisation' });
+    }
+});
+
+// Vérifier la validité d'un token de réinitialisation (pour l'affichage de la page)
+app.get('/api/reset-password/info/:token', async (req, res) => {
+    try {
+        const tokenInfo = await db.get(
+            db.isPostgres ?
+                `SELECT prt.expires_at, prt.used, u.email FROM password_reset_tokens prt
+                 JOIN users u ON prt.user_id = u.id WHERE prt.token = $1` :
+                `SELECT prt.expires_at, prt.used, u.email FROM password_reset_tokens prt
+                 JOIN users u ON prt.user_id = u.id WHERE prt.token = ?`,
+            [req.params.token]
+        );
+
+        if (!tokenInfo || tokenInfo.used || new Date(tokenInfo.expires_at) < new Date()) {
+            return res.status(400).json({ valid: false, error: 'Lien invalide ou expiré' });
+        }
+
+        res.json({ valid: true });
+    } catch (err) {
+        console.error('❌ Erreur vérification token de réinitialisation:', err);
+        return res.status(500).json({ error: 'Erreur lors de la vérification du lien' });
+    }
+});
+
+// Réinitialiser le mot de passe avec un token valide
+app.post('/api/reset-password', async (req, res) => {
+    const { token, nouveauMotDePasse, confirmerMotDePasse } = req.body;
+
+    if (!token || !nouveauMotDePasse || !confirmerMotDePasse) {
+        return res.status(400).json({ error: 'Tous les champs sont requis' });
+    }
+
+    if (nouveauMotDePasse !== confirmerMotDePasse) {
+        return res.status(400).json({ error: 'Les mots de passe ne correspondent pas' });
+    }
+
+    if (nouveauMotDePasse.length < 6) {
+        return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
+    }
+
+    try {
+        const tokenInfo = await db.get(
+            db.isPostgres ?
+                `SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token = $1` :
+                `SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token = ?`,
+            [token]
+        );
+
+        if (!tokenInfo || tokenInfo.used || new Date(tokenInfo.expires_at) < new Date()) {
+            return res.status(400).json({ error: 'Lien invalide ou expiré. Refaites une demande de réinitialisation.' });
+        }
+
+        const hashedPassword = bcrypt.hashSync(nouveauMotDePasse, 10);
+
+        await db.run(
+            db.isPostgres ?
+                `UPDATE users SET password = $1 WHERE id = $2` :
+                `UPDATE users SET password = ? WHERE id = ?`,
+            [hashedPassword, tokenInfo.user_id]
+        );
+
+        // Marquer le token comme utilisé (usage unique)
+        await db.run(`UPDATE password_reset_tokens SET used = ? WHERE id = ?`, [true, tokenInfo.id]);
+
+        console.log(`🔑 Mot de passe réinitialisé pour l'utilisateur ${tokenInfo.user_id}`);
+        res.json({ message: 'Mot de passe réinitialisé avec succès. Vous pouvez maintenant vous connecter.' });
+    } catch (err) {
+        console.error('❌ Erreur réinitialisation mot de passe:', err);
+        return res.status(500).json({ error: 'Erreur lors de la réinitialisation du mot de passe' });
+    }
 });
 
 app.get('/api/auth-status', async (req, res) => {
@@ -1193,6 +1373,11 @@ app.get('/', (req, res) => {
 // Route pour servir la page d'inscription via token
 app.get('/inscription-attente', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'inscription-attente.html'));
+});
+
+// Route pour servir la page de réinitialisation de mot de passe via token
+app.get('/reset-password', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
 });
 
 // Gestion des erreurs non capturées

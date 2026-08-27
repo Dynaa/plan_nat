@@ -66,6 +66,43 @@ async function handleRegister(e) {
         showMessage('Erreur lors de la création du compte', 'error');
     }
 }
+function showForgotForm() {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.auth-form').forEach(form => form.classList.remove('active'));
+    document.getElementById('forgot-form').classList.add('active');
+}
+
+async function handleForgotPassword(e) {
+    e.preventDefault();
+
+    const email = document.getElementById('forgot-email').value;
+
+    if (!email) {
+        showMessage('Veuillez saisir votre email', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(data.message, 'success');
+            document.getElementById('forgot-form').reset();
+            switchAuthTab('login');
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        showMessage('Erreur lors de la demande de réinitialisation', 'error');
+    }
+}
+
 async function handleLogout() {
     try {
         await fetch('/api/logout', { method: 'POST' });

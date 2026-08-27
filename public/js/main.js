@@ -89,6 +89,17 @@ function setupEventListeners() {
     document.getElementById('register-form').addEventListener('submit', handleRegister);
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
+    // Mot de passe oublié
+    document.getElementById('forgot-form').addEventListener('submit', handleForgotPassword);
+    document.getElementById('forgot-password-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        showForgotForm();
+    });
+    document.getElementById('back-to-login-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        switchAuthTab('login');
+    });
+
     // Event listeners pour les formulaires qui n'existent que quand connecté
     // Ils seront ajoutés dans setupMainEventListeners()
 }

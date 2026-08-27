@@ -34,6 +34,23 @@
                     <input type="email" id="login-email" placeholder="Email" required>
                     <input type="password" id="login-password" placeholder="Mot de passe" required>
                     <button type="submit">Se connecter</button>
+                    <p style="text-align: center; margin-top: 1rem;">
+                        <a href="#" id="forgot-password-link"
+                            style="color: var(--primary-color); font-size: 0.9rem;">Mot de passe oublié ?</a>
+                    </p>
+                </form>
+
+                <form id="forgot-form" class="auth-form">
+                    <h2>Mot de passe oublié</h2>
+                    <p style="color: #718096; font-size: 0.9rem; margin-bottom: 1rem;">
+                        Saisissez votre email : si un compte existe, vous recevrez un lien de réinitialisation.
+                    </p>
+                    <input type="email" id="forgot-email" placeholder="Email" required>
+                    <button type="submit">Envoyer le lien</button>
+                    <p style="text-align: center; margin-top: 1rem;">
+                        <a href="#" id="back-to-login-link"
+                            style="color: var(--primary-color); font-size: 0.9rem;">← Retour à la connexion</a>
+                    </p>
                 </form>
 
                 <form id="register-form" class="auth-form">
