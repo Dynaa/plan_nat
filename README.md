@@ -40,11 +40,19 @@ SESSION_SECRET=your-super-secret-session-key
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=un-mot-de-passe-solide
 
-# Email (optionnel)
+# URL publique, utilisée dans les liens des emails (réinitialisation de mot
+# de passe, liste d'attente). Sans elle, les liens pointent vers localhost.
+BASE_URL=https://mon-app.up.railway.app
+
+# Email — SANS ces variables, aucun email n'est réellement délivré :
+# l'app bascule sur Ethereal (boîte de test) et le "mot de passe oublié"
+# semble fonctionner alors que rien n'arrive. SMTP_PASS doit être un
+# mot de passe d'application Google, pas le mot de passe du compte.
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-app-password
+SMTP_USER=adresse-du-club@gmail.com
+SMTP_PASS=mot-de-passe-application-16-caracteres
+MAIL_FROM_NAME=ACC Triathlon
 
 # Environnement
 NODE_ENV=production

@@ -77,6 +77,7 @@ const emailConfig = {
 
 // Créer le transporteur email
 let transporter;
+let isEtherealTransport = false;
 const initEmailTransporter = async () => {
     console.log('📧 Début initEmailTransporter...');
     console.log('📧 Variables SMTP:', {
@@ -87,14 +88,15 @@ const initEmailTransporter = async () => {
     });
 
     try {
-        // En production, utiliser Ethereal si aucun service email configuré
+        // Sans service email configuré, les mails partent vers Ethereal (bac à sable) : ils ne sont jamais délivrés
         if (process.env.NODE_ENV === 'production' && !process.env.RESEND_API_KEY && !process.env.SENDGRID_API_KEY && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS)) {
-            console.log('📧 Mode production : utilisation d\'Ethereal Email pour les tests');
-            // Ne pas retourner, continuer avec Ethereal
+            console.error('🚨 PRODUCTION SANS SERVICE EMAIL : aucun email ne sera réellement délivré');
+            console.error('🚨 Définissez RESEND_API_KEY, ou SMTP_HOST + SMTP_USER + SMTP_PASS');
         }
 
         if (!process.env.SMTP_HOST) {
-            console.log('📧 Pas de SMTP_HOST défini, création compte Ethereal...');
+            console.log('📧 Pas de SMTP_HOST défini, création compte Ethereal (mode test)...');
+            isEtherealTransport = true;
             const testAccount = await nodemailer.createTestAccount();
             emailConfig.auth.user = testAccount.user;
             emailConfig.auth.pass = testAccount.pass;
@@ -686,8 +688,7 @@ const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
             [token, userId, creneauId, date_seance, expiresAt.toISOString()]);
 
         // Créer le lien d'inscription
-        const baseUrl = process.env.BASE_URL || process.env.RAILWAY_STATIC_URL || 'http://localhost:3000';
-        const inscriptionLink = `${baseUrl}/inscription-attente?token=${token}`;
+        const inscriptionLink = `${getBaseUrl()}/inscription-attente?token=${token}`;
 
         // Jours de la semaine
         const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -771,6 +772,17 @@ const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
     }
 };
 
+// URL publique de l'application, utilisée dans les liens envoyés par email.
+// RAILWAY_PUBLIC_DOMAIN / RAILWAY_STATIC_URL ne contiennent pas le protocole.
+const getBaseUrl = () => {
+    const raw = process.env.BASE_URL
+        || process.env.RAILWAY_PUBLIC_DOMAIN
+        || process.env.RAILWAY_STATIC_URL
+        || `http://localhost:${process.env.PORT || 3000}`;
+    const url = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
+    return url.replace(/\/+$/, '');
+};
+
 // Fonctions d'envoi d'email (Resend + SendGrid + SMTP)
 const sendEmail = async (to, subject, htmlContent) => {
     // Priorité 1 : Resend si configuré (gratuit 3000 emails/mois)
@@ -778,19 +790,25 @@ const sendEmail = async (to, subject, htmlContent) => {
         try {
             const resend = new Resend(process.env.RESEND_API_KEY);
 
-            console.log('📧 Envoi via Resend:', { to, subject });
-            const result = await resend.emails.send({
-                from: process.env.SMTP_USER || 'noreply@resend.dev',
+            const from = process.env.MAIL_FROM || process.env.SMTP_USER || 'onboarding@resend.dev';
+            console.log('📧 Envoi via Resend:', { to, subject, from });
+            const { data, error } = await resend.emails.send({
+                from: from,
                 to: to,
                 subject: subject,
                 html: htmlContent,
             });
 
-            console.log('✅ Email envoyé via Resend:', { id: result.data?.id, to, subject });
-            return true;
+            // L'API Resend ne lève pas d'exception : elle renvoie { data, error }
+            if (error) {
+                console.error('❌ Erreur Resend:', { message: error.message, name: error.name, to, subject });
+            } else {
+                console.log('✅ Email envoyé via Resend:', { id: data?.id, to, subject });
+                return true;
+            }
         } catch (error) {
-            console.error('❌ Erreur Resend:', error.message);
-            // Fallback vers SendGrid si Resend échoue
+            console.error('❌ Erreur Resend (exception):', error.message);
+            // Fallback vers SMTP si Resend échoue
         }
     }
 
@@ -801,16 +819,34 @@ const sendEmail = async (to, subject, htmlContent) => {
     }
 
     try {
-        console.log('📧 Tentative d\'envoi email via SMTP:', { to, subject, from: process.env.SMTP_USER });
+        // Gmail (et la plupart des SMTP) imposent que l'adresse d'expédition soit
+        // celle du compte authentifié : seul le nom affiché est libre.
+        const fromName = process.env.MAIL_FROM_NAME || 'ACC Triathlon';
+        const fromAddress = process.env.SMTP_USER || 'noreply@triathlon.com';
+        const from = `"${fromName}" <${fromAddress}>`;
+
+        if (process.env.MAIL_FROM && !process.env.MAIL_FROM.includes(fromAddress)) {
+            console.warn(`⚠️  MAIL_FROM ("${process.env.MAIL_FROM}") est ignoré en SMTP : l'expéditeur reste ${fromAddress}.`);
+            console.warn('⚠️  Utilisez MAIL_FROM_NAME pour changer le nom affiché.');
+        }
+
+        console.log('📧 Tentative d\'envoi email via SMTP:', { to, subject, from });
 
         const info = await transporter.sendMail({
-            from: `"Club Triathlon 🏊‍♂️" <${process.env.SMTP_USER || 'noreply@triathlon.com'}>`,
+            from: from,
             to: to,
             subject: subject,
             html: htmlContent
         });
 
-        console.log('✅ Email envoyé via SMTP:', { messageId: info.messageId, to, subject });
+        if (isEtherealTransport) {
+            console.warn('⚠️  Email NON délivré : envoyé vers la boîte de test Ethereal, pas vers', to);
+            console.warn('⚠️  Configurez RESEND_API_KEY ou SMTP_HOST/SMTP_USER/SMTP_PASS pour de vrais envois.');
+            const preview = nodemailer.getTestMessageUrl(info);
+            if (preview) console.warn('👀 Prévisualiser cet email :', preview);
+        } else {
+            console.log('✅ Email envoyé via SMTP:', { messageId: info.messageId, to, subject });
+        }
         return true;
     } catch (error) {
         console.error('❌ Erreur SMTP:', {
@@ -971,8 +1007,7 @@ app.post('/api/forgot-password', async (req, res) => {
         await db.run(`INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)`,
             [token, user.id, expiresAt.toISOString()]);
 
-        const baseUrl = process.env.BASE_URL || process.env.RAILWAY_STATIC_URL || 'http://localhost:3000';
-        const resetLink = `${baseUrl}/reset-password?token=${token}`;
+        const resetLink = `${getBaseUrl()}/reset-password?token=${token}`;
 
         const emailContent = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
