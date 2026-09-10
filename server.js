@@ -79,6 +79,13 @@ const emailConfig = {
 let transporter;
 let isEtherealTransport = false;
 const initEmailTransporter = async () => {
+    // Un fournisseur à API HTTPS rend le SMTP inutile. Sans ce court-circuit,
+    // l'app perd 10 s en timeout au démarrage là où le SMTP sortant est bloqué.
+    if (process.env.RESEND_API_KEY || process.env.BREVO_API_KEY) {
+        console.log('📧 Fournisseur email HTTPS configuré : initialisation SMTP ignorée');
+        return;
+    }
+
     console.log('📧 Début initEmailTransporter...');
     console.log('📧 Variables SMTP:', {
         host: !!process.env.SMTP_HOST,
@@ -783,7 +790,10 @@ const getBaseUrl = () => {
     return url.replace(/\/+$/, '');
 };
 
-// Fonctions d'envoi d'email (Resend + SendGrid + SMTP)
+// Fonctions d'envoi d'email (Resend + Brevo + SMTP)
+//
+// Railway bloque les ports SMTP sortants (25/465/587/2525) hors plan Pro :
+// en production, seuls les fournisseurs à API HTTPS fonctionnent.
 const sendEmail = async (to, subject, htmlContent) => {
     // Priorité 1 : Resend si configuré (gratuit 3000 emails/mois)
     if (process.env.RESEND_API_KEY) {
@@ -812,7 +822,48 @@ const sendEmail = async (to, subject, htmlContent) => {
         }
     }
 
-    // Priorité 2 : SMTP si transporteur configuré
+    // Priorité 2 : Brevo (API HTTPS) — permet d'envoyer sans nom de domaine,
+    // avec une simple adresse expéditrice validée dans Brevo.
+    if (process.env.BREVO_API_KEY) {
+        const senderEmail = process.env.MAIL_FROM_EMAIL || process.env.SMTP_USER;
+        const senderName = process.env.MAIL_FROM_NAME || 'ACC Triathlon';
+
+        if (!senderEmail) {
+            console.error('❌ Brevo : définissez MAIL_FROM_EMAIL avec l\'adresse expéditrice validée dans Brevo');
+        } else {
+            try {
+                console.log('📧 Envoi via Brevo:', { to, subject, from: senderEmail });
+                const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+                    method: 'POST',
+                    headers: {
+                        'api-key': process.env.BREVO_API_KEY,
+                        'content-type': 'application/json',
+                        'accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        sender: { name: senderName, email: senderEmail },
+                        to: [{ email: to }],
+                        subject: subject,
+                        htmlContent: htmlContent
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    console.log('✅ Email envoyé via Brevo:', { messageId: data.messageId, to, subject });
+                    return true;
+                }
+
+                // Brevo renvoie un statut HTTP d'erreur avec { code, message }
+                const details = await response.text().catch(() => '');
+                console.error('❌ Erreur Brevo:', { status: response.status, details, to, subject });
+            } catch (error) {
+                console.error('❌ Erreur Brevo (exception):', error.message);
+            }
+        }
+    }
+
+    // Priorité 3 : SMTP si transporteur configuré (développement local)
     if (!transporter) {
         console.log('📧 Email non envoyé (aucun transporteur configuré):', subject);
         return false;

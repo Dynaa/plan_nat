@@ -46,12 +46,13 @@ BASE_URL=https://mon-app.up.railway.app
 
 # Email — SANS ces variables, aucun email n'est réellement délivré :
 # l'app bascule sur Ethereal (boîte de test) et le "mot de passe oublié"
-# semble fonctionner alors que rien n'arrive. SMTP_PASS doit être un
-# mot de passe d'application Google, pas le mot de passe du compte.
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=adresse-du-club@gmail.com
-SMTP_PASS=mot-de-passe-application-16-caracteres
+# semble fonctionner alors que rien n'arrive.
+#
+# ⚠️ Railway bloque les ports SMTP sortants hors plan Pro : en production,
+# il faut un fournisseur à API HTTPS (Brevo ou Resend). Le SMTP ne sert
+# qu'en développement local.
+BREVO_API_KEY=xkeysib-xxxxxxxxxxxxxxxx
+MAIL_FROM_EMAIL=adresse-du-club@gmail.com
 MAIL_FROM_NAME=ACC Triathlon
 
 # Environnement
