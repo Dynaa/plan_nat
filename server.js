@@ -887,6 +887,149 @@ const generateSecureToken = () => {
 };
 
 // Fonction pour créer un token d'inscription et envoyer l'email
+// Promotion automatique de la liste d'attente après un gain de places
+// (capacité augmentée, ou créneau passé sans limite).
+// Contrairement à la libération d'une place unique — qui notifie tout le monde
+// et récompense le premier à confirmer — les places sont ici disponibles
+// immédiatement : on promeut donc directement, dans l'ordre d'attente.
+const promouvoirListeAttente = async (db, creneauId) => {
+    const creneau = await db.get(
+        db.adaptSQL(
+            `SELECT nom, capacite_max, sans_limite FROM creneaux WHERE id = ?`,
+            `SELECT nom, capacite_max, sans_limite FROM creneaux WHERE id = $1`
+        ),
+        [creneauId]
+    );
+
+    if (!creneau) return { promus: [] };
+
+    const sansLimite = creneau.sans_limite === true || creneau.sans_limite === 1;
+    const capacite = parseInt(creneau.capacite_max, 10) || 0;
+    const aujourdhui = new Date().toISOString().split('T')[0];
+
+    // Seules les séances à venir méritent d'être repourvues
+    const dates = await db.query(
+        db.adaptSQL(
+            `SELECT DISTINCT date_seance FROM inscriptions
+             WHERE creneau_id = ? AND statut = 'attente' AND date_seance >= ?
+             ORDER BY date_seance`,
+            `SELECT DISTINCT date_seance FROM inscriptions
+             WHERE creneau_id = $1 AND statut = 'attente' AND date_seance >= $2
+             ORDER BY date_seance`
+        ),
+        [creneauId, aujourdhui]
+    );
+
+    const promus = [];
+
+    for (const { date_seance } of dates) {
+        const compte = await db.get(
+            db.adaptSQL(
+                `SELECT COUNT(*) as total FROM inscriptions
+                 WHERE creneau_id = ? AND statut = 'inscrit' AND date_seance = ?`,
+                `SELECT COUNT(*) as total FROM inscriptions
+                 WHERE creneau_id = $1 AND statut = 'inscrit' AND date_seance = $2`
+            ),
+            [creneauId, date_seance]
+        );
+
+        const inscrits = parseInt(compte.total, 10) || 0;
+        const placesLibres = sansLimite ? Infinity : capacite - inscrits;
+        if (placesLibres <= 0) continue;
+
+        const enAttente = await db.query(
+            db.adaptSQL(
+                `SELECT user_id FROM inscriptions
+                 WHERE creneau_id = ? AND statut = 'attente' AND date_seance = ?
+                 ORDER BY position_attente ASC`,
+                `SELECT user_id FROM inscriptions
+                 WHERE creneau_id = $1 AND statut = 'attente' AND date_seance = $2
+                 ORDER BY position_attente ASC`
+            ),
+            [creneauId, date_seance]
+        );
+
+        const aPromouvoir = sansLimite ? enAttente : enAttente.slice(0, placesLibres);
+
+        for (const { user_id } of aPromouvoir) {
+            await db.run(
+                db.adaptSQL(
+                    `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL
+                     WHERE creneau_id = ? AND user_id = ? AND date_seance = ?`,
+                    `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL
+                     WHERE creneau_id = $1 AND user_id = $2 AND date_seance = $3`
+                ),
+                [creneauId, user_id, date_seance]
+            );
+            promus.push({ userId: user_id, date_seance });
+        }
+
+        // Renuméroter ceux qui restent en attente pour garder des positions continues
+        const restants = enAttente.slice(aPromouvoir.length);
+        for (let i = 0; i < restants.length; i++) {
+            await db.run(
+                db.adaptSQL(
+                    `UPDATE inscriptions SET position_attente = ?
+                     WHERE creneau_id = ? AND user_id = ? AND date_seance = ?`,
+                    `UPDATE inscriptions SET position_attente = $1
+                     WHERE creneau_id = $2 AND user_id = $3 AND date_seance = $4`
+                ),
+                [i + 1, creneauId, restants[i].user_id, date_seance]
+            );
+        }
+    }
+
+    if (promus.length > 0) {
+        console.log(`✅ ${promus.length} inscription(s) promue(s) depuis la liste d'attente du créneau "${creneau.nom}"`);
+    }
+
+    return { promus, creneauNom: creneau.nom };
+};
+
+// Prévenir un membre que sa place d'attente est devenue une inscription ferme
+const notifierPromotion = async (userId, creneauNom, date_seance) => {
+    try {
+        const user = await db.get(
+            db.adaptSQL(
+                `SELECT email, nom, prenom FROM users WHERE id = ?`,
+                `SELECT email, nom, prenom FROM users WHERE id = $1`
+            ),
+            [userId]
+        );
+        if (!user) return false;
+
+        const dateLisible = new Date(date_seance).toLocaleDateString('fr-FR', {
+            weekday: 'long', day: '2-digit', month: 'long'
+        });
+
+        return await sendEmail(
+            user.email,
+            `✅ Votre place est confirmée - ${creneauNom}`,
+            `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #28A0E8;">✅ Votre place est confirmée</h2>
+                <p>Bonjour ${user.prenom} ${user.nom},</p>
+                <p>Vous étiez en liste d'attente pour le créneau
+                   <strong>${creneauNom}</strong> du ${dateLisible}.</p>
+                <p>Des places ont été ajoutées : <strong>votre inscription est désormais confirmée</strong>.
+                   Vous n'avez aucune démarche à faire.</p>
+                <p style="color: #6b7280; font-size: 14px;">
+                    Si vous ne pouvez finalement pas venir, pensez à vous désinscrire
+                    depuis l'application pour libérer votre place.
+                </p>
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    ACC Triathlon - Gestion des créneaux
+                </p>
+            </div>
+            `
+        );
+    } catch (err) {
+        console.error('❌ Erreur notification de promotion:', err);
+        return false;
+    }
+};
+
 const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
     try {
         // Récupérer les infos utilisateur et créneau
@@ -1944,13 +2087,19 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
 
     try {
         const creneauExistant = await db.get(
-            db.adaptSQL(`SELECT sport_id FROM creneaux WHERE id = ?`, `SELECT sport_id FROM creneaux WHERE id = $1`),
+            db.adaptSQL(
+                `SELECT sport_id, capacite_max, sans_limite FROM creneaux WHERE id = ?`,
+                `SELECT sport_id, capacite_max, sans_limite FROM creneaux WHERE id = $1`
+            ),
             [creneauId]
         );
 
         if (!creneauExistant) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
         }
+
+        const capaciteAvant = parseInt(creneauExistant.capacite_max, 10) || 0;
+        const etaitSansLimite = creneauExistant.sans_limite === true || creneauExistant.sans_limite === 1;
 
         // Le sport peut changer (créneaux créés en natation faute de mieux)
         const sportId = sport_id || creneauExistant.sport_id;
@@ -1999,11 +2148,30 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
             }
         }
 
-        res.json({
-            message: detacheDuBloc
-                ? 'Créneau mis à jour. Il a été retiré de son bloc hebdomadaire, réservé à la natation.'
-                : 'Créneau mis à jour'
-        });
+        // Places gagnées (capacité augmentée ou passage sans limite) : repourvoir
+        // la liste d'attente dans l'ordre, sans attendre une action de l'admin.
+        let promus = [];
+        const gainDePlaces = (sansLimite && !etaitSansLimite) || capaciteMax > capaciteAvant;
+        if (gainDePlaces) {
+            const resultat = await promouvoirListeAttente(db, creneauId);
+            promus = resultat.promus;
+
+            // Les emails ne doivent pas faire échouer la modification
+            for (const promu of promus) {
+                notifierPromotion(promu.userId, resultat.creneauNom, promu.date_seance)
+                    .catch(err => console.error('❌ Erreur envoi email de promotion:', err));
+            }
+        }
+
+        const messages = ['Créneau mis à jour'];
+        if (detacheDuBloc) {
+            messages.push('Il a été retiré de son bloc hebdomadaire, réservé à la natation.');
+        }
+        if (promus.length > 0) {
+            messages.push(`${promus.length} personne(s) en liste d'attente ont été inscrites et notifiées par email.`);
+        }
+
+        res.json({ message: messages.join(' '), promus: promus.length });
     } catch (err) {
         console.error('Erreur modification créneau:', err);
         res.status(500).json({ error: 'Erreur lors de la modification' });
