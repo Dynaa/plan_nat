@@ -67,6 +67,25 @@ async function remplirSelecteurSports() {
         selectReset.innerHTML = '<option value="">Toutes les disciplines</option>' +
             sports.map(s => `<option value="${s.id}">${s.icone} ${s.nom}</option>`).join('');
     }
+
+    await chargerLieuxConnus();
+}
+
+// Alimente les suggestions de lieu à partir de ceux déjà saisis
+async function chargerLieuxConnus() {
+    const datalist = document.getElementById('lieux-connus');
+    if (!datalist) return;
+
+    try {
+        const response = await fetch('/api/admin/lieux');
+        if (!response.ok) return;
+
+        const lieux = await response.json();
+        datalist.innerHTML = lieux.map(l => `<option value="${l.replace(/"/g, '&quot;')}"></option>`).join('');
+    } catch (error) {
+        // Sans suggestions, la saisie libre reste possible
+        console.error('Erreur chargement des lieux:', error);
+    }
 }
 
 async function handleCreateCreneau(e) {
@@ -81,6 +100,7 @@ async function handleCreateCreneau(e) {
     const personnes_par_ligne = document.getElementById('creneau-personnes').value;
     const capacite_max = document.getElementById('creneau-capacite').value;
     const sans_limite = document.getElementById('creneau-sans-limite').checked;
+    const lieu = document.getElementById('creneau-lieu').value;
 
     const public_cible = document.getElementById('creneau-public-cible').value;
 
@@ -88,7 +108,7 @@ async function handleCreateCreneau(e) {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, public_cible })
+            body: JSON.stringify({ nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible })
         });
 
         const data = await response.json();
@@ -97,6 +117,7 @@ async function handleCreateCreneau(e) {
             showMessage('Créneau créé avec succès', 'success');
             document.getElementById('create-creneau-form').reset();
             majChampsCapacite(); // Le reset vide le sport : réafficher l'état neutre
+            chargerLieuxConnus(); // Un nouveau lieu devient une suggestion
             loadAdminCreneaux();
         } else {
             showMessage(data.error, 'error');
@@ -361,6 +382,13 @@ async function editerCreneau(creneauId) {
                 </div>
 
                 <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Lieu</label>
+                    <input type="text" id="edit-lieu" value="${(creneau.lieu || '').replace(/"/g, '&quot;')}"
+                           placeholder="Piscine, gymnase, point de départ... (facultatif)" list="lieux-connus"
+                           style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                </div>
+
+                <div style="margin-bottom: 1.5rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;" for="edit-public-cible">Public cible :</label>
                     <select id="edit-public-cible" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
                         <option value="les deux" ${creneau.public_cible === 'les deux' ? 'selected' : ''}>Tous publics (Les deux)</option>
@@ -424,6 +452,7 @@ async function editerCreneau(creneauId) {
                 personnes_par_ligne: lignesEau ? parseInt(document.getElementById('edit-personnes').value) : null,
                 capacite_max: lignesEau ? null : document.getElementById('edit-capacite').value,
                 sans_limite: caseSansLimiteEdit.checked,
+                lieu: document.getElementById('edit-lieu').value,
                 public_cible: public_cible
             };
 

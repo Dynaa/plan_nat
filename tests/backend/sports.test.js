@@ -209,6 +209,31 @@ describe('Multi-sports (phase 0)', () => {
             expect(res.body.error).toContain('capacité');
         });
 
+        it('devrait enregistrer le lieu du créneau', async () => {
+            db.run.mockResolvedValueOnce({ lastID: 7 });
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, sport_id: 1, nombre_lignes: 2, personnes_par_ligne: 6, lieu: '  Piscine de Vichy  ' });
+
+            expect(res.status).toBe(200);
+            const [, params] = db.run.mock.calls[0];
+            // Le lieu est enregistré débarrassé de ses espaces superflus
+            expect(params[9]).toBe('Piscine de Vichy');
+        });
+
+        it('devrait laisser le lieu vide plutôt que d\'enregistrer une chaîne vide', async () => {
+            db.run.mockResolvedValueOnce({ lastID: 8 });
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, sport_id: 1, nombre_lignes: 2, personnes_par_ligne: 6, lieu: '   ' });
+
+            expect(res.status).toBe(200);
+            const [, params] = db.run.mock.calls[0];
+            expect(params[9]).toBeNull();
+        });
+
         it('devrait accepter un créneau sans limite même sans capacité résolue', async () => {
             db.get.mockResolvedValueOnce({ capacite_defaut: null });
             db.run.mockResolvedValueOnce({ lastID: 6 });

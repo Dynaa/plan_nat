@@ -286,6 +286,7 @@ async function initializeDatabase() {
                 heure_fin TEXT NOT NULL,
                 capacite_max INTEGER NOT NULL DEFAULT 12,
                 sans_limite BOOLEAN DEFAULT 0,
+                lieu TEXT,
                 nombre_lignes INTEGER,
                 personnes_par_ligne INTEGER,
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
@@ -304,6 +305,7 @@ async function initializeDatabase() {
                 heure_fin VARCHAR(10) NOT NULL,
                 capacite_max INTEGER NOT NULL DEFAULT 12,
                 sans_limite BOOLEAN DEFAULT false,
+                lieu VARCHAR(255),
                 nombre_lignes INTEGER,
                 personnes_par_ligne INTEGER,
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
@@ -432,6 +434,18 @@ async function initializeDatabase() {
                     console.log('✅ Migration PostgreSQL de sans_limite (creneaux) terminée.');
                 }
 
+                // Creneaux : lieu de la séance (piscine, gymnase, point de départ...)
+                const checkColLieu = await db.get(`
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name='creneaux' AND column_name='lieu'
+                `);
+                if (!checkColLieu) {
+                    console.log('🔄 Migration PostgreSQL en cours : Ajout lieu dans creneaux...');
+                    await db.pool.query(`ALTER TABLE creneaux ADD COLUMN lieu VARCHAR(255);`);
+                    console.log('✅ Migration PostgreSQL de lieu (creneaux) terminée.');
+                }
+
             } else {
                 // SQLite check inscriptions
                 const colsInscr = await db.query(`PRAGMA table_info(inscriptions)`);
@@ -481,6 +495,13 @@ async function initializeDatabase() {
                     console.log('✅ Migration SQLite sans_limite terminée pour creneaux.');
                 }
 
+                // SQLite : lieu de la séance
+                if (!colsCreneaux.some(c => c.name === 'lieu')) {
+                    console.log('🔄 Migration SQLite en cours : Ajout lieu dans creneaux...');
+                    await db.run(`ALTER TABLE creneaux ADD COLUMN lieu TEXT`);
+                    console.log('✅ Migration SQLite lieu terminée pour creneaux.');
+                }
+
                 // SQLite ne sait pas retirer un NOT NULL : reconstruction de la table pour
                 // rendre les lignes d'eau facultatives (elles ne concernent que la natation).
                 const colLignes = colsCreneaux.find(c => c.name === 'nombre_lignes');
@@ -491,10 +512,10 @@ async function initializeDatabase() {
                     await db.run(creneauxSQL);
                     await db.run(`
                         INSERT INTO creneaux (id, nom, sport_id, jour_semaine, heure_debut, heure_fin,
-                                              capacite_max, sans_limite, nombre_lignes, personnes_par_ligne,
+                                              capacite_max, sans_limite, lieu, nombre_lignes, personnes_par_ligne,
                                               licences_autorisees, public_cible, actif, created_at)
                         SELECT id, nom, sport_id, jour_semaine, heure_debut, heure_fin,
-                               capacite_max, sans_limite, nombre_lignes, personnes_par_ligne,
+                               capacite_max, sans_limite, lieu, nombre_lignes, personnes_par_ligne,
                                licences_autorisees, public_cible, actif, created_at
                         FROM creneaux_old
                     `);
@@ -1785,6 +1806,21 @@ app.get('/api/sports', async (req, res) => {
     }
 });
 
+// Lieux déjà utilisés, pour proposer l'existant à la saisie plutôt que
+// de laisser se créer « Piscine Municipale » et « piscine municipale ».
+app.get('/api/admin/lieux', requireAdmin, async (req, res) => {
+    try {
+        const rows = await db.query(
+            `SELECT DISTINCT lieu FROM creneaux WHERE lieu IS NOT NULL AND lieu != '' ORDER BY lieu`,
+            []
+        );
+        res.json(rows.map(r => r.lieu));
+    } catch (err) {
+        console.error('Erreur récupération des lieux:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des lieux' });
+    }
+});
+
 app.get('/api/creneaux', async (req, res) => {
     const userId = req.session ? req.session.userId : null;
     const offsetSemaines = parseInt(req.query.semaine || '0', 10); // 0 = cette semaine, 1 = semaine pro
@@ -2157,8 +2193,9 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
 
 // Route de création de créneaux (ADMIN)
 app.post('/api/creneaux', requireAdmin, async (req, res) => {
-    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, sans_limite, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
+    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, sans_limite, lieu, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
     const sansLimite = sans_limite === true || sans_limite === 'true';
+    const lieuNettoye = (lieu || '').trim() || null;
 
     // jour_semaine vaut 0 le dimanche : tester la présence, pas la véracité
     if (!nom || jour_semaine === undefined || jour_semaine === null || jour_semaine === '' || !heure_debut || !heure_fin) {
@@ -2189,10 +2226,10 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
         }
 
         const sql = db.isPostgres ?
-            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, public_cible)
-             VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id` :
-            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, public_cible)
-             VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible)
+             VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id` :
+            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible)
+             VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         const result = await db.run(sql, [
             nom,
@@ -2204,6 +2241,7 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
             personnes_par_ligne || null,
             capaciteMax,
             sansLimite,
+            lieuNettoye,
             varCible
         ]);
 
@@ -2221,8 +2259,9 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
 // Route de modification de créneaux (ADMIN)
 app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
-    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, sans_limite, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
+    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, sans_limite, lieu, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
     const sansLimite = sans_limite === true || sans_limite === 'true';
+    const lieuNettoye = (lieu || '').trim() || null;
 
     // jour_semaine vaut 0 le dimanche : tester la présence, pas la véracité
     if (!nom || jour_semaine === undefined || jour_semaine === null || jour_semaine === '' || !heure_debut || !heure_fin) {
@@ -2261,8 +2300,8 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
         }
 
         const sql = db.isPostgres ?
-            `UPDATE creneaux SET nom = $1, sport_id = $2, jour_semaine = $3, heure_debut = $4, heure_fin = $5, nombre_lignes = $6, personnes_par_ligne = $7, capacite_max = $8, sans_limite = $9, public_cible = $10 WHERE id = $11` :
-            `UPDATE creneaux SET nom = ?, sport_id = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, capacite_max = ?, sans_limite = ?, public_cible = ? WHERE id = ? `;
+            `UPDATE creneaux SET nom = $1, sport_id = $2, jour_semaine = $3, heure_debut = $4, heure_fin = $5, nombre_lignes = $6, personnes_par_ligne = $7, capacite_max = $8, sans_limite = $9, lieu = $10, public_cible = $11 WHERE id = $12` :
+            `UPDATE creneaux SET nom = ?, sport_id = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, capacite_max = ?, sans_limite = ?, lieu = ?, public_cible = ? WHERE id = ? `;
 
         await db.run(sql, [
             nom,
@@ -2274,6 +2313,7 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
             personnes_par_ligne || null,
             capaciteMax,
             sansLimite,
+            lieuNettoye,
             varCible,
             creneauId
         ]);

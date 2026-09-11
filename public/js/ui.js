@@ -269,6 +269,7 @@ function displayCreneaux() {
                     <h3>${creneau.nom}</h3>
                     <div class="creneau-details">
                         <div>${joursMap[creneau.jour_semaine]} ${dateStr} • ${creneau.heure_debut} - ${creneau.heure_fin}</div>
+                        ${creneau.lieu ? `<div style="color:#4a5568;font-size:0.85rem;margin-top:0.2rem;">📍 ${creneau.lieu}</div>` : ''}
                         <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
                             ${publicCibleText}
                         </div>
@@ -419,6 +420,7 @@ function displayAdminCreneaux(creneaux) {
                     <h4>${creneau.nom}</h4>
                     <div class="creneau-details">
                         ${joursMap[creneau.jour_semaine]} • ${creneau.heure_debut} - ${creneau.heure_fin}
+                        ${creneau.lieu ? `<div style="color:#4a5568;font-size:0.85rem;margin-top:0.2rem;">📍 ${creneau.lieu}</div>` : ''}
                         <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
                             ${publicCibleText}
                         </div>
