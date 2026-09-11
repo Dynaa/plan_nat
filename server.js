@@ -209,6 +209,7 @@ async function initializeDatabase() {
                 nom TEXT NOT NULL,
                 icone TEXT DEFAULT '',
                 couleur TEXT DEFAULT '#28A0E8',
+                capacite_defaut INTEGER,
                 ordre INTEGER NOT NULL DEFAULT 0,
                 actif BOOLEAN DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -220,6 +221,7 @@ async function initializeDatabase() {
                 nom VARCHAR(100) NOT NULL,
                 icone VARCHAR(10) DEFAULT '',
                 couleur VARCHAR(20) DEFAULT '#28A0E8',
+                capacite_defaut INTEGER,
                 ordre INTEGER NOT NULL DEFAULT 0,
                 actif BOOLEAN DEFAULT true,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -229,17 +231,43 @@ async function initializeDatabase() {
         await db.run(sportsSQL);
         console.log('✅ Table sports créée');
 
+        // Migration de capacite_defaut ici, et non dans le bloc de migration plus bas :
+        // CREATE TABLE IF NOT EXISTS n'ajoute rien à une table existante, or l'insertion
+        // des sports par défaut juste en dessous référence déjà cette colonne.
+        try {
+            let sportsAColonneCapacite;
+            if (db.isPostgres) {
+                sportsAColonneCapacite = !!(await db.get(`
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name='sports' AND column_name='capacite_defaut'
+                `));
+            } else {
+                const colsSports = await db.query(`PRAGMA table_info(sports)`);
+                sportsAColonneCapacite = colsSports.some(c => c.name === 'capacite_defaut');
+            }
+
+            if (!sportsAColonneCapacite) {
+                console.log('🔄 Migration en cours : Ajout capacite_defaut dans sports...');
+                await db.run(`ALTER TABLE sports ADD COLUMN capacite_defaut INTEGER`);
+                console.log('✅ Migration de capacite_defaut (sports) terminée.');
+            }
+        } catch (err) {
+            console.error('❌ Erreur migration capacite_defaut:', err.message);
+        }
+
         // Sports par défaut. La natation reste le sport historique : tous les
         // créneaux existants lui sont rattachés par la migration plus bas.
+        // capacite_defaut : capacité proposée quand l'admin n'en saisit pas.
+        // La natation n'en a pas : sa capacité vient des lignes d'eau.
         const sportsParDefaut = [
-            ['natation', 'Natation', '🏊', '#28A0E8', 1],
-            ['velo', 'Vélo', '🚴', '#F59E0B', 2],
-            ['course', 'Course à pied', '🏃', '#10B981', 3],
-            ['ppg', 'PPG / Musculation', '💪', '#8B5CF6', 4]
+            ['natation', 'Natation', '🏊', '#28A0E8', null, 1],
+            ['velo', 'Vélo', '🚴', '#F59E0B', 50, 2],
+            ['course', 'Course à pied', '🏃', '#10B981', 50, 3],
+            ['ppg', 'PPG / Musculation', '💪', '#8B5CF6', 20, 4]
         ];
         const insertSportSQL = db.adaptSQL(
-            `INSERT OR IGNORE INTO sports (slug, nom, icone, couleur, ordre) VALUES (?, ?, ?, ?, ?)`,
-            `INSERT INTO sports (slug, nom, icone, couleur, ordre) VALUES (?, ?, ?, ?, ?) ON CONFLICT (slug) DO NOTHING`
+            `INSERT OR IGNORE INTO sports (slug, nom, icone, couleur, capacite_defaut, ordre) VALUES (?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO sports (slug, nom, icone, couleur, capacite_defaut, ordre) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (slug) DO NOTHING`
         );
         for (const sport of sportsParDefaut) {
             await db.run(insertSportSQL, sport);
@@ -389,6 +417,7 @@ async function initializeDatabase() {
                 // Les lignes d'eau ne concernent que la natation : elles deviennent facultatives
                 await db.pool.query(`ALTER TABLE creneaux ALTER COLUMN nombre_lignes DROP NOT NULL;`);
                 await db.pool.query(`ALTER TABLE creneaux ALTER COLUMN personnes_par_ligne DROP NOT NULL;`);
+
             } else {
                 // SQLite check inscriptions
                 const colsInscr = await db.query(`PRAGMA table_info(inscriptions)`);
@@ -451,6 +480,19 @@ async function initializeDatabase() {
                     await db.run(`DROP TABLE creneaux_old`);
                     console.log('✅ Migration SQLite des lignes d\'eau terminée.');
                 }
+
+            }
+
+            // Renseigner la capacité par défaut des sports déjà créés (la table
+            // existait avant l'ajout de la colonne, l'insertion initiale les ignore).
+            for (const [slug, capacite] of [['velo', 50], ['course', 50], ['ppg', 20]]) {
+                await db.run(
+                    db.adaptSQL(
+                        `UPDATE sports SET capacite_defaut = ? WHERE slug = ? AND capacite_defaut IS NULL`,
+                        `UPDATE sports SET capacite_defaut = $1 WHERE slug = $2 AND capacite_defaut IS NULL`
+                    ),
+                    [capacite, slug]
+                );
             }
 
             // Reprise des capacités historiques : lignes d'eau × personnes par ligne
@@ -1380,6 +1422,23 @@ function resoudreCapacite({ capacite_max, nombre_lignes, personnes_par_ligne }) 
     return null;
 }
 
+// Même résolution, avec repli sur la capacité par défaut configurée sur le sport
+// (une sortie vélo ou une séance de course n'a pas de limite matérielle à saisir).
+async function resoudreCapaciteAvecSport(db, sportId, champs) {
+    const capacite = resoudreCapacite(champs);
+    if (capacite) return capacite;
+
+    if (!sportId) return null;
+
+    const sport = await db.get(
+        db.adaptSQL(`SELECT capacite_defaut FROM sports WHERE id = ?`, `SELECT capacite_defaut FROM sports WHERE id = $1`),
+        [sportId]
+    );
+
+    const defaut = sport ? parseInt(sport.capacite_defaut, 10) : NaN;
+    return Number.isInteger(defaut) && defaut > 0 ? defaut : null;
+}
+
 function getSeanceDate(jourSemaine, offsetSemaines = 0) {
     // jourSemaine: 0=Dimanche, 1=Lundi, ..., 6=Samedi
     const today = new Date();
@@ -1406,8 +1465,8 @@ app.get('/api/sports', async (req, res) => {
     try {
         const sports = await db.query(
             db.adaptSQL(
-                `SELECT id, slug, nom, icone, couleur FROM sports WHERE actif = 1 ORDER BY ordre, nom`,
-                `SELECT id, slug, nom, icone, couleur FROM sports WHERE actif = true ORDER BY ordre, nom`
+                `SELECT id, slug, nom, icone, couleur, capacite_defaut FROM sports WHERE actif = 1 ORDER BY ordre, nom`,
+                `SELECT id, slug, nom, icone, couleur, capacite_defaut FROM sports WHERE actif = true ORDER BY ordre, nom`
             )
         );
         res.json(sports);
@@ -1794,16 +1853,11 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
         return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
     }
 
-    const capaciteMax = resoudreCapacite({ capacite_max, nombre_lignes, personnes_par_ligne });
-    if (!capaciteMax) {
-        return res.status(400).json({ error: 'Indiquez une capacité, ou un nombre de lignes et de personnes par ligne' });
-    }
-
     const cibles = ['jeune', 'adulte', 'les deux'];
     const varCible = (public_cible && cibles.includes(public_cible)) ? public_cible : 'les deux';
 
     try {
-        // Sans sport explicite (le sélecteur arrive en phase 2), on rattache à la natation
+        // Sans sport explicite, on rattache à la natation (sport historique)
         let sportId = sport_id;
         if (!sportId) {
             const natation = await db.get(
@@ -1811,6 +1865,12 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
                 ['natation']
             );
             sportId = natation ? natation.id : null;
+        }
+
+        // À défaut de capacité saisie, celle configurée sur le sport prend le relais
+        const capaciteMax = await resoudreCapaciteAvecSport(db, sportId, { capacite_max, nombre_lignes, personnes_par_ligne });
+        if (!capaciteMax) {
+            return res.status(400).json({ error: 'Indiquez une capacité, ou un nombre de lignes et de personnes par ligne' });
         }
 
         const sql = db.isPostgres ?
@@ -1852,15 +1912,25 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
         return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
     }
 
-    const capaciteMax = resoudreCapacite({ capacite_max, nombre_lignes, personnes_par_ligne });
-    if (!capaciteMax) {
-        return res.status(400).json({ error: 'Indiquez une capacité, ou un nombre de lignes et de personnes par ligne' });
-    }
-
     const cibles = ['jeune', 'adulte', 'les deux'];
     const varCible = (public_cible && cibles.includes(public_cible)) ? public_cible : 'les deux';
 
     try {
+        // Le sport du créneau détermine la capacité par défaut applicable
+        const creneauExistant = await db.get(
+            db.adaptSQL(`SELECT sport_id FROM creneaux WHERE id = ?`, `SELECT sport_id FROM creneaux WHERE id = $1`),
+            [creneauId]
+        );
+
+        const capaciteMax = await resoudreCapaciteAvecSport(
+            db,
+            creneauExistant ? creneauExistant.sport_id : null,
+            { capacite_max, nombre_lignes, personnes_par_ligne }
+        );
+        if (!capaciteMax) {
+            return res.status(400).json({ error: 'Indiquez une capacité, ou un nombre de lignes et de personnes par ligne' });
+        }
+
         const sql = db.isPostgres ?
             `UPDATE creneaux SET nom = $1, jour_semaine = $2, heure_debut = $3, heure_fin = $4, nombre_lignes = $5, personnes_par_ligne = $6, capacite_max = $7, public_cible = $8 WHERE id = $9` :
             `UPDATE creneaux SET nom = ?, jour_semaine = ?, heure_debut = ?, heure_fin = ?, nombre_lignes = ?, personnes_par_ligne = ?, capacite_max = ?, public_cible = ? WHERE id = ? `;

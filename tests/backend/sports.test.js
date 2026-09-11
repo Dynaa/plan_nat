@@ -170,5 +170,43 @@ describe('Multi-sports (phase 0)', () => {
 
             expect(res.status).toBe(200);
         });
+
+        it('devrait retomber sur la capacité par défaut du sport si elle n\'est pas saisie', async () => {
+            db.get.mockResolvedValueOnce({ capacite_defaut: 50 }); // capacité du sport
+            db.run.mockResolvedValueOnce({ lastID: 4 });
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, sport_id: 2 });
+
+            expect(res.status).toBe(200);
+            const [, params] = db.run.mock.calls[0];
+            expect(params[7]).toBe(50);
+        });
+
+        it('devrait préférer la capacité saisie à celle par défaut', async () => {
+            db.run.mockResolvedValueOnce({ lastID: 5 });
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, sport_id: 2, capacite_max: 12 });
+
+            expect(res.status).toBe(200);
+            const [, params] = db.run.mock.calls[0];
+            expect(params[7]).toBe(12);
+            // La capacité par défaut du sport n'est même pas consultée
+            expect(db.get).not.toHaveBeenCalled();
+        });
+
+        it('devrait rejeter un créneau de natation sans lignes d\'eau (aucune capacité par défaut)', async () => {
+            db.get.mockResolvedValueOnce({ capacite_defaut: null }); // la natation n'en a pas
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, sport_id: 1 });
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toContain('capacité');
+        });
     });
 });

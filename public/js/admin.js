@@ -17,9 +17,15 @@ function majChampsCapacite() {
     champPersonnes.style.display = lignesEau ? '' : 'none';
     champCapacite.style.display = lignesEau ? 'none' : '';
 
+    // La capacité reste facultative hors natation : le sport fournit une valeur par défaut
     champLignes.required = lignesEau;
     champPersonnes.required = lignesEau;
-    champCapacite.required = !lignesEau && !!sportId;
+    champCapacite.required = false;
+
+    const sport = sports.find(s => String(s.id) === String(sportId));
+    champCapacite.placeholder = sport && sport.capacite_defaut
+        ? `Capacité (par défaut : ${sport.capacite_defaut})`
+        : 'Capacité (nb de places)';
 
     // Éviter d'envoyer les valeurs du mode précédent
     if (lignesEau) {
