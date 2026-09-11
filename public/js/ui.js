@@ -33,6 +33,7 @@ function switchMainTab(tab) {
         loadMonProfil();
     } else if (tab === 'admin') {
         loadMetaRulesStatus(); // Charger le statut des méta-règles
+        remplirSelecteurSports();
         loadAdminCreneaux();
         // Charger les utilisateurs si on est sur cet onglet
         const activeAdminTab = document.querySelector('.admin-tab-btn.active');
@@ -162,11 +163,54 @@ function displayMesMetaRegles(metaReglesData) {
 
     container.innerHTML = html;
 }
+// Pastilles de filtrage par sport. Seuls les sports ayant au moins un créneau
+// cette semaine sont proposés, pour éviter les filtres qui ne donnent rien.
+function displaySportFilter() {
+    const container = document.getElementById('sport-filter');
+    if (!container) return;
+
+    const slugsPresents = new Set(creneaux.map(c => c.sport_slug).filter(Boolean));
+    const sportsAffiches = sports.filter(s => slugsPresents.has(s.slug));
+
+    // Un seul sport (ou aucun) : le filtre n'apporte rien
+    if (sportsAffiches.length < 2) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const pastille = (slug, label, couleur) => {
+        const actif = sportFiltreActif === slug;
+        const style = actif
+            ? `background:${couleur};color:white;border-color:${couleur};`
+            : `background:white;color:#4a5568;border-color:#cbd5e0;`;
+        return `<button class="sport-pill" data-sport="${slug}" style="${style}">${label}</button>`;
+    };
+
+    container.innerHTML = [
+        pastille('tous', 'Tous les sports', '#4a5568'),
+        ...sportsAffiches.map(s => pastille(s.slug, `${s.icone} ${s.nom}`, s.couleur))
+    ].join('');
+
+    container.querySelectorAll('.sport-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+            sportFiltreActif = btn.dataset.sport;
+            displaySportFilter();
+            displayCreneaux();
+        });
+    });
+}
+
 function displayCreneaux() {
     const container = document.getElementById('creneaux-list');
 
-    if (creneaux.length === 0) {
-        container.innerHTML = '<p>Aucun créneau disponible pour le moment.</p>';
+    const creneauxAffiches = sportFiltreActif === 'tous'
+        ? creneaux
+        : creneaux.filter(c => c.sport_slug === sportFiltreActif);
+
+    if (creneauxAffiches.length === 0) {
+        container.innerHTML = creneaux.length === 0
+            ? '<p>Aucun créneau disponible pour le moment.</p>'
+            : '<p>Aucun créneau pour ce sport cette semaine.</p>';
         return;
     }
 
@@ -175,11 +219,14 @@ function displayCreneaux() {
         4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi'
     };
 
-    container.innerHTML = creneaux.map(creneau => {
+    container.innerHTML = creneauxAffiches.map(creneau => {
         const capaciteMax = creneau.capacite_max || (creneau.nombre_lignes * creneau.personnes_par_ligne);
-        const disponible = creneau.inscrits < capaciteMax;
+        // Une sortie sans limite de places n'est jamais complète
+        const sansLimite = creneau.sans_limite === true || creneau.sans_limite === 1;
+        const disponible = sansLimite || creneau.inscrits < capaciteMax;
         const statusClass = disponible ? 'available' : 'full';
-        const statusText = disponible ? 'Places disponibles' : 'Complet';
+        const statusText = sansLimite ? 'Sans limite de places'
+            : disponible ? 'Places disponibles' : 'Complet';
 
         // Formater l'affichage du public cible
         const publicCibleText = creneau.public_cible === 'jeune' ? '🧒 Jeunes uniquement' :
@@ -200,6 +247,11 @@ function displayCreneaux() {
             ? `${creneau.nombre_lignes} ligne(s) × ${creneau.personnes_par_ligne} pers.`
             : '';
 
+        const couleurSport = creneau.sport_couleur || '#28A0E8';
+        const sportBadge = creneau.sport_nom
+            ? `<span style="display:inline-block;background:${couleurSport};color:white;border-radius:999px;padding:2px 10px;font-size:0.75rem;font-weight:500;margin-right:0.5rem;">${creneau.sport_icone || ''} ${creneau.sport_nom}</span>`
+            : '';
+
         // Formater la date
         const dateObj = new Date(creneau.date_seance);
         const dateStr = dateObj.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
@@ -208,14 +260,16 @@ function displayCreneaux() {
         const btnDisabled = blocqueParBloc || estPasse;
         const btnLabel = estPasse ? 'Terminé'
             : blocqueParBloc ? 'Bloc déjà utilisé'
-                : disponible ? 'S\'inscrire' : 'Liste d\'attente';
+                : (sansLimite || disponible) ? 'S\'inscrire' : 'Liste d\'attente';
 
         return `
-            <div class="creneau-card ${estPasse ? 'passe' : ''}">
+            <div class="creneau-card ${estPasse ? 'passe' : ''}" style="border-left: 4px solid ${couleurSport};">
                 <div class="creneau-info">
+                    <div style="margin-bottom: 0.35rem;">${sportBadge}</div>
                     <h3>${creneau.nom}</h3>
                     <div class="creneau-details">
                         <div>${joursMap[creneau.jour_semaine]} ${dateStr} • ${creneau.heure_debut} - ${creneau.heure_fin}</div>
+                        ${creneau.lieu ? `<div style="color:#4a5568;font-size:0.85rem;margin-top:0.2rem;">📍 ${creneau.lieu}</div>` : ''}
                         <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
                             ${publicCibleText}
                         </div>
@@ -225,7 +279,7 @@ function displayCreneaux() {
                 </div>
                 <div class="creneau-status">
                     <div class="capacite ${statusClass}">
-                        ${creneau.inscrits}/${capaciteMax} inscrits
+                        ${sansLimite ? `${creneau.inscrits} inscrit(s)` : `${creneau.inscrits}/${capaciteMax} inscrits`}
                         ${lignesTooltip ? `<span style="color:#718096;font-size:0.75rem;"> (${lignesTooltip})</span>` : ''}
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
@@ -246,34 +300,48 @@ function displayCreneaux() {
         `;
     }).join('');
 }
+// Un quota par sport contraint. Les sports sans limite configurée n'apparaissent
+// pas : ils sont libres d'accès et n'ont rien à décompter.
 function displayMesLimites(limites) {
     const quotaDetails = document.getElementById('quota-details');
     const quotaVisual = document.getElementById('quota-visual');
 
-    if (!limites) {
-        quotaDetails.textContent = 'Informations non disponibles';
+    const liste = Array.isArray(limites) ? limites : (limites ? [limites] : []);
+
+    if (liste.length === 0) {
+        quotaDetails.textContent = 'Aucune limite de séances ne s\'applique à vous.';
+        quotaVisual.innerHTML = '✅';
+        quotaVisual.title = 'Aucun quota';
         return;
     }
 
-    const pourcentage = Math.round((limites.seancesActuelles / limites.maxSeances) * 100);
-    const couleur = pourcentage >= 100 ? '#e53e3e' : pourcentage >= 80 ? '#ed8936' : '#38a169';
+    quotaDetails.innerHTML = liste.map(limite => {
+        const pourcentage = Math.round((limite.seancesActuelles / limite.maxSeances) * 100);
+        const couleur = pourcentage >= 100 ? '#e53e3e' : pourcentage >= 80 ? '#ed8936' : '#38a169';
+        const sport = limite.sportNom ? `${limite.sportIcone || ''} ${limite.sportNom}` : '';
 
-    quotaDetails.innerHTML = `
-        Licence <strong>${limites.licenceType}</strong> • 
-        <span style="color: ${couleur}; font-weight: 500;">
-            ${limites.seancesActuelles}/${limites.maxSeances} séances cette semaine
-        </span>
-        ${limites.seancesRestantes > 0 ?
-            `• <span style="color: #38a169;">${limites.seancesRestantes} séance(s) restante(s)</span>` :
-            `• <span style="color: #e53e3e;">Limite atteinte !</span>`
-        }
-    `;
+        return `
+            <div>
+                Licence <strong>${limite.licenceType}</strong> •
+                <span style="color: ${couleur}; font-weight: 500;">
+                    ${limite.seancesActuelles}/${limite.maxSeances} séances${sport ? ' de ' + sport.trim().toLowerCase() : ''} cette semaine
+                </span>
+                ${limite.seancesRestantes > 0 ?
+                `• <span style="color: #38a169;">${limite.seancesRestantes} séance(s) restante(s)</span>` :
+                `• <span style="color: #e53e3e;">Limite atteinte !</span>`
+            }
+            </div>
+        `;
+    }).join('');
 
-    // Indicateur visuel
-    if (limites.limiteAtteinte) {
+    // L'indicateur reflète le quota le plus contraint
+    const auMax = liste.some(l => l.limiteAtteinte);
+    const presqueAuMax = liste.some(l => l.seancesRestantes <= 1);
+
+    if (auMax) {
         quotaVisual.innerHTML = '🚫';
         quotaVisual.title = 'Limite de séances atteinte';
-    } else if (limites.seancesRestantes <= 1) {
+    } else if (presqueAuMax) {
         quotaVisual.innerHTML = '⚠️';
         quotaVisual.title = 'Attention : bientôt la limite';
     } else {
@@ -340,12 +408,19 @@ function displayAdminCreneaux(creneaux) {
             creneau.public_cible === 'adulte' ? '🧑 Adultes' :
                 '👨‍👩‍👧‍👦 Tous publics';
 
+        const couleurSport = creneau.sport_couleur || '#28A0E8';
+        const sportBadge = creneau.sport_nom
+            ? `<span style="display:inline-block;background:${couleurSport};color:white;border-radius:999px;padding:2px 10px;font-size:0.75rem;font-weight:500;">${creneau.sport_icone || ''} ${creneau.sport_nom}</span>`
+            : '';
+
         return `
-            <div class="creneau-card">
+            <div class="creneau-card" style="border-left: 4px solid ${couleurSport};">
                 <div class="creneau-info">
+                    <div style="margin-bottom: 0.35rem;">${sportBadge}</div>
                     <h4>${creneau.nom}</h4>
                     <div class="creneau-details">
                         ${joursMap[creneau.jour_semaine]} • ${creneau.heure_debut} - ${creneau.heure_fin}
+                        ${creneau.lieu ? `<div style="color:#4a5568;font-size:0.85rem;margin-top:0.2rem;">📍 ${creneau.lieu}</div>` : ''}
                         <div style="color: #4299e1; font-size: 0.8rem; margin-top: 0.25rem;">
                             ${publicCibleText}
                         </div>
@@ -353,7 +428,9 @@ function displayAdminCreneaux(creneaux) {
                 </div>
                 <div class="creneau-status">
                     <div class="capacite">
-                        ${creneau.inscrits}/${creneau.capacite_max} inscrits
+                        ${(creneau.sans_limite === true || creneau.sans_limite === 1)
+                ? `${creneau.inscrits} inscrit(s) • sans limite`
+                : `${creneau.inscrits}/${creneau.capacite_max} inscrits`}
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">

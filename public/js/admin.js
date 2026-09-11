@@ -1,12 +1,106 @@
+// Seule la natation se décrit en lignes d'eau ; les autres sports ont une
+// capacité directe. Le formulaire s'adapte au sport choisi.
+function estSportAvecLignesEau(sportId) {
+    const sport = sports.find(s => String(s.id) === String(sportId));
+    return !!sport && sport.slug === 'natation';
+}
+
+function majChampsCapacite() {
+    const sportId = document.getElementById('creneau-sport').value;
+    const lignesEau = estSportAvecLignesEau(sportId);
+
+    const champLignes = document.getElementById('creneau-lignes');
+    const champPersonnes = document.getElementById('creneau-personnes');
+    const champCapacite = document.getElementById('creneau-capacite');
+    const labelSansLimite = document.getElementById('creneau-sans-limite-label');
+    const caseSansLimite = document.getElementById('creneau-sans-limite');
+
+    champLignes.style.display = lignesEau ? '' : 'none';
+    champPersonnes.style.display = lignesEau ? '' : 'none';
+    champCapacite.style.display = lignesEau ? 'none' : '';
+
+    // « Sans limite » n'a de sens que hors natation : une ligne d'eau a toujours une capacité
+    labelSansLimite.style.display = lignesEau || !sportId ? 'none' : 'flex';
+    if (lignesEau) caseSansLimite.checked = false;
+
+    // La capacité reste facultative hors natation : le sport fournit une valeur par défaut
+    champLignes.required = lignesEau;
+    champPersonnes.required = lignesEau;
+    champCapacite.required = false;
+
+    const sport = sports.find(s => String(s.id) === String(sportId));
+    champCapacite.placeholder = sport && sport.capacite_defaut
+        ? `Capacité (par défaut : ${sport.capacite_defaut})`
+        : 'Capacité (nb de places)';
+
+    // La capacité n'a plus d'objet quand le créneau est sans limite
+    champCapacite.disabled = caseSansLimite.checked;
+    if (caseSansLimite.checked) champCapacite.value = '';
+
+    // Éviter d'envoyer les valeurs du mode précédent
+    if (lignesEau) {
+        champCapacite.value = '';
+    } else {
+        champLignes.value = '';
+        champPersonnes.value = '';
+    }
+}
+
+async function remplirSelecteurSports() {
+    const select = document.getElementById('creneau-sport');
+    if (!select) return;
+
+    if (!sports.length) {
+        await loadSports();
+    }
+
+    select.innerHTML = '<option value="">Sport</option>' +
+        sports.map(s => `<option value="${s.id}">${s.icone} ${s.nom}</option>`).join('');
+
+    select.addEventListener('change', majChampsCapacite);
+    document.getElementById('creneau-sans-limite').addEventListener('change', majChampsCapacite);
+    majChampsCapacite();
+
+    // La remise à zéro peut cibler une discipline précise
+    const selectReset = document.getElementById('reset-sport');
+    if (selectReset) {
+        selectReset.innerHTML = '<option value="">Toutes les disciplines</option>' +
+            sports.map(s => `<option value="${s.id}">${s.icone} ${s.nom}</option>`).join('');
+    }
+
+    await chargerLieuxConnus();
+}
+
+// Alimente les suggestions de lieu à partir de ceux déjà saisis
+async function chargerLieuxConnus() {
+    const datalist = document.getElementById('lieux-connus');
+    if (!datalist) return;
+
+    try {
+        const response = await fetch('/api/admin/lieux');
+        if (!response.ok) return;
+
+        const lieux = await response.json();
+        datalist.innerHTML = lieux.map(l => `<option value="${l.replace(/"/g, '&quot;')}"></option>`).join('');
+    } catch (error) {
+        // Sans suggestions, la saisie libre reste possible
+        console.error('Erreur chargement des lieux:', error);
+    }
+}
+
 async function handleCreateCreneau(e) {
     e.preventDefault();
 
     const nom = document.getElementById('creneau-nom').value;
+    const sport_id = document.getElementById('creneau-sport').value;
     const jour_semaine = document.getElementById('creneau-jour').value;
     const heure_debut = document.getElementById('creneau-debut').value;
     const heure_fin = document.getElementById('creneau-fin').value;
     const nombre_lignes = document.getElementById('creneau-lignes').value;
     const personnes_par_ligne = document.getElementById('creneau-personnes').value;
+    const capacite_max = document.getElementById('creneau-capacite').value;
+    const sans_limite = document.getElementById('creneau-sans-limite').checked;
+    const lieu = document.getElementById('creneau-lieu').value;
 
     const public_cible = document.getElementById('creneau-public-cible').value;
 
@@ -14,7 +108,7 @@ async function handleCreateCreneau(e) {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible })
+            body: JSON.stringify({ nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible })
         });
 
         const data = await response.json();
@@ -22,6 +116,8 @@ async function handleCreateCreneau(e) {
         if (response.ok) {
             showMessage('Créneau créé avec succès', 'success');
             document.getElementById('create-creneau-form').reset();
+            majChampsCapacite(); // Le reset vide le sport : réafficher l'état neutre
+            chargerLieuxConnus(); // Un nouveau lieu devient une suggestion
             loadAdminCreneaux();
         } else {
             showMessage(data.error, 'error');
@@ -218,10 +314,20 @@ async function editerCreneau(creneauId) {
             <form id="edit-creneau-form">
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nom du créneau</label>
-                    <input type="text" id="edit-nom" value="${creneau.nom}" required 
+                    <input type="text" id="edit-nom" value="${creneau.nom}" required
                            style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
                 </div>
-                
+
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Sport</label>
+                    <select id="edit-sport" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                        ${sports.map(s => `<option value="${s.id}" ${String(creneau.sport_id) === String(s.id) ? 'selected' : ''}>${s.icone} ${s.nom}</option>`).join('')}
+                    </select>
+                    <small style="color: #718096; font-size: 0.8rem;">
+                        Changer de sport retire le créneau des blocs hebdomadaires d'une autre discipline.
+                    </small>
+                </div>
+
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Jour de la semaine</label>
                     <select id="edit-jour" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
@@ -248,20 +354,40 @@ async function editerCreneau(creneauId) {
                     </div>
                 </div>
                 
+                <div id="edit-bloc-lignes">
+                    <div style="margin-bottom: 1.5rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nombre de lignes</label>
+                        <input type="number" id="edit-lignes" value="${creneau.nombre_lignes || 2}" min="1"
+                               style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                    </div>
+                    <div style="margin-bottom: 1.5rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Personnes par ligne</label>
+                        <input type="number" id="edit-personnes" value="${creneau.personnes_par_ligne || 6}" min="1"
+                               style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                        <small style="color: #718096; font-size: 0.8rem;">
+                            Capacité totale = lignes × personnes/ligne
+                        </small>
+                    </div>
+                </div>
+
+                <div id="edit-bloc-capacite" style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Capacité (nb de places)</label>
+                    <input type="number" id="edit-capacite" value="${creneau.capacite_max || ''}" min="1"
+                           style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; font-size: 0.9rem; color: #4a5568;">
+                        <input type="checkbox" id="edit-sans-limite" style="width: auto;"
+                               ${(creneau.sans_limite === true || creneau.sans_limite === 1) ? 'checked' : ''}>
+                        Sans limite de places
+                    </label>
+                </div>
+
                 <div style="margin-bottom: 1.5rem;">
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nombre de lignes</label>
-                    <input type="number" id="edit-lignes" value="${creneau.nombre_lignes || 2}" min="1" required 
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Lieu</label>
+                    <input type="text" id="edit-lieu" value="${(creneau.lieu || '').replace(/"/g, '&quot;')}"
+                           placeholder="Piscine, gymnase, point de départ... (facultatif)" list="lieux-connus"
                            style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
                 </div>
-                <div style="margin-bottom: 1.5rem;">
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Personnes par ligne</label>
-                    <input type="number" id="edit-personnes" value="${creneau.personnes_par_ligne || 6}" min="1" required 
-                           style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
-                    <small style="color: #718096; font-size: 0.8rem;">
-                        Capacité totale = lignes × personnes/ligne = ${(creneau.nombre_lignes || 2) * (creneau.personnes_par_ligne || 6)} places
-                    </small>
-                </div>
-                
+
                 <div style="margin-bottom: 1.5rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;" for="edit-public-cible">Public cible :</label>
                     <select id="edit-public-cible" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
@@ -288,19 +414,45 @@ async function editerCreneau(creneauId) {
         modal.appendChild(content);
         document.body.appendChild(modal);
 
+        // Le formulaire suit le sport sélectionné, comme à la création
+        const selectSport = document.getElementById('edit-sport');
+        const caseSansLimiteEdit = document.getElementById('edit-sans-limite');
+
+        const majChampsEdition = () => {
+            const lignesEau = estSportAvecLignesEau(selectSport.value);
+            document.getElementById('edit-bloc-lignes').style.display = lignesEau ? '' : 'none';
+            document.getElementById('edit-bloc-capacite').style.display = lignesEau ? 'none' : '';
+
+            const champCap = document.getElementById('edit-capacite');
+            champCap.disabled = caseSansLimiteEdit.checked;
+            if (caseSansLimiteEdit.checked) champCap.value = '';
+
+            if (lignesEau) caseSansLimiteEdit.checked = false;
+        };
+
+        selectSport.addEventListener('change', majChampsEdition);
+        caseSansLimiteEdit.addEventListener('change', majChampsEdition);
+        majChampsEdition();
+
         // Gérer la soumission du formulaire
         document.getElementById('edit-creneau-form').addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const public_cible = document.getElementById('edit-public-cible').value;
+            const lignesEau = estSportAvecLignesEau(selectSport.value);
 
             const formData = {
                 nom: document.getElementById('edit-nom').value,
+                sport_id: selectSport.value,
                 jour_semaine: document.getElementById('edit-jour').value,
                 heure_debut: document.getElementById('edit-debut').value,
                 heure_fin: document.getElementById('edit-fin').value,
-                nombre_lignes: parseInt(document.getElementById('edit-lignes').value),
-                personnes_par_ligne: parseInt(document.getElementById('edit-personnes').value),
+                // Les lignes d'eau ne sont transmises que pour la natation
+                nombre_lignes: lignesEau ? parseInt(document.getElementById('edit-lignes').value) : null,
+                personnes_par_ligne: lignesEau ? parseInt(document.getElementById('edit-personnes').value) : null,
+                capacite_max: lignesEau ? null : document.getElementById('edit-capacite').value,
+                sans_limite: caseSansLimiteEdit.checked,
+                lieu: document.getElementById('edit-lieu').value,
                 public_cible: public_cible
             };
 
@@ -609,11 +761,21 @@ async function modifierLimite(licenceType, nouvelleValeur) {
     }
 }
 async function remiseAZeroHebdomadaire() {
+    const selectSport = document.getElementById('reset-sport');
+    const sportId = selectSport ? selectSport.value : '';
+    const sportNom = sportId && selectSport
+        ? selectSport.options[selectSport.selectedIndex].textContent.trim()
+        : null;
+
+    // Le libellé suit la portée réelle : une discipline, ou toutes
+    const portee = sportNom ? `des créneaux de ${sportNom}` : 'de TOUS les créneaux';
+    const motAttendu = sportNom ? 'VIDER' : 'VIDER TOUT';
+
     const confirmation = confirm(
         '⚠️ ATTENTION - REMISE À ZÉRO HEBDOMADAIRE ⚠️\n\n' +
         'Cette action va :\n' +
-        '• Désinscrire TOUS les utilisateurs de TOUS les créneaux\n' +
-        '• Vider toutes les listes d\'attente\n' +
+        `• Désinscrire tous les utilisateurs ${portee}\n` +
+        '• Vider les listes d\'attente correspondantes\n' +
         '• Remettre les compteurs à zéro\n\n' +
         'Cette action est IRRÉVERSIBLE !\n\n' +
         'Êtes-vous absolument sûr de vouloir continuer ?'
@@ -624,18 +786,18 @@ async function remiseAZeroHebdomadaire() {
     // Double confirmation pour éviter les erreurs
     const doubleConfirmation = confirm(
         'DERNIÈRE CONFIRMATION\n\n' +
-        'Vous allez supprimer TOUTES les inscriptions de TOUS les créneaux.\n' +
-        'Tous les utilisateurs devront se réinscrire.\n\n' +
-        'Tapez "VIDER TOUT" dans la prochaine boîte de dialogue pour procéder.'
+        `Vous allez supprimer toutes les inscriptions ${portee}.\n` +
+        'Les utilisateurs concernés devront se réinscrire.\n\n' +
+        `Tapez "${motAttendu}" dans la prochaine boîte de dialogue pour procéder.`
     );
 
     if (!doubleConfirmation) return;
 
     const motConfirmation = prompt(
-        'Pour confirmer définitivement, tapez exactement : VIDER TOUT'
+        `Pour confirmer définitivement, tapez exactement : ${motAttendu}`
     );
 
-    if (motConfirmation !== 'VIDER TOUT') {
+    if (motConfirmation !== motAttendu) {
         showMessage('Remise à zéro annulée - mot de confirmation incorrect', 'error');
         return;
     }
@@ -645,17 +807,14 @@ async function remiseAZeroHebdomadaire() {
 
         const response = await fetch('/api/admin/reset-weekly', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sportId ? { sport_id: sportId } : {})
         });
 
         const data = await response.json();
 
         if (response.ok) {
-            showMessage(
-                `✅ Remise à zéro réussie ! ${data.inscriptionsSupprimes} inscription(s) supprimée(s). ` +
-                `Tous les créneaux sont maintenant vides.`,
-                'success'
-            );
+            showMessage(`✅ ${data.message}`, 'success');
 
             // Recharger toutes les listes pour refléter les changements
             loadAdminCreneaux();
@@ -973,7 +1132,16 @@ async function manageCreneauxBloc(blocId, blocNom) {
 
         const blocCreneauxIds = blocCreneaux.map(c => c.id);
 
-        showManageCreneauxModal(blocId, blocNom, creneaux, blocCreneauxIds);
+        // Un bloc ne regroupe que des créneaux de son sport : ne proposer que ceux-là
+        const blocsResponse = await fetch('/api/admin/blocs');
+        const blocs = await blocsResponse.json();
+        const bloc = blocs.find(b => String(b.id) === String(blocId));
+
+        const creneauxEligibles = bloc && bloc.sport_id
+            ? creneaux.filter(c => String(c.sport_id) === String(bloc.sport_id))
+            : creneaux;
+
+        showManageCreneauxModal(blocId, blocNom, creneauxEligibles, blocCreneauxIds);
     } catch (error) {
         showMessage('Erreur lors du chargement', 'error');
     }

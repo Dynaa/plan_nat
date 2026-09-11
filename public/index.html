@@ -4,14 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Créneaux Natation - ACC Triathlon</title>
+    <title>Créneaux ACC Triathlon</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="team-life-tri-simple.css">
 </head>
 
 <body>
     <header>
-        <h1>Créneaux Natation - ACC Triathlon</h1>
+        <h1>Créneaux ACC Triathlon</h1>
         <nav id="nav-menu" style="display: none;">
             <span id="user-name"></span>
             <button class="main-tab-btn admin-only" data-tab="admin"
@@ -81,7 +81,7 @@
 
             <!-- Onglet Créneaux -->
             <div id="creneaux-tab" class="tab-content active">
-                <h2>Créneaux de natation</h2>
+                <h2>Créneaux d'entraînement</h2>
 
                 <div class="week-toggle"
                     style="display: flex; gap: 1rem; margin-bottom: 1.5rem; justify-content: center;">
@@ -92,6 +92,8 @@
                         style="padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid #cbd5e0; background: white; color: #4a5568; cursor: pointer;">Semaine
                         prochaine</button>
                 </div>
+
+                <div id="sport-filter" class="sport-filter"></div>
 
                 <div id="creneaux-list"></div>
             </div>
@@ -168,20 +170,8 @@
                     <!-- Section Statistiques -->
                     <div class="profile-section">
                         <h3>📊 Mes statistiques</h3>
-                        <div id="profile-stats" class="stats-grid">
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-inscriptions">-</div>
-                                <div class="stat-label">Inscriptions actives</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-seances">-</div>
-                                <div class="stat-label">Séances cette semaine</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-limite">-</div>
-                                <div class="stat-label">Limite hebdomadaire</div>
-                            </div>
-                        </div>
+                        <!-- Les cartes sont construites dynamiquement : une par discipline pratiquée -->
+                        <div id="profile-stats" class="stats-grid"></div>
                     </div>
                 </div>
             </div>
@@ -220,6 +210,9 @@
                         <h3>Créer un nouveau créneau</h3>
                         <form id="create-creneau-form">
                             <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
+                            <select id="creneau-sport" required>
+                                <option value="">Sport</option>
+                            </select>
                             <select id="creneau-jour" required>
                                 <option value="">Jour de la semaine</option>
                                 <option value="1">Lundi</option>
@@ -232,9 +225,20 @@
                             </select>
                             <input type="time" id="creneau-debut" required>
                             <input type="time" id="creneau-fin" required>
-                            <input type="number" id="creneau-lignes" placeholder="Nombre de lignes" min="1" required>
-                            <input type="number" id="creneau-personnes" placeholder="Personnes / ligne" min="1"
-                                required>
+                            <!-- Lignes d'eau : natation uniquement -->
+                            <input type="number" id="creneau-lignes" placeholder="Nombre de lignes" min="1">
+                            <input type="number" id="creneau-personnes" placeholder="Personnes / ligne" min="1">
+                            <!-- Capacité directe : tous les autres sports -->
+                            <input type="number" id="creneau-capacite" placeholder="Capacité (nb de places)" min="1"
+                                style="display: none;">
+                            <label id="creneau-sans-limite-label"
+                                style="display: none; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: #4a5568;">
+                                <input type="checkbox" id="creneau-sans-limite" style="width: auto;">
+                                Sans limite de places
+                            </label>
+                            <!-- Lieu : piscine, gymnase, point de départ... -->
+                            <input type="text" id="creneau-lieu" placeholder="Lieu (facultatif)" list="lieux-connus">
+                            <datalist id="lieux-connus"></datalist>
                             <div style="grid-column: 1 / -1;">
                                 <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;"
                                     for="creneau-public-cible">Public cible :</label>
@@ -258,14 +262,20 @@
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <div>
                                     <h4 style="margin: 0 0 0.5rem 0; color: #856404;">🔄 Remise à zéro hebdomadaire</h4>
-                                    <p style="margin: 0; color: #856404; font-size: 0.9rem;">
-                                        Désinscrire tous les utilisateurs de tous les créneaux pour commencer une
-                                        nouvelle semaine
+                                    <p style="margin: 0 0 0.75rem 0; color: #856404; font-size: 0.9rem;">
+                                        Désinscrire les utilisateurs des créneaux pour commencer une nouvelle semaine
                                     </p>
+                                    <label
+                                        style="display: block; margin-bottom: 0.25rem; color: #856404; font-size: 0.85rem;"
+                                        for="reset-sport">Discipline concernée :</label>
+                                    <select id="reset-sport"
+                                        style="padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px; min-width: 220px;">
+                                        <option value="">Toutes les disciplines</option>
+                                    </select>
                                 </div>
                                 <button onclick="remiseAZeroHebdomadaire()"
                                     style="background: #dc3545; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap;">
-                                    🗑️ Vider tous les créneaux
+                                    🗑️ Vider les créneaux
                                 </button>
                             </div>
                         </div>

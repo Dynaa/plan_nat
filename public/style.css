@@ -162,6 +162,33 @@ main {
     display: block;
 }
 
+/* Filtre par sport */
+.sport-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    justify-content: center;
+}
+
+.sport-filter:empty {
+    display: none;
+}
+
+.sport-pill {
+    padding: 0.4rem 1rem;
+    border: 1px solid #cbd5e0;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.sport-pill:hover {
+    transform: translateY(-1px);
+}
+
 .creneau-card {
     background: #f7fafc;
     border: 1px solid #e2e8f0;

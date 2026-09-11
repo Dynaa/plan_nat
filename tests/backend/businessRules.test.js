@@ -9,7 +9,8 @@ describe('Business Rules Logic', () => {
             isPostgres: true,
             get: jest.fn(),
             query: jest.fn(),
-            run: jest.fn()
+            run: jest.fn(),
+            adaptSQL: jest.fn((sqlite, postgres) => postgres === undefined ? sqlite : postgres)
         };
 
         // Fix de date pour consistance des tests (MockDate pourrait être utile mais essayons avec mock natif si besoin,
@@ -22,44 +23,47 @@ describe('Business Rules Logic', () => {
 
     describe('verifierLimitesSeances', () => {
         it('devrait retourner limite non atteinte si moins de séances que le max prescrit', async () => {
-            mockDb.get.mockResolvedValueOnce({
-                licence_type: 'Triathlon compétition',
-                max_seances_semaine: 4,
-                seances_cette_semaine: 2
-            });
+            mockDb.get
+                .mockResolvedValueOnce({ licence_type: 'Triathlon compétition' }) // utilisateur
+                .mockResolvedValueOnce({ max_seances_semaine: 4 })                // quota du sport
+                .mockResolvedValueOnce({ seances: 2 });                           // séances de la semaine
 
-            const result = await verifierLimitesSeances(mockDb, 1);
+            const result = await verifierLimitesSeances(mockDb, 1, 1);
 
-            expect(mockDb.get).toHaveBeenCalledTimes(1);
+            expect(result.limiteApplicable).toBe(true);
             expect(result.limiteAtteinte).toBe(false);
             expect(result.seancesRestantes).toBe(2);
         });
 
         it('devrait retourner limite atteinte si séances >= max prescrit', async () => {
-            mockDb.get.mockResolvedValueOnce({
-                licence_type: 'Triathlon loisir',
-                max_seances_semaine: 3,
-                seances_cette_semaine: 3
-            });
+            mockDb.get
+                .mockResolvedValueOnce({ licence_type: 'Triathlon loisir' })
+                .mockResolvedValueOnce({ max_seances_semaine: 3 })
+                .mockResolvedValueOnce({ seances: 3 });
 
-            const result = await verifierLimitesSeances(mockDb, 2);
+            const result = await verifierLimitesSeances(mockDb, 2, 1);
 
-            expect(mockDb.get).toHaveBeenCalledTimes(1);
             expect(result.limiteAtteinte).toBe(true);
             expect(result.seancesRestantes).toBe(0);
         });
 
-        it('devrait utiliser une limite par défaut de 3 en cas d\'absence de configuration dans le json', async () => {
-            mockDb.get.mockResolvedValueOnce({
-                licence_type: 'Natation',
-                max_seances_semaine: null,
-                seances_cette_semaine: 1
-            });
+        it('ne devrait imposer aucune limite si le sport n\'a pas de quota configuré', async () => {
+            mockDb.get
+                .mockResolvedValueOnce({ licence_type: 'Triathlon loisir' })
+                .mockResolvedValueOnce(null); // aucune ligne dans licence_limits
 
-            const result = await verifierLimitesSeances(mockDb, 3);
+            const result = await verifierLimitesSeances(mockDb, 3, 2);
 
-            expect(result.maxSeances).toBe(3);
-            expect(result.seancesRestantes).toBe(2);
+            expect(result.limiteApplicable).toBe(false);
+            expect(result.limiteAtteinte).toBeUndefined();
+        });
+
+        it('ne devrait imposer aucune limite à un créneau sans sport', async () => {
+            mockDb.get.mockResolvedValueOnce({ licence_type: 'Triathlon loisir' });
+
+            const result = await verifierLimitesSeances(mockDb, 3, null);
+
+            expect(result.limiteApplicable).toBe(false);
         });
     });
 

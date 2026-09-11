@@ -1,6 +1,8 @@
 // État de l'application
 let currentUser = null;
 let creneaux = [];
+let sports = [];
+let sportFiltreActif = 'tous'; // slug du sport affiché, ou 'tous'
 
 // Éléments DOM
 const authSection = document.getElementById('auth-section');
