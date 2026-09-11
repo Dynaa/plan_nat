@@ -1,8 +1,7 @@
 const {
     verifierLimitesSeances,
-    creneauSoumisAuQuota,
-    bornesSemaine,
-    SPORT_AVEC_QUOTA
+    sportDuCreneau,
+    bornesSemaine
 } = require('../../services/businessRules');
 
 describe('Quota hebdomadaire par sport (phase 1)', () => {
@@ -13,7 +12,8 @@ describe('Quota hebdomadaire par sport (phase 1)', () => {
             isPostgres: true,
             get: jest.fn(),
             query: jest.fn(),
-            run: jest.fn()
+            run: jest.fn(),
+            adaptSQL: jest.fn((sqlite, postgres) => postgres === undefined ? sqlite : postgres)
         };
     });
 
@@ -56,75 +56,100 @@ describe('Quota hebdomadaire par sport (phase 1)', () => {
 
     describe('verifierLimitesSeances', () => {
 
-        it('devrait ne compter que les séances de la semaine visée et du sport contraint', async () => {
-            mockDb.get.mockResolvedValueOnce({
-                licence_type: 'Loisir/Senior',
-                max_seances_semaine: 3,
-                seances_cette_semaine: 1
-            });
+        it('devrait ne compter que les séances de la semaine visée et du sport concerné', async () => {
+            mockDb.get
+                .mockResolvedValueOnce({ licence_type: 'Loisir/Senior' })
+                .mockResolvedValueOnce({ max_seances_semaine: 3 })
+                .mockResolvedValueOnce({ seances: 1 });
 
-            const result = await verifierLimitesSeances(mockDb, 7, '2026-09-09');
+            const result = await verifierLimitesSeances(mockDb, 7, 1, '2026-09-09');
 
-            const [sql, params] = mockDb.get.mock.calls[0];
+            // Le quota est cherché pour le couple (licence, sport)
+            const [sqlQuota, paramsQuota] = mockDb.get.mock.calls[1];
+            expect(sqlQuota).toContain('licence_limits');
+            expect(paramsQuota).toEqual(['Loisir/Senior', 1]);
 
-            // La requête borne la semaine et se limite au sport contraint
-            expect(sql).toContain('date_seance BETWEEN');
-            expect(sql).toContain('JOIN sports');
-            expect(params).toEqual([7, '2026-09-07', '2026-09-13', SPORT_AVEC_QUOTA]);
+            // Le décompte borne la semaine et filtre sur le sport
+            const [sqlCompte, paramsCompte] = mockDb.get.mock.calls[2];
+            expect(sqlCompte).toContain('date_seance BETWEEN');
+            expect(sqlCompte).toContain('c.sport_id');
+            expect(paramsCompte).toEqual([7, '2026-09-07', '2026-09-13', 1]);
 
             expect(result.seancesActuelles).toBe(1);
             expect(result.seancesRestantes).toBe(2);
             expect(result.limiteAtteinte).toBe(false);
         });
 
-        it('devrait ordonner les paramètres correctement en SQLite', async () => {
-            mockDb.isPostgres = false;
-            mockDb.get.mockResolvedValueOnce({
-                licence_type: 'Compétition',
-                max_seances_semaine: 4,
-                seances_cette_semaine: 0
-            });
-
-            await verifierLimitesSeances(mockDb, 7, '2026-09-09');
-
-            // En SQLite les ? sont positionnels : semaine, sport, puis utilisateur
-            const [, params] = mockDb.get.mock.calls[0];
-            expect(params).toEqual(['2026-09-07', '2026-09-13', SPORT_AVEC_QUOTA, 7]);
-        });
-
         it('devrait signaler la limite atteinte au maximum', async () => {
-            mockDb.get.mockResolvedValueOnce({
-                licence_type: 'Loisir/Senior',
-                max_seances_semaine: 3,
-                seances_cette_semaine: 3
-            });
+            mockDb.get
+                .mockResolvedValueOnce({ licence_type: 'Loisir/Senior' })
+                .mockResolvedValueOnce({ max_seances_semaine: 3 })
+                .mockResolvedValueOnce({ seances: 3 });
 
-            const result = await verifierLimitesSeances(mockDb, 7, '2026-09-09');
+            const result = await verifierLimitesSeances(mockDb, 7, 1, '2026-09-09');
 
             expect(result.limiteAtteinte).toBe(true);
             expect(result.seancesRestantes).toBe(0);
         });
+
+        it('devrait laisser libre un sport sans quota configuré', async () => {
+            mockDb.get
+                .mockResolvedValueOnce({ licence_type: 'Loisir/Senior' })
+                .mockResolvedValueOnce(null);
+
+            const result = await verifierLimitesSeances(mockDb, 7, 2, '2026-09-09');
+
+            expect(result.limiteApplicable).toBe(false);
+            // Le décompte des séances n'a même pas lieu
+            expect(mockDb.get).toHaveBeenCalledTimes(2);
+        });
     });
 
-    describe('creneauSoumisAuQuota', () => {
+    describe('périmètre piloté par la configuration', () => {
 
-        it('devrait soumettre un créneau de natation au quota', async () => {
-            mockDb.get.mockResolvedValueOnce({ slug: 'natation' });
+        // Le cœur de la phase 3 : ajouter ou retirer un quota est une opération
+        // de configuration, plus une modification de code.
+        it('devrait appliquer un quota à n\'importe quel sport dès qu\'il est configuré', async () => {
+            for (const sportId of [1, 2, 3, 4]) {
+                mockDb.get
+                    .mockResolvedValueOnce({ licence_type: 'Loisir/Senior' })
+                    .mockResolvedValueOnce({ max_seances_semaine: 2 })
+                    .mockResolvedValueOnce({ seances: 2 });
 
-            await expect(creneauSoumisAuQuota(mockDb, 1)).resolves.toBe(true);
-        });
+                const result = await verifierLimitesSeances(mockDb, 7, sportId, '2026-09-09');
 
-        it('devrait exempter les autres sports', async () => {
-            for (const slug of ['velo', 'course', 'ppg']) {
-                mockDb.get.mockResolvedValueOnce({ slug });
-                await expect(creneauSoumisAuQuota(mockDb, 2)).resolves.toBe(false);
+                expect(result.limiteApplicable).toBe(true);
+                expect(result.limiteAtteinte).toBe(true);
+                jest.clearAllMocks();
             }
         });
 
-        it('devrait exempter un créneau sans sport rattaché', async () => {
+        it('devrait laisser libre n\'importe quel sport sans configuration', async () => {
+            for (const sportId of [1, 2, 3, 4]) {
+                mockDb.get
+                    .mockResolvedValueOnce({ licence_type: 'Loisir/Senior' })
+                    .mockResolvedValueOnce(null);
+
+                const result = await verifierLimitesSeances(mockDb, 7, sportId, '2026-09-09');
+
+                expect(result.limiteApplicable).toBe(false);
+                jest.clearAllMocks();
+            }
+        });
+    });
+
+    describe('sportDuCreneau', () => {
+
+        it('devrait renvoyer le sport du créneau', async () => {
+            mockDb.get.mockResolvedValueOnce({ sport_id: 3 });
+
+            await expect(sportDuCreneau(mockDb, 1)).resolves.toBe(3);
+        });
+
+        it('devrait renvoyer null pour un créneau inexistant', async () => {
             mockDb.get.mockResolvedValueOnce(null);
 
-            await expect(creneauSoumisAuQuota(mockDb, 3)).resolves.toBe(false);
+            await expect(sportDuCreneau(mockDb, 99)).resolves.toBeNull();
         });
     });
 });

@@ -1089,7 +1089,16 @@ async function manageCreneauxBloc(blocId, blocNom) {
 
         const blocCreneauxIds = blocCreneaux.map(c => c.id);
 
-        showManageCreneauxModal(blocId, blocNom, creneaux, blocCreneauxIds);
+        // Un bloc ne regroupe que des créneaux de son sport : ne proposer que ceux-là
+        const blocsResponse = await fetch('/api/admin/blocs');
+        const blocs = await blocsResponse.json();
+        const bloc = blocs.find(b => String(b.id) === String(blocId));
+
+        const creneauxEligibles = bloc && bloc.sport_id
+            ? creneaux.filter(c => String(c.sport_id) === String(bloc.sport_id))
+            : creneaux;
+
+        showManageCreneauxModal(blocId, blocNom, creneauxEligibles, blocCreneauxIds);
     } catch (error) {
         showMessage('Erreur lors du chargement', 'error');
     }

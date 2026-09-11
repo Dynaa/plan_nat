@@ -49,15 +49,20 @@ test.describe('Interface / Inscription au créneau', () => {
             });
         });
 
+        // L'API renvoie un quota par sport contraint (la natation seule ici)
         await page.route('**/api/mes-limites*', async route => {
             await route.fulfill({
-                json: {
+                json: [{
+                    sportId: 1,
+                    sportNom: 'Natation',
+                    sportIcone: '🏊',
+                    limiteApplicable: true,
                     licenceType: 'Loisir/Senior',
                     maxSeances: 3,
                     seancesActuelles: 1,
                     seancesRestantes: 2,
                     limiteAtteinte: false
-                }
+                }]
             });
         });
 

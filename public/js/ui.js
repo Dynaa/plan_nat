@@ -299,34 +299,48 @@ function displayCreneaux() {
         `;
     }).join('');
 }
+// Un quota par sport contraint. Les sports sans limite configurée n'apparaissent
+// pas : ils sont libres d'accès et n'ont rien à décompter.
 function displayMesLimites(limites) {
     const quotaDetails = document.getElementById('quota-details');
     const quotaVisual = document.getElementById('quota-visual');
 
-    if (!limites) {
-        quotaDetails.textContent = 'Informations non disponibles';
+    const liste = Array.isArray(limites) ? limites : (limites ? [limites] : []);
+
+    if (liste.length === 0) {
+        quotaDetails.textContent = 'Aucune limite de séances ne s\'applique à vous.';
+        quotaVisual.innerHTML = '✅';
+        quotaVisual.title = 'Aucun quota';
         return;
     }
 
-    const pourcentage = Math.round((limites.seancesActuelles / limites.maxSeances) * 100);
-    const couleur = pourcentage >= 100 ? '#e53e3e' : pourcentage >= 80 ? '#ed8936' : '#38a169';
+    quotaDetails.innerHTML = liste.map(limite => {
+        const pourcentage = Math.round((limite.seancesActuelles / limite.maxSeances) * 100);
+        const couleur = pourcentage >= 100 ? '#e53e3e' : pourcentage >= 80 ? '#ed8936' : '#38a169';
+        const sport = limite.sportNom ? `${limite.sportIcone || ''} ${limite.sportNom}` : '';
 
-    quotaDetails.innerHTML = `
-        Licence <strong>${limites.licenceType}</strong> • 
-        <span style="color: ${couleur}; font-weight: 500;">
-            ${limites.seancesActuelles}/${limites.maxSeances} séances de natation cette semaine
-        </span>
-        ${limites.seancesRestantes > 0 ?
-            `• <span style="color: #38a169;">${limites.seancesRestantes} séance(s) restante(s)</span>` :
-            `• <span style="color: #e53e3e;">Limite atteinte !</span>`
-        }
-    `;
+        return `
+            <div>
+                Licence <strong>${limite.licenceType}</strong> •
+                <span style="color: ${couleur}; font-weight: 500;">
+                    ${limite.seancesActuelles}/${limite.maxSeances} séances${sport ? ' de ' + sport.trim().toLowerCase() : ''} cette semaine
+                </span>
+                ${limite.seancesRestantes > 0 ?
+                `• <span style="color: #38a169;">${limite.seancesRestantes} séance(s) restante(s)</span>` :
+                `• <span style="color: #e53e3e;">Limite atteinte !</span>`
+            }
+            </div>
+        `;
+    }).join('');
 
-    // Indicateur visuel
-    if (limites.limiteAtteinte) {
+    // L'indicateur reflète le quota le plus contraint
+    const auMax = liste.some(l => l.limiteAtteinte);
+    const presqueAuMax = liste.some(l => l.seancesRestantes <= 1);
+
+    if (auMax) {
         quotaVisual.innerHTML = '🚫';
         quotaVisual.title = 'Limite de séances atteinte';
-    } else if (limites.seancesRestantes <= 1) {
+    } else if (presqueAuMax) {
         quotaVisual.innerHTML = '⚠️';
         quotaVisual.title = 'Attention : bientôt la limite';
     } else {

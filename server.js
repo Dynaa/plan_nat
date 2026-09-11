@@ -7,7 +7,7 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
-const { verifierLimitesSeances, verifierRegleBloc, creneauSoumisAuQuota } = require('./services/businessRules');
+const { verifierLimitesSeances, verifierRegleBloc, verifierMetaRegles, sportDuCreneau } = require('./services/businessRules');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -548,26 +548,79 @@ async function initializeDatabase() {
         }
         // ======================================================
 
-        // Table des limites de séances
+        // Table des limites de séances, par type de licence ET par sport.
+        // Un sport sans ligne ici n'impose aucune limite : seule la natation
+        // est contrainte par son infrastructure (lignes d'eau).
         const limitsSQL = db.adaptSQL(
             // SQLite
             `CREATE TABLE IF NOT EXISTS licence_limits (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                licence_type TEXT UNIQUE NOT NULL,
+                licence_type TEXT NOT NULL,
+                sport_id INTEGER,
                 max_seances_semaine INTEGER NOT NULL DEFAULT 3,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(licence_type, sport_id),
+                FOREIGN KEY (sport_id) REFERENCES sports (id)
             )`,
             // PostgreSQL
             `CREATE TABLE IF NOT EXISTS licence_limits (
                 id SERIAL PRIMARY KEY,
-                licence_type VARCHAR(100) UNIQUE NOT NULL,
+                licence_type VARCHAR(100) NOT NULL,
+                sport_id INTEGER REFERENCES sports (id),
                 max_seances_semaine INTEGER NOT NULL DEFAULT 3,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(licence_type, sport_id)
             )`
         );
         console.log('🔧 Création table licence_limits...');
         await db.run(limitsSQL);
         console.log('✅ Table licence_limits créée');
+
+        // Migration : rattacher les limites existantes à la natation.
+        // Comme pour les sports, elle doit précéder l'insertion des valeurs
+        // par défaut plus bas, qui référencent déjà sport_id.
+        try {
+            let limitsOntSportId;
+            if (db.isPostgres) {
+                limitsOntSportId = !!(await db.get(`
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name='licence_limits' AND column_name='sport_id'
+                `));
+            } else {
+                const colsLimits = await db.query(`PRAGMA table_info(licence_limits)`);
+                limitsOntSportId = colsLimits.some(c => c.name === 'sport_id');
+            }
+
+            if (!limitsOntSportId) {
+                console.log('🔄 Migration en cours : Ajout sport_id dans licence_limits...');
+                const natation = await db.get(
+                    db.adaptSQL(`SELECT id FROM sports WHERE slug = ?`, `SELECT id FROM sports WHERE slug = $1`),
+                    ['natation']
+                );
+
+                if (db.isPostgres) {
+                    await db.pool.query(`ALTER TABLE licence_limits ADD COLUMN sport_id INTEGER REFERENCES sports (id);`);
+                    await db.pool.query(`UPDATE licence_limits SET sport_id = $1 WHERE sport_id IS NULL;`, [natation ? natation.id : null]);
+                    // L'unicité porte désormais sur le couple licence + sport
+                    await db.pool.query(`ALTER TABLE licence_limits DROP CONSTRAINT IF EXISTS licence_limits_licence_type_key;`);
+                    await db.pool.query(`ALTER TABLE licence_limits DROP CONSTRAINT IF EXISTS licence_limits_licence_type_sport_id_key;`);
+                    await db.pool.query(`ALTER TABLE licence_limits ADD CONSTRAINT licence_limits_licence_type_sport_id_key UNIQUE (licence_type, sport_id);`);
+                } else {
+                    // SQLite ne sait pas modifier une contrainte : reconstruction
+                    await db.run(`ALTER TABLE licence_limits RENAME TO licence_limits_old`);
+                    await db.run(limitsSQL);
+                    await db.run(
+                        `INSERT INTO licence_limits (id, licence_type, sport_id, max_seances_semaine, created_at)
+                         SELECT id, licence_type, ?, max_seances_semaine, created_at FROM licence_limits_old`,
+                        [natation ? natation.id : null]
+                    );
+                    await db.run(`DROP TABLE licence_limits_old`);
+                }
+                console.log('✅ Migration de sport_id (licence_limits) terminée.');
+            }
+        } catch (err) {
+            console.error('❌ Erreur migration sport_id (licence_limits):', err.message);
+        }
 
         // Table des blocs hebdomadaires
         const blocsSQL = db.adaptSQL(
@@ -576,14 +629,17 @@ async function initializeDatabase() {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nom TEXT NOT NULL,
                 description TEXT,
+                sport_id INTEGER,
                 ordre INTEGER NOT NULL DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (sport_id) REFERENCES sports (id)
             )`,
             // PostgreSQL
             `CREATE TABLE IF NOT EXISTS blocs (
                 id SERIAL PRIMARY KEY,
                 nom VARCHAR(255) NOT NULL,
                 description TEXT,
+                sport_id INTEGER REFERENCES sports (id),
                 ordre INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )`
@@ -591,6 +647,45 @@ async function initializeDatabase() {
         console.log('🔧 Création table blocs...');
         await db.run(blocsSQL);
         console.log('✅ Table blocs créée');
+
+        // Migration : les blocs existants relèvent de la natation
+        try {
+            let blocsOntSportId;
+            if (db.isPostgres) {
+                blocsOntSportId = !!(await db.get(`
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name='blocs' AND column_name='sport_id'
+                `));
+            } else {
+                const colsBlocs = await db.query(`PRAGMA table_info(blocs)`);
+                blocsOntSportId = colsBlocs.some(c => c.name === 'sport_id');
+            }
+
+            if (!blocsOntSportId) {
+                console.log('🔄 Migration en cours : Ajout sport_id dans blocs...');
+                await db.run(`ALTER TABLE blocs ADD COLUMN sport_id INTEGER REFERENCES sports (id)`);
+                console.log('✅ Migration de sport_id (blocs) terminée.');
+            }
+
+            const natationBlocs = await db.get(
+                db.adaptSQL(`SELECT id FROM sports WHERE slug = ?`, `SELECT id FROM sports WHERE slug = $1`),
+                ['natation']
+            );
+            if (natationBlocs) {
+                const rattaches = await db.run(
+                    db.adaptSQL(
+                        `UPDATE blocs SET sport_id = ? WHERE sport_id IS NULL`,
+                        `UPDATE blocs SET sport_id = $1 WHERE sport_id IS NULL`
+                    ),
+                    [natationBlocs.id]
+                );
+                if (rattaches.changes > 0) {
+                    console.log(`🔄 ${rattaches.changes} bloc(s) rattaché(s) à la natation`);
+                }
+            }
+        } catch (err) {
+            console.error('❌ Erreur migration sport_id (blocs):', err.message);
+        }
 
         // Table de liaison blocs ↔ créneaux
         const blocCreneauxSQL = db.adaptSQL(
@@ -702,16 +797,19 @@ async function initializeDatabase() {
             `CREATE TABLE IF NOT EXISTS meta_rules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 licence_type TEXT NOT NULL,
+                sport_id INTEGER,
                 jour_source INTEGER NOT NULL,
                 jours_interdits TEXT NOT NULL,
                 description TEXT,
                 active BOOLEAN DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (sport_id) REFERENCES sports (id)
             )`,
             // PostgreSQL
             `CREATE TABLE IF NOT EXISTS meta_rules (
                 id SERIAL PRIMARY KEY,
                 licence_type VARCHAR(100) NOT NULL,
+                sport_id INTEGER REFERENCES sports (id),
                 jour_source INTEGER NOT NULL,
                 jours_interdits TEXT NOT NULL,
                 description TEXT,
@@ -722,6 +820,46 @@ async function initializeDatabase() {
         console.log('🔧 Création table meta_rules...');
         await db.run(metaRulesSQL);
         console.log('✅ Table meta_rules créée');
+
+        // Migration : les méta-règles existantes visent la natation, sans quoi
+        // elles interdiraient aussi les créneaux des autres sports le même jour.
+        try {
+            let metaOntSportId;
+            if (db.isPostgres) {
+                metaOntSportId = !!(await db.get(`
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name='meta_rules' AND column_name='sport_id'
+                `));
+            } else {
+                const colsMeta = await db.query(`PRAGMA table_info(meta_rules)`);
+                metaOntSportId = colsMeta.some(c => c.name === 'sport_id');
+            }
+
+            if (!metaOntSportId) {
+                console.log('🔄 Migration en cours : Ajout sport_id dans meta_rules...');
+                await db.run(`ALTER TABLE meta_rules ADD COLUMN sport_id INTEGER REFERENCES sports (id)`);
+                console.log('✅ Migration de sport_id (meta_rules) terminée.');
+            }
+
+            const natationMeta = await db.get(
+                db.adaptSQL(`SELECT id FROM sports WHERE slug = ?`, `SELECT id FROM sports WHERE slug = $1`),
+                ['natation']
+            );
+            if (natationMeta) {
+                const rattachees = await db.run(
+                    db.adaptSQL(
+                        `UPDATE meta_rules SET sport_id = ? WHERE sport_id IS NULL`,
+                        `UPDATE meta_rules SET sport_id = $1 WHERE sport_id IS NULL`
+                    ),
+                    [natationMeta.id]
+                );
+                if (rattachees.changes > 0) {
+                    console.log(`🔄 ${rattachees.changes} méta-règle(s) rattachée(s) à la natation`);
+                }
+            }
+        } catch (err) {
+            console.error('❌ Erreur migration sport_id (meta_rules):', err.message);
+        }
 
         // Créer admin par défaut
         // En production, ADMIN_PASSWORD doit être définie : pas de mot de passe par défaut
@@ -800,6 +938,13 @@ async function initializeDatabase() {
         // Créer limites par défaut
         const limitsCount = await db.get(`SELECT COUNT(*) as count FROM licence_limits`);
         if (!limitsCount || limitsCount.count === 0) {
+            // Les quotas ne concernent que la natation : les autres sports
+            // restent sans limite tant qu'aucune ligne n'est créée pour eux.
+            const natationLimites = await db.get(
+                db.adaptSQL(`SELECT id FROM sports WHERE slug = ?`, `SELECT id FROM sports WHERE slug = $1`),
+                ['natation']
+            );
+
             const limitesParDefaut = [
                 ['Compétition', 6],
                 ['Loisir/Senior', 3],
@@ -808,8 +953,8 @@ async function initializeDatabase() {
             ];
 
             for (const [licenceType, maxSeances] of limitesParDefaut) {
-                await db.run(`INSERT INTO licence_limits (licence_type, max_seances_semaine) VALUES (?, ?)`,
-                    [licenceType, maxSeances]);
+                await db.run(`INSERT INTO licence_limits (licence_type, sport_id, max_seances_semaine) VALUES (?, ?, ?)`,
+                    [licenceType, natationLimites ? natationLimites.id : null, maxSeances]);
             }
         }
 
@@ -2131,16 +2276,19 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
             creneauId
         ]);
 
-        // Les blocs ne concernent que la natation : un créneau qui la quitte
-        // doit en sortir, sinon la règle « un créneau par bloc » le contraindrait encore.
+        // Un bloc appartient à un sport : un créneau qui change de discipline
+        // doit sortir des blocs d'une autre, sinon la règle « un créneau par
+        // bloc » continuerait de le contraindre.
         let detacheDuBloc = false;
-        if (sportChange && !(await creneauSoumisAuQuota(db, creneauId))) {
+        if (sportChange) {
             const retrait = await db.run(
                 db.adaptSQL(
-                    `DELETE FROM bloc_creneaux WHERE creneau_id = ?`,
-                    `DELETE FROM bloc_creneaux WHERE creneau_id = $1`
+                    `DELETE FROM bloc_creneaux WHERE creneau_id = ?
+                     AND bloc_id IN (SELECT id FROM blocs WHERE sport_id IS NULL OR sport_id != ?)`,
+                    `DELETE FROM bloc_creneaux WHERE creneau_id = $1
+                     AND bloc_id IN (SELECT id FROM blocs WHERE sport_id IS NULL OR sport_id != $2)`
                 ),
-                [creneauId]
+                [creneauId, sportId]
             );
             detacheDuBloc = retrait.changes > 0;
             if (detacheDuBloc) {
@@ -2165,7 +2313,7 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
 
         const messages = ['Créneau mis à jour'];
         if (detacheDuBloc) {
-            messages.push('Il a été retiré de son bloc hebdomadaire, réservé à la natation.');
+            messages.push('Il a été retiré de son bloc hebdomadaire, qui relève d\'un autre sport.');
         }
         if (promus.length > 0) {
             messages.push(`${promus.length} personne(s) en liste d'attente ont été inscrites et notifiées par email.`);
@@ -2521,7 +2669,39 @@ app.get('/api/mes-limites', requireAuth, async (req, res) => {
     const dateRef = getSeanceDate(new Date().getDay(), offsetSemaines);
 
     try {
-        const limites = await verifierLimitesSeances(db, userId, dateRef);
+        // Un quota par sport contraint : aujourd'hui la natation seule, mais
+        // l'interface suivra si le club en configure d'autres.
+        const user = await db.get(
+            db.adaptSQL(`SELECT licence_type FROM users WHERE id = ?`, `SELECT licence_type FROM users WHERE id = $1`),
+            [userId]
+        );
+
+        if (!user) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+
+        const sportsContraints = await db.query(
+            db.adaptSQL(
+                `SELECT s.id, s.nom, s.icone FROM licence_limits ll
+                 JOIN sports s ON ll.sport_id = s.id
+                 WHERE ll.licence_type = ? AND s.actif = 1
+                 ORDER BY s.ordre`,
+                `SELECT s.id, s.nom, s.icone FROM licence_limits ll
+                 JOIN sports s ON ll.sport_id = s.id
+                 WHERE ll.licence_type = $1 AND s.actif = true
+                 ORDER BY s.ordre`
+            ),
+            [user.licence_type]
+        );
+
+        const limites = [];
+        for (const sport of sportsContraints) {
+            const quota = await verifierLimitesSeances(db, userId, sport.id, dateRef);
+            if (quota.limiteApplicable) {
+                limites.push({ sportId: sport.id, sportNom: sport.nom, sportIcone: sport.icone, ...quota });
+            }
+        }
+
         res.json(limites);
     } catch (err) {
         console.error('Erreur vérification limites:', err);
@@ -2753,6 +2933,30 @@ app.put('/api/admin/blocs/:blocId/creneaux', requireAdmin, async (req, res) => {
     }
 
     try {
+        // Un bloc ne regroupe que des créneaux de son propre sport
+        if (creneauxIds.length > 0) {
+            const bloc = await db.get(
+                db.adaptSQL(`SELECT sport_id FROM blocs WHERE id = ?`, `SELECT sport_id FROM blocs WHERE id = $1`),
+                [blocId]
+            );
+
+            if (bloc && bloc.sport_id) {
+                const placeholders = creneauxIds.map((_, i) => db.isPostgres ? `$${i + 2}` : '?').join(',');
+                const intrus = await db.query(
+                    `SELECT c.nom FROM creneaux c
+                     WHERE c.id IN (${placeholders})
+                       AND (c.sport_id IS NULL OR c.sport_id != ${db.isPostgres ? '$1' : '?'})`,
+                    db.isPostgres ? [bloc.sport_id, ...creneauxIds] : [...creneauxIds, bloc.sport_id]
+                );
+
+                if (intrus.length > 0) {
+                    return res.status(400).json({
+                        error: `Ces créneaux relèvent d'un autre sport et ne peuvent pas rejoindre ce bloc : ${intrus.map(c => c.nom).join(', ')}`
+                    });
+                }
+            }
+        }
+
         // Supprimer toutes les associations existantes
         const deleteSql = db.isPostgres ?
             `DELETE FROM bloc_creneaux WHERE bloc_id = $1` :
@@ -3056,18 +3260,20 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau pour cette date' });
         }
 
-        // Vérifier les limites de séances (uniquement pour le sport contraint)
-        const soumisAuQuota = await creneauSoumisAuQuota(db, creneauId);
-        let limites = null;
+        // Quota hebdomadaire : seulement si le sport du créneau en a un de configuré
+        const sportCreneau = await sportDuCreneau(db, creneauId);
+        const limitesBrutes = await verifierLimitesSeances(db, userId, sportCreneau, date_seance);
+        const limites = limitesBrutes.limiteApplicable ? limitesBrutes : null;
 
-        if (soumisAuQuota) {
-            limites = await verifierLimitesSeances(db, userId, date_seance);
-
-            if (limites.limiteAtteinte) {
-                return res.status(400).json({
-                    error: `Vous avez atteint votre limite de ${limites.maxSeances} séances de natation par semaine (${limites.seancesActuelles}/${limites.maxSeances})`
-                });
-            }
+        if (limites && limites.limiteAtteinte) {
+            const sportNom = await db.get(
+                db.adaptSQL(`SELECT nom FROM sports WHERE id = ?`, `SELECT nom FROM sports WHERE id = $1`),
+                [sportCreneau]
+            );
+            const libelle = sportNom ? ` de ${sportNom.nom.toLowerCase()}` : '';
+            return res.status(400).json({
+                error: `Vous avez atteint votre limite de ${limites.maxSeances} séances${libelle} par semaine (${limites.seancesActuelles}/${limites.maxSeances})`
+            });
         }
 
         // Vérifier la règle de bloc (1 séance par bloc maximum)
@@ -3372,7 +3578,17 @@ app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
 // Routes d'administration des limites de licence
 app.get('/api/admin/licence-limits', requireAdmin, async (req, res) => {
     try {
-        const rows = await db.query(`SELECT * FROM licence_limits ORDER BY licence_type`, []);
+        const rows = await db.query(
+            db.adaptSQL(
+                `SELECT ll.*, s.nom as sport_nom, s.icone as sport_icone
+                 FROM licence_limits ll LEFT JOIN sports s ON ll.sport_id = s.id
+                 ORDER BY s.ordre, ll.licence_type`,
+                `SELECT ll.*, s.nom as sport_nom, s.icone as sport_icone
+                 FROM licence_limits ll LEFT JOIN sports s ON ll.sport_id = s.id
+                 ORDER BY s.ordre, ll.licence_type`
+            ),
+            []
+        );
         res.json(rows);
     } catch (err) {
         console.error('Erreur récupération limites:', err);
@@ -3382,7 +3598,7 @@ app.get('/api/admin/licence-limits', requireAdmin, async (req, res) => {
 
 app.put('/api/admin/licence-limits/:licenceType', requireAdmin, async (req, res) => {
     const licenceType = req.params.licenceType;
-    const { max_seances_semaine } = req.body;
+    const { max_seances_semaine, sport_id } = req.body;
 
     console.log('Modification limite licence:', licenceType, 'vers', max_seances_semaine);
 
@@ -3391,11 +3607,23 @@ app.put('/api/admin/licence-limits/:licenceType', requireAdmin, async (req, res)
     }
 
     try {
-        const sql = db.isPostgres ?
-            `UPDATE licence_limits SET max_seances_semaine = $1 WHERE licence_type = $2` :
-            `UPDATE licence_limits SET max_seances_semaine = ? WHERE licence_type = ?`;
-
-        const result = await db.run(sql, [max_seances_semaine, licenceType]);
+        // Une limite porte sur un couple (licence, sport). Sans sport précisé,
+        // on met à jour toutes les limites de cette licence.
+        const result = sport_id
+            ? await db.run(
+                db.adaptSQL(
+                    `UPDATE licence_limits SET max_seances_semaine = ? WHERE licence_type = ? AND sport_id = ?`,
+                    `UPDATE licence_limits SET max_seances_semaine = $1 WHERE licence_type = $2 AND sport_id = $3`
+                ),
+                [max_seances_semaine, licenceType, sport_id]
+            )
+            : await db.run(
+                db.adaptSQL(
+                    `UPDATE licence_limits SET max_seances_semaine = ? WHERE licence_type = ?`,
+                    `UPDATE licence_limits SET max_seances_semaine = $1 WHERE licence_type = $2`
+                ),
+                [max_seances_semaine, licenceType]
+            );
 
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Type de licence non trouvé' });

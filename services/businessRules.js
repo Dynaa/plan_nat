@@ -1,9 +1,9 @@
 // services/businessRules.js
 
-// Sport soumis au quota hebdomadaire. La natation est la seule discipline
-// contrainte par l'infrastructure (lignes d'eau) : les autres sports sont
-// sans limite. La phase 3 rendra ce périmètre configurable par sport.
-const SPORT_AVEC_QUOTA = 'natation';
+// Le périmètre des quotas est désormais porté par la base : une ligne dans
+// licence_limits pour un couple (licence, sport) impose une limite, son absence
+// signifie « sans restriction ». En pratique seule la natation en a, mais
+// ajouter un quota à un autre sport ne demande plus de changer le code.
 
 // Bornes (lundi → dimanche) de la semaine contenant la date donnée.
 // Le quota se compte par semaine calendaire, pas sur l'ensemble des inscriptions.
@@ -25,65 +25,70 @@ const bornesSemaine = (dateRef) => {
     };
 };
 
-// Fonction pour vérifier les limites de séances par semaine (natation uniquement)
-const verifierLimitesSeances = async (db, userId, dateSeance = null) => {
+// Limite hebdomadaire d'un utilisateur pour un sport donné.
+// Renvoie limiteApplicable: false quand aucun quota n'est configuré pour ce
+// couple (licence, sport) — le sport est alors libre d'accès.
+const verifierLimitesSeances = async (db, userId, sportId, dateSeance = null) => {
     const { debut, fin } = bornesSemaine(dateSeance);
 
-    const query = db.isPostgres ? `
-        SELECT
-            u.licence_type,
-            ll.max_seances_semaine,
-            COUNT(i.id) as seances_cette_semaine
-        FROM users u
-        LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
-        LEFT JOIN inscriptions i ON u.id = i.user_id
-            AND i.statut = 'inscrit'
-            AND i.date_seance BETWEEN $2 AND $3
-            AND i.creneau_id IN (
-                SELECT c.id FROM creneaux c
-                JOIN sports s ON c.sport_id = s.id
-                WHERE s.slug = $4
-            )
-        WHERE u.id = $1
-        GROUP BY u.id, u.licence_type, ll.max_seances_semaine
-    ` : `
-        SELECT
-            u.licence_type,
-            ll.max_seances_semaine,
-            COUNT(i.id) as seances_cette_semaine
-        FROM users u
-        LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
-        LEFT JOIN inscriptions i ON u.id = i.user_id
-            AND i.statut = 'inscrit'
-            AND i.date_seance BETWEEN ? AND ?
-            AND i.creneau_id IN (
-                SELECT c.id FROM creneaux c
-                JOIN sports s ON c.sport_id = s.id
-                WHERE s.slug = ?
-            )
-        WHERE u.id = ?
-        GROUP BY u.id, u.licence_type, ll.max_seances_semaine
-    `;
-
-    const params = db.isPostgres
-        ? [userId, debut, fin, SPORT_AVEC_QUOTA]
-        : [debut, fin, SPORT_AVEC_QUOTA, userId];
-
     try {
-        const result = await db.get(query, params);
+        const user = await db.get(
+            db.adaptSQL(
+                `SELECT licence_type FROM users WHERE id = ?`,
+                `SELECT licence_type FROM users WHERE id = $1`
+            ),
+            [userId]
+        );
 
-        if (!result) {
+        if (!user) {
             throw new Error('Utilisateur non trouvé');
         }
 
-        const limiteAtteinte = result.seances_cette_semaine >= (result.max_seances_semaine || 3);
+        if (!sportId) {
+            return { limiteApplicable: false, licenceType: user.licence_type };
+        }
+
+        const limite = await db.get(
+            db.adaptSQL(
+                `SELECT max_seances_semaine FROM licence_limits WHERE licence_type = ? AND sport_id = ?`,
+                `SELECT max_seances_semaine FROM licence_limits WHERE licence_type = $1 AND sport_id = $2`
+            ),
+            [user.licence_type, sportId]
+        );
+
+        // Aucun quota configuré pour ce sport : accès libre
+        if (!limite) {
+            return { limiteApplicable: false, licenceType: user.licence_type };
+        }
+
+        const compte = await db.get(
+            db.adaptSQL(
+                `SELECT COUNT(i.id) as seances
+                 FROM inscriptions i
+                 JOIN creneaux c ON i.creneau_id = c.id
+                 WHERE i.user_id = ? AND i.statut = 'inscrit'
+                   AND i.date_seance BETWEEN ? AND ?
+                   AND c.sport_id = ?`,
+                `SELECT COUNT(i.id) as seances
+                 FROM inscriptions i
+                 JOIN creneaux c ON i.creneau_id = c.id
+                 WHERE i.user_id = $1 AND i.statut = 'inscrit'
+                   AND i.date_seance BETWEEN $2 AND $3
+                   AND c.sport_id = $4`
+            ),
+            [userId, debut, fin, sportId]
+        );
+
+        const maxSeances = parseInt(limite.max_seances_semaine, 10);
+        const seancesActuelles = parseInt(compte ? compte.seances : 0) || 0;
 
         return {
-            licenceType: result.licence_type,
-            maxSeances: result.max_seances_semaine || 3,
-            seancesActuelles: parseInt(result.seances_cette_semaine) || 0,
-            limiteAtteinte: limiteAtteinte,
-            seancesRestantes: Math.max(0, (result.max_seances_semaine || 3) - (parseInt(result.seances_cette_semaine) || 0))
+            limiteApplicable: true,
+            licenceType: user.licence_type,
+            maxSeances,
+            seancesActuelles,
+            limiteAtteinte: seancesActuelles >= maxSeances,
+            seancesRestantes: Math.max(0, maxSeances - seancesActuelles)
         };
     } catch (err) {
         console.error('Erreur lors de la vérification des limites:', err);
@@ -91,17 +96,17 @@ const verifierLimitesSeances = async (db, userId, dateSeance = null) => {
     }
 };
 
-// Le quota hebdomadaire ne s'applique qu'aux créneaux du sport contraint.
-// Un créneau d'un autre sport (ou sans sport) n'est jamais limité.
-const creneauSoumisAuQuota = async (db, creneauId) => {
-    const sport = await db.get(
-        db.isPostgres
-            ? `SELECT s.slug FROM creneaux c JOIN sports s ON c.sport_id = s.id WHERE c.id = $1`
-            : `SELECT s.slug FROM creneaux c JOIN sports s ON c.sport_id = s.id WHERE c.id = ?`,
+// Sport auquel appartient un créneau (null si le créneau n'en a pas)
+const sportDuCreneau = async (db, creneauId) => {
+    const creneau = await db.get(
+        db.adaptSQL(
+            `SELECT sport_id FROM creneaux WHERE id = ?`,
+            `SELECT sport_id FROM creneaux WHERE id = $1`
+        ),
         [creneauId]
     );
 
-    return !!sport && sport.slug === SPORT_AVEC_QUOTA;
+    return creneau ? creneau.sport_id : null;
 };
 
 // Vérifier la règle de bloc : un utilisateur ne peut s'inscrire qu'à 1 séance par bloc
@@ -192,8 +197,8 @@ const verifierMetaRegles = async (db, userId, creneauId) => {
         // Récupérer les infos du créneau cible
         const creneau = await db.get(
             db.isPostgres
-                ? `SELECT jour_semaine FROM creneaux WHERE id = $1`
-                : `SELECT jour_semaine FROM creneaux WHERE id = ?`,
+                ? `SELECT jour_semaine, sport_id FROM creneaux WHERE id = $1`
+                : `SELECT jour_semaine, sport_id FROM creneaux WHERE id = ?`,
             [creneauId]
         );
 
@@ -201,16 +206,17 @@ const verifierMetaRegles = async (db, userId, creneauId) => {
             return { autorise: false, message: "Créneau non trouvé" };
         }
 
-        // Récupérer les méta-règles pour ce type de licence
+        // Les méta-règles sont propres à un sport : une règle natation ne doit pas
+        // interdire une sortie vélo le même jour.
         const metaRegles = await db.query(
             db.isPostgres
-                ? `SELECT jour_source, jours_interdits, description 
-                   FROM meta_rules 
-                   WHERE licence_type = $1 AND active = true`
-                : `SELECT jour_source, jours_interdits, description 
-                   FROM meta_rules 
-                   WHERE licence_type = ? AND active = 1`,
-            [user.licence_type]
+                ? `SELECT jour_source, jours_interdits, description
+                   FROM meta_rules
+                   WHERE licence_type = $1 AND sport_id = $2 AND active = true`
+                : `SELECT jour_source, jours_interdits, description
+                   FROM meta_rules
+                   WHERE licence_type = ? AND sport_id = ? AND active = 1`,
+            [user.licence_type, creneau.sport_id]
         );
 
         if (!metaRegles || metaRegles.length === 0) {
@@ -234,22 +240,24 @@ const verifierMetaRegles = async (db, userId, creneauId) => {
 
             // Si le créneau cible est dans les jours interdits
             if (joursInterdits.includes(creneau.jour_semaine)) {
-                // Vérifier si l'utilisateur est inscrit au jour source
+                // L'inscription déclenchante doit relever du même sport que la règle
                 const inscriptionSource = await db.get(
                     db.isPostgres
                         ? `SELECT i.id FROM inscriptions i
                            JOIN creneaux c ON i.creneau_id = c.id
-                           WHERE i.user_id = $1 
-                             AND c.jour_semaine = $2 
+                           WHERE i.user_id = $1
+                             AND c.jour_semaine = $2
+                             AND c.sport_id = $3
                              AND i.statut = 'inscrit'
                            LIMIT 1`
                         : `SELECT i.id FROM inscriptions i
                            JOIN creneaux c ON i.creneau_id = c.id
-                           WHERE i.user_id = ? 
-                             AND c.jour_semaine = ? 
+                           WHERE i.user_id = ?
+                             AND c.jour_semaine = ?
+                             AND c.sport_id = ?
                              AND i.statut = 'inscrit'
                            LIMIT 1`,
-                    [userId, regle.jour_source]
+                    [userId, regle.jour_source, creneau.sport_id]
                 );
 
                 if (inscriptionSource) {
@@ -273,7 +281,6 @@ module.exports = {
     verifierLimitesSeances,
     verifierRegleBloc,
     verifierMetaRegles,
-    creneauSoumisAuQuota,
-    bornesSemaine,
-    SPORT_AVEC_QUOTA
+    sportDuCreneau,
+    bornesSemaine
 };

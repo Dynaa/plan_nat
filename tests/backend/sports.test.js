@@ -232,11 +232,10 @@ describe('Multi-sports (phase 0)', () => {
             heure_fin: '08:00'
         };
 
-        it('devrait changer le sport et retirer le créneau de son bloc', async () => {
+        it('devrait changer le sport et retirer le créneau des blocs d\'un autre sport', async () => {
             db.get
-                .mockResolvedValueOnce({ sport_id: 1 })        // créneau existant (natation)
-                .mockResolvedValueOnce({ capacite_defaut: 50 }) // capacité par défaut du nouveau sport
-                .mockResolvedValueOnce({ slug: 'course' });     // sport après mise à jour
+                .mockResolvedValueOnce({ sport_id: 1, capacite_max: 12, sans_limite: false }) // état avant
+                .mockResolvedValueOnce({ capacite_defaut: 50 });                               // capacité du nouveau sport
             db.run
                 .mockResolvedValueOnce({ changes: 1 })  // UPDATE creneaux
                 .mockResolvedValueOnce({ changes: 1 }); // DELETE bloc_creneaux
@@ -248,8 +247,11 @@ describe('Multi-sports (phase 0)', () => {
             expect(res.status).toBe(200);
             expect(res.body.message).toContain('retiré de son bloc');
 
-            const sqlAppels = db.run.mock.calls.map(c => c[0]);
-            expect(sqlAppels.some(sql => sql.includes('DELETE FROM bloc_creneaux'))).toBe(true);
+            // Le retrait ne vise que les blocs dont le sport diffère du nouveau
+            const suppression = db.run.mock.calls.find(c => c[0].includes('DELETE FROM bloc_creneaux'));
+            expect(suppression).toBeDefined();
+            expect(suppression[0]).toContain('sport_id');
+            expect(suppression[1]).toEqual(['3', 3]);
         });
 
         it('devrait laisser le bloc intact si le créneau reste en natation', async () => {
