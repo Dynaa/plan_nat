@@ -261,7 +261,7 @@ function displayMesLimites(limites) {
     quotaDetails.innerHTML = `
         Licence <strong>${limites.licenceType}</strong> • 
         <span style="color: ${couleur}; font-weight: 500;">
-            ${limites.seancesActuelles}/${limites.maxSeances} séances cette semaine
+            ${limites.seancesActuelles}/${limites.maxSeances} séances de natation cette semaine
         </span>
         ${limites.seancesRestantes > 0 ?
             `• <span style="color: #38a169;">${limites.seancesRestantes} séance(s) restante(s)</span>` :

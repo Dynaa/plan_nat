@@ -116,4 +116,59 @@ describe('Multi-sports (phase 0)', () => {
             expect(res.status).toBe(400);
         });
     });
+
+    describe('POST /api/creneaux — capacité', () => {
+
+        const base = {
+            nom: 'Créneau',
+            jour_semaine: 1,
+            heure_debut: '07:00',
+            heure_fin: '08:00'
+        };
+
+        it('devrait déduire la capacité des lignes d\'eau (natation)', async () => {
+            db.get.mockResolvedValueOnce({ id: 1 });
+            db.run.mockResolvedValueOnce({ lastID: 1 });
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, nombre_lignes: 3, personnes_par_ligne: 8 });
+
+            expect(res.status).toBe(200);
+            const [, params] = db.run.mock.calls[0];
+            expect(params[7]).toBe(24); // capacite_max = 3 × 8
+        });
+
+        it('devrait accepter une capacité directe sans lignes d\'eau (autres sports)', async () => {
+            db.run.mockResolvedValueOnce({ lastID: 2 });
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, sport_id: 3, capacite_max: 30 });
+
+            expect(res.status).toBe(200);
+            const [, params] = db.run.mock.calls[0];
+            expect(params[7]).toBe(30);
+            // Les lignes d'eau restent vides pour un sport qui n'en a pas
+            expect(params[5]).toBeNull();
+            expect(params[6]).toBeNull();
+        });
+
+        it('devrait rejeter un créneau sans aucune forme de capacité', async () => {
+            const res = await request(app).post('/api/creneaux').send(base);
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toContain('capacité');
+        });
+
+        it('devrait accepter le dimanche (jour_semaine = 0)', async () => {
+            db.run.mockResolvedValueOnce({ lastID: 3 });
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, jour_semaine: 0, sport_id: 2, capacite_max: 25 });
+
+            expect(res.status).toBe(200);
+        });
+    });
 });

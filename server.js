@@ -7,7 +7,7 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
-const { verifierLimitesSeances, verifierRegleBloc } = require('./services/businessRules');
+const { verifierLimitesSeances, verifierRegleBloc, creneauSoumisAuQuota } = require('./services/businessRules');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -256,8 +256,9 @@ async function initializeDatabase() {
                 jour_semaine INTEGER NOT NULL,
                 heure_debut TEXT NOT NULL,
                 heure_fin TEXT NOT NULL,
-                nombre_lignes INTEGER NOT NULL DEFAULT 2,
-                personnes_par_ligne INTEGER NOT NULL DEFAULT 6,
+                capacite_max INTEGER NOT NULL DEFAULT 12,
+                nombre_lignes INTEGER,
+                personnes_par_ligne INTEGER,
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
                 public_cible TEXT DEFAULT 'les deux',
                 actif BOOLEAN DEFAULT 1,
@@ -272,8 +273,9 @@ async function initializeDatabase() {
                 jour_semaine INTEGER NOT NULL,
                 heure_debut VARCHAR(10) NOT NULL,
                 heure_fin VARCHAR(10) NOT NULL,
-                nombre_lignes INTEGER NOT NULL DEFAULT 2,
-                personnes_par_ligne INTEGER NOT NULL DEFAULT 6,
+                capacite_max INTEGER NOT NULL DEFAULT 12,
+                nombre_lignes INTEGER,
+                personnes_par_ligne INTEGER,
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
                 public_cible VARCHAR(50) DEFAULT 'les deux',
                 actif BOOLEAN DEFAULT true,
@@ -371,6 +373,22 @@ async function initializeDatabase() {
                     await db.pool.query(`ALTER TABLE creneaux ADD COLUMN sport_id INTEGER REFERENCES sports (id);`);
                     console.log('✅ Migration PostgreSQL de sport_id (creneaux) terminée.');
                 }
+
+                // Creneaux : capacite_max devient la source de vérité de la capacité
+                const checkColCapacite = await db.get(`
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name='creneaux' AND column_name='capacite_max'
+                `);
+                if (!checkColCapacite) {
+                    console.log('🔄 Migration PostgreSQL en cours : Ajout capacite_max dans creneaux...');
+                    await db.pool.query(`ALTER TABLE creneaux ADD COLUMN capacite_max INTEGER;`);
+                    console.log('✅ Migration PostgreSQL de capacite_max (creneaux) terminée.');
+                }
+
+                // Les lignes d'eau ne concernent que la natation : elles deviennent facultatives
+                await db.pool.query(`ALTER TABLE creneaux ALTER COLUMN nombre_lignes DROP NOT NULL;`);
+                await db.pool.query(`ALTER TABLE creneaux ALTER COLUMN personnes_par_ligne DROP NOT NULL;`);
             } else {
                 // SQLite check inscriptions
                 const colsInscr = await db.query(`PRAGMA table_info(inscriptions)`);
@@ -404,6 +422,44 @@ async function initializeDatabase() {
                     await db.run(`ALTER TABLE creneaux ADD COLUMN sport_id INTEGER REFERENCES sports (id)`);
                     console.log('✅ Migration SQLite sport_id terminée pour creneaux.');
                 }
+
+                // SQLite : capacite_max devient la source de vérité de la capacité
+                const hasCapacite = colsCreneaux.some(c => c.name === 'capacite_max');
+                if (!hasCapacite) {
+                    console.log('🔄 Migration SQLite en cours : Ajout capacite_max dans creneaux...');
+                    await db.run(`ALTER TABLE creneaux ADD COLUMN capacite_max INTEGER`);
+                    console.log('✅ Migration SQLite capacite_max terminée pour creneaux.');
+                }
+
+                // SQLite ne sait pas retirer un NOT NULL : reconstruction de la table pour
+                // rendre les lignes d'eau facultatives (elles ne concernent que la natation).
+                const colLignes = colsCreneaux.find(c => c.name === 'nombre_lignes');
+                if (colLignes && colLignes.notnull === 1) {
+                    console.log('🔄 Migration SQLite en cours : lignes d\'eau rendues facultatives...');
+                    await db.run(`UPDATE creneaux SET capacite_max = nombre_lignes * personnes_par_ligne WHERE capacite_max IS NULL`);
+                    await db.run(`ALTER TABLE creneaux RENAME TO creneaux_old`);
+                    await db.run(creneauxSQL);
+                    await db.run(`
+                        INSERT INTO creneaux (id, nom, sport_id, jour_semaine, heure_debut, heure_fin,
+                                              capacite_max, nombre_lignes, personnes_par_ligne,
+                                              licences_autorisees, public_cible, actif, created_at)
+                        SELECT id, nom, sport_id, jour_semaine, heure_debut, heure_fin,
+                               capacite_max, nombre_lignes, personnes_par_ligne,
+                               licences_autorisees, public_cible, actif, created_at
+                        FROM creneaux_old
+                    `);
+                    await db.run(`DROP TABLE creneaux_old`);
+                    console.log('✅ Migration SQLite des lignes d\'eau terminée.');
+                }
+            }
+
+            // Reprise des capacités historiques : lignes d'eau × personnes par ligne
+            const backfillCapacite = await db.run(
+                `UPDATE creneaux SET capacite_max = nombre_lignes * personnes_par_ligne
+                 WHERE capacite_max IS NULL AND nombre_lignes IS NOT NULL AND personnes_par_ligne IS NOT NULL`
+            );
+            if (backfillCapacite.changes > 0) {
+                console.log(`🔄 Capacité calculée pour ${backfillCapacite.changes} créneau(x) existant(s)`);
             }
 
             // Rattachement des créneaux sans sport à la natation (sport historique).
@@ -1307,6 +1363,23 @@ app.get('/api/auth-status', async (req, res) => {
 });
 
 // --- Utilitaires de dates ---
+// Capacité d'un créneau : valeur directe, ou lignes d'eau × personnes (natation).
+// Renvoie null si aucune des deux formes n'est exploitable.
+function resoudreCapacite({ capacite_max, nombre_lignes, personnes_par_ligne }) {
+    const directe = parseInt(capacite_max, 10);
+    if (Number.isInteger(directe) && directe > 0) {
+        return directe;
+    }
+
+    const lignes = parseInt(nombre_lignes, 10);
+    const parLigne = parseInt(personnes_par_ligne, 10);
+    if (Number.isInteger(lignes) && lignes > 0 && Number.isInteger(parLigne) && parLigne > 0) {
+        return lignes * parLigne;
+    }
+
+    return null;
+}
+
 function getSeanceDate(jourSemaine, offsetSemaines = 0) {
     // jourSemaine: 0=Dimanche, 1=Lundi, ..., 6=Samedi
     const today = new Date();
@@ -1348,52 +1421,6 @@ app.get('/api/creneaux', async (req, res) => {
     const userId = req.session ? req.session.userId : null;
     const offsetSemaines = parseInt(req.query.semaine || '0', 10); // 0 = cette semaine, 1 = semaine pro
 
-    const query = db.isPostgres ? `
-        SELECT c.*,
-               (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
-               COUNT(CASE WHEN i.statut = 'inscrit' THEN 1 END) as inscrits,
-               COUNT(CASE WHEN i.statut = 'attente' THEN 1 END) as en_attente,
-               b.id as bloc_id,
-               b.nom as bloc_nom,
-               CASE WHEN ub.user_id IS NOT NULL THEN ub.creneau_nom ELSE NULL END as inscrit_dans_bloc
-        FROM creneaux c
-        LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.date_seance = $2
-        LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
-        LEFT JOIN blocs b ON bc.bloc_id = b.id
-        LEFT JOIN (
-            SELECT i2.user_id, bc2.bloc_id, c2.nom as creneau_nom
-            FROM inscriptions i2
-            JOIN creneaux c2 ON i2.creneau_id = c2.id
-            JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
-            WHERE i2.statut = 'inscrit' AND i2.user_id = $1::integer AND i2.date_seance = $2
-        ) ub ON b.id = ub.bloc_id
-        WHERE c.actif = true
-        GROUP BY c.id, b.id, b.nom, ub.user_id, ub.creneau_nom
-        ORDER BY c.jour_semaine, c.heure_debut
-    ` : `
-        SELECT c.*,
-               (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
-               COUNT(CASE WHEN i.statut = 'inscrit' THEN 1 END) as inscrits,
-               COUNT(CASE WHEN i.statut = 'attente' THEN 1 END) as en_attente,
-               b.id as bloc_id,
-               b.nom as bloc_nom,
-               ub.creneau_nom as inscrit_dans_bloc
-        FROM creneaux c
-        LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.date_seance = ?
-        LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
-        LEFT JOIN blocs b ON bc.bloc_id = b.id
-        LEFT JOIN (
-            SELECT i2.user_id, bc2.bloc_id, c2.nom as creneau_nom
-            FROM inscriptions i2
-            JOIN creneaux c2 ON i2.creneau_id = c2.id
-            JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
-            WHERE i2.statut = 'inscrit' AND i2.user_id = ? AND i2.date_seance = ?
-        ) ub ON b.id = ub.bloc_id
-        WHERE c.actif = 1
-        GROUP BY c.id, b.id, b.nom, ub.creneau_nom
-        ORDER BY c.jour_semaine, c.heure_debut
-    `;
-
     try {
         // Retrieve user's public_cible if logged in
         let userPublicCible = 'adulte'; // Default
@@ -1420,13 +1447,13 @@ app.get('/api/creneaux', async (req, res) => {
         }
 
         let creneauxQuery = db.isPostgres ?
-            `SELECT c.*, (c.nombre_lignes * c.personnes_par_ligne) as capacite_max, b.id as bloc_id, b.nom as bloc_nom
+            `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom
              FROM creneaux c 
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
              WHERE c.actif = true${targetFilterSql}
              ORDER BY c.jour_semaine, c.heure_debut` :
-            `SELECT c.*, (c.nombre_lignes * c.personnes_par_ligne) as capacite_max, b.id as bloc_id, b.nom as bloc_nom
+            `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom
              FROM creneaux c 
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
@@ -1756,16 +1783,20 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
 
 // Route de création de créneaux (ADMIN)
 app.post('/api/creneaux', requireAdmin, async (req, res) => {
-    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
+    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
 
-    if (!nom || !jour_semaine || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
+    // jour_semaine vaut 0 le dimanche : tester la présence, pas la véracité
+    if (!nom || jour_semaine === undefined || jour_semaine === null || jour_semaine === '' || !heure_debut || !heure_fin) {
         return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
+    }
+
+    const capaciteMax = resoudreCapacite({ capacite_max, nombre_lignes, personnes_par_ligne });
+    if (!capaciteMax) {
+        return res.status(400).json({ error: 'Indiquez une capacité, ou un nombre de lignes et de personnes par ligne' });
     }
 
     const cibles = ['jeune', 'adulte', 'les deux'];
     const varCible = (public_cible && cibles.includes(public_cible)) ? public_cible : 'les deux';
-
-    const capaciteMax = nombre_lignes * personnes_par_ligne;
 
     try {
         // Sans sport explicite (le sélecteur arrive en phase 2), on rattache à la natation
@@ -1790,8 +1821,8 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
             jour_semaine,
             heure_debut,
             heure_fin,
-            nombre_lignes,
-            personnes_par_ligne,
+            nombre_lignes || null,
+            personnes_par_ligne || null,
             capaciteMax,
             varCible
         ]);
@@ -1810,16 +1841,20 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
 // Route de modification de créneaux (ADMIN)
 app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
-    const { nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
+    const { nom, jour_semaine, heure_debut, heure_fin, capacite_max, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
 
-    if (!nom || !jour_semaine || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
+    // jour_semaine vaut 0 le dimanche : tester la présence, pas la véracité
+    if (!nom || jour_semaine === undefined || jour_semaine === null || jour_semaine === '' || !heure_debut || !heure_fin) {
         return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
+    }
+
+    const capaciteMax = resoudreCapacite({ capacite_max, nombre_lignes, personnes_par_ligne });
+    if (!capaciteMax) {
+        return res.status(400).json({ error: 'Indiquez une capacité, ou un nombre de lignes et de personnes par ligne' });
     }
 
     const cibles = ['jeune', 'adulte', 'les deux'];
     const varCible = (public_cible && cibles.includes(public_cible)) ? public_cible : 'les deux';
-
-    const capaciteMax = nombre_lignes * personnes_par_ligne;
 
     try {
         const sql = db.isPostgres ?
@@ -1831,8 +1866,8 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
             jour_semaine,
             heure_debut,
             heure_fin,
-            nombre_lignes,
-            personnes_par_ligne,
+            nombre_lignes || null,
+            personnes_par_ligne || null,
             capaciteMax,
             varCible,
             creneauId
@@ -2183,9 +2218,12 @@ app.get('/api/mes-meta-regles', requireAuth, async (req, res) => {
 
 app.get('/api/mes-limites', requireAuth, async (req, res) => {
     const userId = req.session.userId;
+    // Le quota est hebdomadaire : il dépend de la semaine consultée (0 = courante, 1 = suivante)
+    const offsetSemaines = parseInt(req.query.semaine || '0', 10);
+    const dateRef = getSeanceDate(new Date().getDay(), offsetSemaines);
 
     try {
-        const limites = await verifierLimitesSeances(db, userId);
+        const limites = await verifierLimitesSeances(db, userId, dateRef);
         res.json(limites);
     } catch (err) {
         console.error('Erreur vérification limites:', err);
@@ -2328,10 +2366,10 @@ app.get('/api/admin/blocs', requireAdmin, async (req, res) => {
         const blocs = await db.query(`SELECT * FROM blocs ORDER BY ordre, nom`);
         for (const bloc of blocs) {
             const creneauxSql = db.isPostgres ?
-                `SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.nombre_lignes, c.personnes_par_ligne
+                `SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max
                  FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id
                  WHERE bc.bloc_id = $1 ORDER BY c.jour_semaine, c.heure_debut` :
-                `SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.nombre_lignes, c.personnes_par_ligne
+                `SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max
                  FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id
                  WHERE bc.bloc_id = ? ORDER BY c.jour_semaine, c.heure_debut`;
             bloc.creneaux = await db.query(creneauxSql, [bloc.id]);
@@ -2720,13 +2758,18 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau pour cette date' });
         }
 
-        // Vérifier les limites de séances
-        const limites = await verifierLimitesSeances(db, userId);
+        // Vérifier les limites de séances (uniquement pour le sport contraint)
+        const soumisAuQuota = await creneauSoumisAuQuota(db, creneauId);
+        let limites = null;
 
-        if (limites.limiteAtteinte) {
-            return res.status(400).json({
-                error: `Vous avez atteint votre limite de ${limites.maxSeances} séances par semaine (${limites.seancesActuelles}/${limites.maxSeances})`
-            });
+        if (soumisAuQuota) {
+            limites = await verifierLimitesSeances(db, userId, date_seance);
+
+            if (limites.limiteAtteinte) {
+                return res.status(400).json({
+                    error: `Vous avez atteint votre limite de ${limites.maxSeances} séances de natation par semaine (${limites.seancesActuelles}/${limites.maxSeances})`
+                });
+            }
         }
 
         // Vérifier la règle de bloc (1 séance par bloc maximum)
@@ -2740,20 +2783,18 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
 
         // Vérifier la capacité du créneau et les inscriptions actuelles
         const creneauSql = db.isPostgres ?
-            `SELECT c.nombre_lignes, c.personnes_par_ligne, c.nom,
-                    (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
+            `SELECT c.nom, c.capacite_max,
                     COUNT(i.id) as inscrits_actuels
              FROM creneaux c
              LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit' AND i.date_seance = $2
              WHERE c.id = $1
-             GROUP BY c.id, c.nombre_lignes, c.personnes_par_ligne, c.nom` :
-            `SELECT c.nombre_lignes, c.personnes_par_ligne, c.nom,
-                    (c.nombre_lignes * c.personnes_par_ligne) as capacite_max,
+             GROUP BY c.id, c.nom, c.capacite_max` :
+            `SELECT c.nom, c.capacite_max,
                     COUNT(i.id) as inscrits_actuels
              FROM creneaux c
              LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit' AND i.date_seance = ?
              WHERE c.id = ?
-             GROUP BY c.id, c.nombre_lignes, c.personnes_par_ligne, c.nom`;
+             GROUP BY c.id, c.nom, c.capacite_max`;
 
         const creneauInfo = await db.get(creneauSql, db.isPostgres ? [creneauId, date_seance] : [date_seance, creneauId]);
 
@@ -2767,7 +2808,10 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
         // Déterminer le statut d'inscription
         let statut = 'inscrit';
         let positionAttente = null;
-        let message = `Inscription réussie au créneau "${creneauInfo.nom}" ! Il vous reste ${limites.seancesRestantes - 1} séance(s) cette semaine.`;
+        // Le décompte restant n'a de sens que pour le sport soumis au quota
+        let message = limites
+            ? `Inscription réussie au créneau "${creneauInfo.nom}" ! Il vous reste ${limites.seancesRestantes - 1} séance(s) de natation cette semaine.`
+            : `Inscription réussie au créneau "${creneauInfo.nom}" !`;
 
         if (inscritActuels >= capaciteMax) {
             // Créneau complet, mettre en liste d'attente
@@ -2802,7 +2846,9 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
             statut,
             positionAttente,
             inscriptionId: result.lastID || result.id,
-            seancesRestantes: statut === 'inscrit' ? limites.seancesRestantes - 1 : limites.seancesRestantes
+            seancesRestantes: limites
+                ? (statut === 'inscrit' ? limites.seancesRestantes - 1 : limites.seancesRestantes)
+                : null
         });
     } catch (err) {
         console.error('Erreur inscription:', err);

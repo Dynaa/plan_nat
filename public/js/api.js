@@ -48,8 +48,8 @@ async function loadMesInscriptions() {
             showMessage('Erreur lors du chargement des inscriptions', 'error');
         }
 
-        // Charger les limites de l'utilisateur
-        const limitesResponse = await fetch('/api/mes-limites');
+        // Charger les limites de l'utilisateur pour la semaine consultée
+        const limitesResponse = await fetch(`/api/mes-limites?semaine=${currentSemaineOffset}`);
         const limitesData = await limitesResponse.json();
 
         if (limitesResponse.ok) {

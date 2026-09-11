@@ -1,33 +1,76 @@
 // services/businessRules.js
 
-// Fonction pour vérifier les limites de séances par semaine
-const verifierLimitesSeances = async (db, userId) => {
+// Sport soumis au quota hebdomadaire. La natation est la seule discipline
+// contrainte par l'infrastructure (lignes d'eau) : les autres sports sont
+// sans limite. La phase 3 rendra ce périmètre configurable par sport.
+const SPORT_AVEC_QUOTA = 'natation';
+
+// Bornes (lundi → dimanche) de la semaine contenant la date donnée.
+// Le quota se compte par semaine calendaire, pas sur l'ensemble des inscriptions.
+const bornesSemaine = (dateRef) => {
+    const date = dateRef ? new Date(dateRef) : new Date();
+
+    let jour = date.getUTCDay();
+    if (jour === 0) jour = 7; // dimanche = fin de semaine
+
+    const lundi = new Date(date);
+    lundi.setUTCDate(date.getUTCDate() - (jour - 1));
+
+    const dimanche = new Date(lundi);
+    dimanche.setUTCDate(lundi.getUTCDate() + 6);
+
+    return {
+        debut: lundi.toISOString().split('T')[0],
+        fin: dimanche.toISOString().split('T')[0]
+    };
+};
+
+// Fonction pour vérifier les limites de séances par semaine (natation uniquement)
+const verifierLimitesSeances = async (db, userId, dateSeance = null) => {
+    const { debut, fin } = bornesSemaine(dateSeance);
+
     const query = db.isPostgres ? `
-        SELECT 
+        SELECT
             u.licence_type,
             ll.max_seances_semaine,
             COUNT(i.id) as seances_cette_semaine
         FROM users u
         LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
-        LEFT JOIN inscriptions i ON u.id = i.user_id 
+        LEFT JOIN inscriptions i ON u.id = i.user_id
             AND i.statut = 'inscrit'
+            AND i.date_seance BETWEEN $2 AND $3
+            AND i.creneau_id IN (
+                SELECT c.id FROM creneaux c
+                JOIN sports s ON c.sport_id = s.id
+                WHERE s.slug = $4
+            )
         WHERE u.id = $1
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     ` : `
-        SELECT 
+        SELECT
             u.licence_type,
             ll.max_seances_semaine,
             COUNT(i.id) as seances_cette_semaine
         FROM users u
         LEFT JOIN licence_limits ll ON u.licence_type = ll.licence_type
-        LEFT JOIN inscriptions i ON u.id = i.user_id 
+        LEFT JOIN inscriptions i ON u.id = i.user_id
             AND i.statut = 'inscrit'
+            AND i.date_seance BETWEEN ? AND ?
+            AND i.creneau_id IN (
+                SELECT c.id FROM creneaux c
+                JOIN sports s ON c.sport_id = s.id
+                WHERE s.slug = ?
+            )
         WHERE u.id = ?
         GROUP BY u.id, u.licence_type, ll.max_seances_semaine
     `;
 
+    const params = db.isPostgres
+        ? [userId, debut, fin, SPORT_AVEC_QUOTA]
+        : [debut, fin, SPORT_AVEC_QUOTA, userId];
+
     try {
-        const result = await db.get(query, [userId]);
+        const result = await db.get(query, params);
 
         if (!result) {
             throw new Error('Utilisateur non trouvé');
@@ -46,6 +89,19 @@ const verifierLimitesSeances = async (db, userId) => {
         console.error('Erreur lors de la vérification des limites:', err);
         throw err;
     }
+};
+
+// Le quota hebdomadaire ne s'applique qu'aux créneaux du sport contraint.
+// Un créneau d'un autre sport (ou sans sport) n'est jamais limité.
+const creneauSoumisAuQuota = async (db, creneauId) => {
+    const sport = await db.get(
+        db.isPostgres
+            ? `SELECT s.slug FROM creneaux c JOIN sports s ON c.sport_id = s.id WHERE c.id = $1`
+            : `SELECT s.slug FROM creneaux c JOIN sports s ON c.sport_id = s.id WHERE c.id = ?`,
+        [creneauId]
+    );
+
+    return !!sport && sport.slug === SPORT_AVEC_QUOTA;
 };
 
 // Vérifier la règle de bloc : un utilisateur ne peut s'inscrire qu'à 1 séance par bloc
@@ -213,4 +269,11 @@ const verifierMetaRegles = async (db, userId, creneauId) => {
     }
 };
 
-module.exports = { verifierLimitesSeances, verifierRegleBloc, verifierMetaRegles };
+module.exports = {
+    verifierLimitesSeances,
+    verifierRegleBloc,
+    verifierMetaRegles,
+    creneauSoumisAuQuota,
+    bornesSemaine,
+    SPORT_AVEC_QUOTA
+};

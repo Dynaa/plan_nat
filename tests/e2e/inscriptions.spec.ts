@@ -21,7 +21,7 @@ test.describe('Interface / Inscription au créneau', () => {
             });
         });
 
-        await page.route('**/api/mes-limites', async route => {
+        await page.route('**/api/mes-limites*', async route => {
             await route.fulfill({
                 json: {
                     licenceType: 'Loisir/Senior',
