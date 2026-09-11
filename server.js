@@ -825,18 +825,29 @@ const sendEmail = async (to, subject, htmlContent) => {
     // Priorité 2 : Brevo (API HTTPS) — permet d'envoyer sans nom de domaine,
     // avec une simple adresse expéditrice validée dans Brevo.
     if (process.env.BREVO_API_KEY) {
+        // Nettoyer la clé : les copier/coller vers les variables Railway ajoutent
+        // parfois espaces, retours à la ligne ou guillemets, invisibles dans l'UI
+        const brevoApiKey = process.env.BREVO_API_KEY.trim().replace(/^["']|["']$/g, '');
         const senderEmail = process.env.MAIL_FROM_EMAIL || process.env.SMTP_USER;
         const senderName = process.env.MAIL_FROM_NAME || 'ACC Triathlon';
+
+        if (brevoApiKey !== process.env.BREVO_API_KEY) {
+            console.warn('⚠️  BREVO_API_KEY contenait des espaces ou guillemets parasites (nettoyés automatiquement)');
+        }
+        if (!brevoApiKey.startsWith('xkeysib-')) {
+            console.warn(`⚠️  BREVO_API_KEY ne commence pas par "xkeysib-" (préfixe reçu: "${brevoApiKey.slice(0, 9)}…") : est-ce une clé SMTP (xsmtpsib-) au lieu d'une clé API ?`);
+        }
 
         if (!senderEmail) {
             console.error('❌ Brevo : définissez MAIL_FROM_EMAIL avec l\'adresse expéditrice validée dans Brevo');
         } else {
             try {
-                console.log('📧 Envoi via Brevo:', { to, subject, from: senderEmail });
+                // Empreinte non sensible de la clé pour diagnostiquer les écarts de copier/coller
+                console.log('📧 Envoi via Brevo:', { to, subject, from: senderEmail, keyPrefix: brevoApiKey.slice(0, 12) + '…', keyLength: brevoApiKey.length });
                 const response = await fetch('https://api.brevo.com/v3/smtp/email', {
                     method: 'POST',
                     headers: {
-                        'api-key': process.env.BREVO_API_KEY,
+                        'api-key': brevoApiKey,
                         'content-type': 'application/json',
                         'accept': 'application/json'
                     },
