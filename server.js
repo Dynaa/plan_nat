@@ -199,12 +199,60 @@ async function initializeDatabase() {
         await db.run(usersSQL);
         console.log('✅ Table users créée');
 
+        // Table des sports (natation, vélo, course à pied, PPG/musculation...)
+        // Créée avant creneaux : celle-ci y fait référence via sport_id.
+        const sportsSQL = db.adaptSQL(
+            // SQLite
+            `CREATE TABLE IF NOT EXISTS sports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT UNIQUE NOT NULL,
+                nom TEXT NOT NULL,
+                icone TEXT DEFAULT '',
+                couleur TEXT DEFAULT '#28A0E8',
+                ordre INTEGER NOT NULL DEFAULT 0,
+                actif BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`,
+            // PostgreSQL
+            `CREATE TABLE IF NOT EXISTS sports (
+                id SERIAL PRIMARY KEY,
+                slug VARCHAR(50) UNIQUE NOT NULL,
+                nom VARCHAR(100) NOT NULL,
+                icone VARCHAR(10) DEFAULT '',
+                couleur VARCHAR(20) DEFAULT '#28A0E8',
+                ordre INTEGER NOT NULL DEFAULT 0,
+                actif BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`
+        );
+        console.log('🔧 Création table sports...');
+        await db.run(sportsSQL);
+        console.log('✅ Table sports créée');
+
+        // Sports par défaut. La natation reste le sport historique : tous les
+        // créneaux existants lui sont rattachés par la migration plus bas.
+        const sportsParDefaut = [
+            ['natation', 'Natation', '🏊', '#28A0E8', 1],
+            ['velo', 'Vélo', '🚴', '#F59E0B', 2],
+            ['course', 'Course à pied', '🏃', '#10B981', 3],
+            ['ppg', 'PPG / Musculation', '💪', '#8B5CF6', 4]
+        ];
+        const insertSportSQL = db.adaptSQL(
+            `INSERT OR IGNORE INTO sports (slug, nom, icone, couleur, ordre) VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO sports (slug, nom, icone, couleur, ordre) VALUES (?, ?, ?, ?, ?) ON CONFLICT (slug) DO NOTHING`
+        );
+        for (const sport of sportsParDefaut) {
+            await db.run(insertSportSQL, sport);
+        }
+        console.log('✅ Sports par défaut initialisés');
+
         // Table des créneaux
         const creneauxSQL = db.adaptSQL(
             // SQLite
             `CREATE TABLE IF NOT EXISTS creneaux (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nom TEXT NOT NULL,
+                sport_id INTEGER,
                 jour_semaine INTEGER NOT NULL,
                 heure_debut TEXT NOT NULL,
                 heure_fin TEXT NOT NULL,
@@ -213,12 +261,14 @@ async function initializeDatabase() {
                 licences_autorisees TEXT DEFAULT 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles',
                 public_cible TEXT DEFAULT 'les deux',
                 actif BOOLEAN DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (sport_id) REFERENCES sports (id)
             )`,
             // PostgreSQL
             `CREATE TABLE IF NOT EXISTS creneaux (
                 id SERIAL PRIMARY KEY,
                 nom VARCHAR(255) NOT NULL,
+                sport_id INTEGER REFERENCES sports (id),
                 jour_semaine INTEGER NOT NULL,
                 heure_debut VARCHAR(10) NOT NULL,
                 heure_fin VARCHAR(10) NOT NULL,
@@ -300,14 +350,26 @@ async function initializeDatabase() {
 
                 // Creneaux : public_cible
                 const checkColCreneaux = await db.get(`
-                    SELECT column_name 
-                    FROM information_schema.columns 
+                    SELECT column_name
+                    FROM information_schema.columns
                     WHERE table_name='creneaux' AND column_name='public_cible'
                 `);
                 if (!checkColCreneaux) {
                     console.log('🔄 Migration PostgreSQL en cours : Ajout public_cible dans creneaux...');
                     await db.pool.query(`ALTER TABLE creneaux ADD COLUMN public_cible VARCHAR(50) DEFAULT 'les deux';`);
                     console.log('✅ Migration PostgreSQL de public_cible (creneaux) terminée.');
+                }
+
+                // Creneaux : sport_id (multi-sports)
+                const checkColSport = await db.get(`
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name='creneaux' AND column_name='sport_id'
+                `);
+                if (!checkColSport) {
+                    console.log('🔄 Migration PostgreSQL en cours : Ajout sport_id dans creneaux...');
+                    await db.pool.query(`ALTER TABLE creneaux ADD COLUMN sport_id INTEGER REFERENCES sports (id);`);
+                    console.log('✅ Migration PostgreSQL de sport_id (creneaux) terminée.');
                 }
             } else {
                 // SQLite check inscriptions
@@ -333,6 +395,33 @@ async function initializeDatabase() {
                     console.log('🔄 Migration SQLite en cours : Ajout public_cible dans creneaux...');
                     await db.run(`ALTER TABLE creneaux ADD COLUMN public_cible TEXT DEFAULT 'les deux'`);
                     console.log('✅ Migration SQLite public_cible terminée pour creneaux.');
+                }
+
+                // SQLite : sport_id (multi-sports)
+                const hasSportId = colsCreneaux.some(c => c.name === 'sport_id');
+                if (!hasSportId) {
+                    console.log('🔄 Migration SQLite en cours : Ajout sport_id dans creneaux...');
+                    await db.run(`ALTER TABLE creneaux ADD COLUMN sport_id INTEGER REFERENCES sports (id)`);
+                    console.log('✅ Migration SQLite sport_id terminée pour creneaux.');
+                }
+            }
+
+            // Rattachement des créneaux sans sport à la natation (sport historique).
+            // Vaut pour les bases existantes comme pour toute ligne créée avant la phase multi-sports.
+            const natation = await db.get(
+                db.adaptSQL(`SELECT id FROM sports WHERE slug = ?`, `SELECT id FROM sports WHERE slug = $1`),
+                ['natation']
+            );
+            if (natation) {
+                const backfill = await db.run(
+                    db.adaptSQL(
+                        `UPDATE creneaux SET sport_id = ? WHERE sport_id IS NULL`,
+                        `UPDATE creneaux SET sport_id = $1 WHERE sport_id IS NULL`
+                    ),
+                    [natation.id]
+                );
+                if (backfill.changes > 0) {
+                    console.log(`🔄 ${backfill.changes} créneau(x) rattaché(s) à la natation`);
                 }
             }
         } catch (migrationErr) {
@@ -578,9 +667,14 @@ async function initializeDatabase() {
                 ['Samedi Matin 8h-9h', 6, '08:00', '09:00', 4, 6, 'Compétition,Loisir/Senior,Benjamins/Junior,Poussins/Pupilles', 'les deux'],
             ];
 
+            const sportNatation = await db.get(
+                db.adaptSQL(`SELECT id FROM sports WHERE slug = ?`, `SELECT id FROM sports WHERE slug = $1`),
+                ['natation']
+            );
+
             for (const [nom, jour, debut, fin, lignes, personnes, licences, cible] of creneauxTest) {
-                await db.run(`INSERT INTO creneaux (nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees, public_cible) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [nom, jour, debut, fin, lignes, personnes, licences, cible]);
+                await db.run(`INSERT INTO creneaux (nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, licences_autorisees, public_cible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [nom, sportNatation ? sportNatation.id : null, jour, debut, fin, lignes, personnes, licences, cible]);
             }
         }
 
@@ -1234,6 +1328,22 @@ function getSeanceDate(jourSemaine, offsetSemaines = 0) {
 }
 
 // Routes des créneaux
+// Liste des sports actifs (ordre d'affichage)
+app.get('/api/sports', async (req, res) => {
+    try {
+        const sports = await db.query(
+            db.adaptSQL(
+                `SELECT id, slug, nom, icone, couleur FROM sports WHERE actif = 1 ORDER BY ordre, nom`,
+                `SELECT id, slug, nom, icone, couleur FROM sports WHERE actif = true ORDER BY ordre, nom`
+            )
+        );
+        res.json(sports);
+    } catch (err) {
+        console.error('Erreur récupération des sports:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des sports' });
+    }
+});
+
 app.get('/api/creneaux', async (req, res) => {
     const userId = req.session ? req.session.userId : null;
     const offsetSemaines = parseInt(req.query.semaine || '0', 10); // 0 = cette semaine, 1 = semaine pro
@@ -1646,7 +1756,7 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
 
 // Route de création de créneaux (ADMIN)
 app.post('/api/creneaux', requireAdmin, async (req, res) => {
-    const { nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
+    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
 
     if (!nom || !jour_semaine || !heure_debut || !heure_fin || !nombre_lignes || !personnes_par_ligne) {
         return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
@@ -1658,14 +1768,25 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
     const capaciteMax = nombre_lignes * personnes_par_ligne;
 
     try {
+        // Sans sport explicite (le sélecteur arrive en phase 2), on rattache à la natation
+        let sportId = sport_id;
+        if (!sportId) {
+            const natation = await db.get(
+                db.adaptSQL(`SELECT id FROM sports WHERE slug = ?`, `SELECT id FROM sports WHERE slug = $1`),
+                ['natation']
+            );
+            sportId = natation ? natation.id : null;
+        }
+
         const sql = db.isPostgres ?
-            `INSERT INTO creneaux(nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, public_cible) 
-             VALUES($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id` :
-            `INSERT INTO creneaux(nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, public_cible) 
-             VALUES(?, ?, ?, ?, ?, ?, ?, ?)`;
+            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, public_cible)
+             VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id` :
+            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, public_cible)
+             VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         const result = await db.run(sql, [
             nom,
+            sportId,
             jour_semaine,
             heure_debut,
             heure_fin,
