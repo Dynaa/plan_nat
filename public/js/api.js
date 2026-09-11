@@ -1,6 +1,21 @@
 // Ajout d'une variable globale pour tracker la semaine sélectionnée
 let currentSemaineOffset = 0; // 0 = cette semaine, 1 = semaine pro
 
+async function loadSports() {
+    try {
+        const response = await fetch('/api/sports');
+        const data = await response.json();
+
+        if (response.ok) {
+            sports = data;
+            displaySportFilter();
+        }
+    } catch (error) {
+        // Sans la liste des sports, l'application reste utilisable sans filtre
+        console.error('Erreur lors du chargement des sports:', error);
+    }
+}
+
 async function loadCreneaux() {
     try {
         const response = await fetch(`/api/creneaux?semaine=${currentSemaineOffset}`);
@@ -8,6 +23,11 @@ async function loadCreneaux() {
 
         if (response.ok) {
             creneaux = data;
+            if (!sports.length) {
+                await loadSports();
+            } else {
+                displaySportFilter();
+            }
             displayCreneaux();
         } else {
             showMessage('Erreur lors du chargement des créneaux', 'error');

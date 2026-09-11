@@ -1,12 +1,61 @@
+// Seule la natation se décrit en lignes d'eau ; les autres sports ont une
+// capacité directe. Le formulaire s'adapte au sport choisi.
+function estSportAvecLignesEau(sportId) {
+    const sport = sports.find(s => String(s.id) === String(sportId));
+    return !!sport && sport.slug === 'natation';
+}
+
+function majChampsCapacite() {
+    const sportId = document.getElementById('creneau-sport').value;
+    const lignesEau = estSportAvecLignesEau(sportId);
+
+    const champLignes = document.getElementById('creneau-lignes');
+    const champPersonnes = document.getElementById('creneau-personnes');
+    const champCapacite = document.getElementById('creneau-capacite');
+
+    champLignes.style.display = lignesEau ? '' : 'none';
+    champPersonnes.style.display = lignesEau ? '' : 'none';
+    champCapacite.style.display = lignesEau ? 'none' : '';
+
+    champLignes.required = lignesEau;
+    champPersonnes.required = lignesEau;
+    champCapacite.required = !lignesEau && !!sportId;
+
+    // Éviter d'envoyer les valeurs du mode précédent
+    if (lignesEau) {
+        champCapacite.value = '';
+    } else {
+        champLignes.value = '';
+        champPersonnes.value = '';
+    }
+}
+
+async function remplirSelecteurSports() {
+    const select = document.getElementById('creneau-sport');
+    if (!select) return;
+
+    if (!sports.length) {
+        await loadSports();
+    }
+
+    select.innerHTML = '<option value="">Sport</option>' +
+        sports.map(s => `<option value="${s.id}">${s.icone} ${s.nom}</option>`).join('');
+
+    select.addEventListener('change', majChampsCapacite);
+    majChampsCapacite();
+}
+
 async function handleCreateCreneau(e) {
     e.preventDefault();
 
     const nom = document.getElementById('creneau-nom').value;
+    const sport_id = document.getElementById('creneau-sport').value;
     const jour_semaine = document.getElementById('creneau-jour').value;
     const heure_debut = document.getElementById('creneau-debut').value;
     const heure_fin = document.getElementById('creneau-fin').value;
     const nombre_lignes = document.getElementById('creneau-lignes').value;
     const personnes_par_ligne = document.getElementById('creneau-personnes').value;
+    const capacite_max = document.getElementById('creneau-capacite').value;
 
     const public_cible = document.getElementById('creneau-public-cible').value;
 
@@ -14,7 +63,7 @@ async function handleCreateCreneau(e) {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nom, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, public_cible })
+            body: JSON.stringify({ nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, public_cible })
         });
 
         const data = await response.json();
@@ -22,6 +71,7 @@ async function handleCreateCreneau(e) {
         if (response.ok) {
             showMessage('Créneau créé avec succès', 'success');
             document.getElementById('create-creneau-form').reset();
+            majChampsCapacite(); // Le reset vide le sport : réafficher l'état neutre
             loadAdminCreneaux();
         } else {
             showMessage(data.error, 'error');

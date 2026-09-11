@@ -9,7 +9,7 @@ test.describe('Interface / Authentification', () => {
         await page.goto('/');
 
         // Vérifier le titre de la page
-        await expect(page).toHaveTitle(/Créneaux Natation/i);
+        await expect(page).toHaveTitle(/Créneaux ACC Triathlon/i);
 
         // L'interface de connexion doit être visible par défaut
         const loginForm = page.locator('#login-form');

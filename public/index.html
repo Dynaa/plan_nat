@@ -4,14 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Créneaux Natation - ACC Triathlon</title>
+    <title>Créneaux ACC Triathlon</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="team-life-tri-simple.css">
 </head>
 
 <body>
     <header>
-        <h1>Créneaux Natation - ACC Triathlon</h1>
+        <h1>Créneaux ACC Triathlon</h1>
         <nav id="nav-menu" style="display: none;">
             <span id="user-name"></span>
             <button class="main-tab-btn admin-only" data-tab="admin"
@@ -81,7 +81,7 @@
 
             <!-- Onglet Créneaux -->
             <div id="creneaux-tab" class="tab-content active">
-                <h2>Créneaux de natation</h2>
+                <h2>Créneaux d'entraînement</h2>
 
                 <div class="week-toggle"
                     style="display: flex; gap: 1rem; margin-bottom: 1.5rem; justify-content: center;">
@@ -92,6 +92,8 @@
                         style="padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid #cbd5e0; background: white; color: #4a5568; cursor: pointer;">Semaine
                         prochaine</button>
                 </div>
+
+                <div id="sport-filter" class="sport-filter"></div>
 
                 <div id="creneaux-list"></div>
             </div>
@@ -220,6 +222,9 @@
                         <h3>Créer un nouveau créneau</h3>
                         <form id="create-creneau-form">
                             <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
+                            <select id="creneau-sport" required>
+                                <option value="">Sport</option>
+                            </select>
                             <select id="creneau-jour" required>
                                 <option value="">Jour de la semaine</option>
                                 <option value="1">Lundi</option>
@@ -232,9 +237,12 @@
                             </select>
                             <input type="time" id="creneau-debut" required>
                             <input type="time" id="creneau-fin" required>
-                            <input type="number" id="creneau-lignes" placeholder="Nombre de lignes" min="1" required>
-                            <input type="number" id="creneau-personnes" placeholder="Personnes / ligne" min="1"
-                                required>
+                            <!-- Lignes d'eau : natation uniquement -->
+                            <input type="number" id="creneau-lignes" placeholder="Nombre de lignes" min="1">
+                            <input type="number" id="creneau-personnes" placeholder="Personnes / ligne" min="1">
+                            <!-- Capacité directe : tous les autres sports -->
+                            <input type="number" id="creneau-capacite" placeholder="Capacité (nb de places)" min="1"
+                                style="display: none;">
                             <div style="grid-column: 1 / -1;">
                                 <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;"
                                     for="creneau-public-cible">Public cible :</label>

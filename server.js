@@ -1447,18 +1447,22 @@ app.get('/api/creneaux', async (req, res) => {
         }
 
         let creneauxQuery = db.isPostgres ?
-            `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom
-             FROM creneaux c 
+            `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom,
+                    s.slug as sport_slug, s.nom as sport_nom, s.icone as sport_icone, s.couleur as sport_couleur
+             FROM creneaux c
+             LEFT JOIN sports s ON c.sport_id = s.id
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
              WHERE c.actif = true${targetFilterSql}
-             ORDER BY c.jour_semaine, c.heure_debut` :
-            `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom
-             FROM creneaux c 
+             ORDER BY s.ordre, c.jour_semaine, c.heure_debut` :
+            `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom,
+                    s.slug as sport_slug, s.nom as sport_nom, s.icone as sport_icone, s.couleur as sport_couleur
+             FROM creneaux c
+             LEFT JOIN sports s ON c.sport_id = s.id
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
              WHERE c.actif = 1${targetFilterSql}
-             ORDER BY c.jour_semaine, c.heure_debut`;
+             ORDER BY s.ordre, c.jour_semaine, c.heure_debut`;
 
         let rows = await db.query(creneauxQuery, []);
 
