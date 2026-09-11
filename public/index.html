@@ -170,20 +170,8 @@
                     <!-- Section Statistiques -->
                     <div class="profile-section">
                         <h3>📊 Mes statistiques</h3>
-                        <div id="profile-stats" class="stats-grid">
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-inscriptions">-</div>
-                                <div class="stat-label">Inscriptions actives</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-seances">-</div>
-                                <div class="stat-label">Séances cette semaine</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-limite">-</div>
-                                <div class="stat-label">Limite hebdomadaire</div>
-                            </div>
-                        </div>
+                        <!-- Les cartes sont construites dynamiquement : une par discipline pratiquée -->
+                        <div id="profile-stats" class="stats-grid"></div>
                     </div>
                 </div>
             </div>
@@ -271,14 +259,20 @@
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <div>
                                     <h4 style="margin: 0 0 0.5rem 0; color: #856404;">🔄 Remise à zéro hebdomadaire</h4>
-                                    <p style="margin: 0; color: #856404; font-size: 0.9rem;">
-                                        Désinscrire tous les utilisateurs de tous les créneaux pour commencer une
-                                        nouvelle semaine
+                                    <p style="margin: 0 0 0.75rem 0; color: #856404; font-size: 0.9rem;">
+                                        Désinscrire les utilisateurs des créneaux pour commencer une nouvelle semaine
                                     </p>
+                                    <label
+                                        style="display: block; margin-bottom: 0.25rem; color: #856404; font-size: 0.85rem;"
+                                        for="reset-sport">Discipline concernée :</label>
+                                    <select id="reset-sport"
+                                        style="padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px; min-width: 220px;">
+                                        <option value="">Toutes les disciplines</option>
+                                    </select>
                                 </div>
                                 <button onclick="remiseAZeroHebdomadaire()"
                                     style="background: #dc3545; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap;">
-                                    🗑️ Vider tous les créneaux
+                                    🗑️ Vider les créneaux
                                 </button>
                             </div>
                         </div>

@@ -60,6 +60,13 @@ async function remplirSelecteurSports() {
     select.addEventListener('change', majChampsCapacite);
     document.getElementById('creneau-sans-limite').addEventListener('change', majChampsCapacite);
     majChampsCapacite();
+
+    // La remise à zéro peut cibler une discipline précise
+    const selectReset = document.getElementById('reset-sport');
+    if (selectReset) {
+        selectReset.innerHTML = '<option value="">Toutes les disciplines</option>' +
+            sports.map(s => `<option value="${s.id}">${s.icone} ${s.nom}</option>`).join('');
+    }
 }
 
 async function handleCreateCreneau(e) {
@@ -296,7 +303,7 @@ async function editerCreneau(creneauId) {
                         ${sports.map(s => `<option value="${s.id}" ${String(creneau.sport_id) === String(s.id) ? 'selected' : ''}>${s.icone} ${s.nom}</option>`).join('')}
                     </select>
                     <small style="color: #718096; font-size: 0.8rem;">
-                        Changer de sport retire le créneau de son bloc hebdomadaire, réservé à la natation.
+                        Changer de sport retire le créneau des blocs hebdomadaires d'une autre discipline.
                     </small>
                 </div>
 
@@ -725,11 +732,21 @@ async function modifierLimite(licenceType, nouvelleValeur) {
     }
 }
 async function remiseAZeroHebdomadaire() {
+    const selectSport = document.getElementById('reset-sport');
+    const sportId = selectSport ? selectSport.value : '';
+    const sportNom = sportId && selectSport
+        ? selectSport.options[selectSport.selectedIndex].textContent.trim()
+        : null;
+
+    // Le libellé suit la portée réelle : une discipline, ou toutes
+    const portee = sportNom ? `des créneaux de ${sportNom}` : 'de TOUS les créneaux';
+    const motAttendu = sportNom ? 'VIDER' : 'VIDER TOUT';
+
     const confirmation = confirm(
         '⚠️ ATTENTION - REMISE À ZÉRO HEBDOMADAIRE ⚠️\n\n' +
         'Cette action va :\n' +
-        '• Désinscrire TOUS les utilisateurs de TOUS les créneaux\n' +
-        '• Vider toutes les listes d\'attente\n' +
+        `• Désinscrire tous les utilisateurs ${portee}\n` +
+        '• Vider les listes d\'attente correspondantes\n' +
         '• Remettre les compteurs à zéro\n\n' +
         'Cette action est IRRÉVERSIBLE !\n\n' +
         'Êtes-vous absolument sûr de vouloir continuer ?'
@@ -740,18 +757,18 @@ async function remiseAZeroHebdomadaire() {
     // Double confirmation pour éviter les erreurs
     const doubleConfirmation = confirm(
         'DERNIÈRE CONFIRMATION\n\n' +
-        'Vous allez supprimer TOUTES les inscriptions de TOUS les créneaux.\n' +
-        'Tous les utilisateurs devront se réinscrire.\n\n' +
-        'Tapez "VIDER TOUT" dans la prochaine boîte de dialogue pour procéder.'
+        `Vous allez supprimer toutes les inscriptions ${portee}.\n` +
+        'Les utilisateurs concernés devront se réinscrire.\n\n' +
+        `Tapez "${motAttendu}" dans la prochaine boîte de dialogue pour procéder.`
     );
 
     if (!doubleConfirmation) return;
 
     const motConfirmation = prompt(
-        'Pour confirmer définitivement, tapez exactement : VIDER TOUT'
+        `Pour confirmer définitivement, tapez exactement : ${motAttendu}`
     );
 
-    if (motConfirmation !== 'VIDER TOUT') {
+    if (motConfirmation !== motAttendu) {
         showMessage('Remise à zéro annulée - mot de confirmation incorrect', 'error');
         return;
     }
@@ -761,17 +778,14 @@ async function remiseAZeroHebdomadaire() {
 
         const response = await fetch('/api/admin/reset-weekly', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sportId ? { sport_id: sportId } : {})
         });
 
         const data = await response.json();
 
         if (response.ok) {
-            showMessage(
-                `✅ Remise à zéro réussie ! ${data.inscriptionsSupprimes} inscription(s) supprimée(s). ` +
-                `Tous les créneaux sont maintenant vides.`,
-                'success'
-            );
+            showMessage(`✅ ${data.message}`, 'success');
 
             // Recharger toutes les listes pour refléter les changements
             loadAdminCreneaux();

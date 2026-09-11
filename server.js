@@ -1254,7 +1254,7 @@ const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
                 
                 <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
                 <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-                    Club de Triathlon - Gestion des créneaux de natation
+                    ACC Triathlon - Gestion des créneaux
                 </p>
             </div>
         `;
@@ -1599,7 +1599,7 @@ app.post('/api/forgot-password', async (req, res) => {
 
                 <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
                 <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-                    ACC Triathlon - Gestion des créneaux de natation
+                    ACC Triathlon - Gestion des créneaux
                 </p>
             </div>
         `;
@@ -1950,11 +1950,13 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
     const userId = req.session.userId;
 
     const query = `
-        SELECT i.*, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin
+        SELECT i.*, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.sport_id,
+               s.nom as sport_nom, s.icone as sport_icone, s.couleur as sport_couleur
         FROM inscriptions i
         JOIN creneaux c ON i.creneau_id = c.id
+        LEFT JOIN sports s ON c.sport_id = s.id
         WHERE i.user_id = ${db.isPostgres ? '$1' : '?'}
-        ORDER BY CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut
+        ORDER BY s.ordre, CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut
             `;
 
     console.log('Requête mes-inscriptions pour userId:', userId);
@@ -3639,31 +3641,49 @@ app.put('/api/admin/licence-limits/:licenceType', requireAdmin, async (req, res)
 
 // Route de remise à zéro hebdomadaire (ADMIN)
 app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
-    console.log('🔄 Début de la remise à zéro hebdomadaire par admin:', req.session.userId);
+    // Sans sport précisé, la remise à zéro porte sur toutes les disciplines
+    const { sport_id } = req.body || {};
+
+    console.log('🔄 Début de la remise à zéro hebdomadaire par admin:', req.session.userId, sport_id ? `(sport ${sport_id})` : '(tous sports)');
 
     try {
-        // Compter le nombre d'inscriptions avant suppression
-        const countSql = `SELECT COUNT(*) as total FROM inscriptions`;
-        const countResult = await db.get(countSql, []);
+        let sportNom = null;
+        if (sport_id) {
+            const sport = await db.get(
+                db.adaptSQL(`SELECT nom FROM sports WHERE id = ?`, `SELECT nom FROM sports WHERE id = $1`),
+                [sport_id]
+            );
+            if (!sport) {
+                return res.status(404).json({ error: 'Sport non trouvé' });
+            }
+            sportNom = sport.nom;
+        }
+
+        const filtreSport = sport_id
+            ? ` WHERE creneau_id IN (SELECT id FROM creneaux WHERE sport_id = ${db.isPostgres ? '$1' : '?'})`
+            : '';
+        const params = sport_id ? [sport_id] : [];
+
+        const countResult = await db.get(`SELECT COUNT(*) as total FROM inscriptions${filtreSport}`, params);
         const inscriptionsAvant = countResult.total || 0;
 
         console.log(`📊 Inscriptions à supprimer: ${inscriptionsAvant}`);
 
-        // Supprimer toutes les inscriptions de tous les créneaux
-        const deleteSql = `DELETE FROM inscriptions`;
-        await db.run(deleteSql, []);
+        await db.run(`DELETE FROM inscriptions${filtreSport}`, params);
 
-        // Vérifier que toutes les inscriptions ont été supprimées
-        const verificationResult = await db.get(countSql, []);
+        const verificationResult = await db.get(`SELECT COUNT(*) as total FROM inscriptions${filtreSport}`, params);
         const inscriptionsApres = verificationResult.total || 0;
 
         console.log(`✅ Remise à zéro terminée: ${inscriptionsAvant} inscription(s) supprimée(s), ${inscriptionsApres} restante(s)`);
 
         // Log de sécurité
-        console.log(`🔒 Remise à zéro hebdomadaire effectuée par l'admin ${req.session.userId} le ${new Date().toISOString()}`);
+        console.log(`🔒 Remise à zéro hebdomadaire (${sportNom || 'tous sports'}) effectuée par l'admin ${req.session.userId} le ${new Date().toISOString()}`);
 
         res.json({
-            message: 'Remise à zéro hebdomadaire réussie',
+            message: sportNom
+                ? `Remise à zéro réussie pour ${sportNom} : ${inscriptionsAvant} inscription(s) supprimée(s)`
+                : `Remise à zéro hebdomadaire réussie : ${inscriptionsAvant} inscription(s) supprimée(s)`,
+            sport: sportNom,
             inscriptionsSupprimes: inscriptionsAvant,
             inscriptionsRestantes: inscriptionsApres
         });
