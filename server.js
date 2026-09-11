@@ -1822,7 +1822,7 @@ app.get('/api/creneaux', async (req, res) => {
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
              WHERE c.actif = true${targetFilterSql}
-             ORDER BY s.ordre, c.jour_semaine, c.heure_debut` :
+             ORDER BY s.ordre, CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut` :
             `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom,
                     s.slug as sport_slug, s.nom as sport_nom, s.icone as sport_icone, s.couleur as sport_couleur
              FROM creneaux c
@@ -1830,7 +1830,7 @@ app.get('/api/creneaux', async (req, res) => {
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
              WHERE c.actif = 1${targetFilterSql}
-             ORDER BY s.ordre, c.jour_semaine, c.heure_debut`;
+             ORDER BY s.ordre, CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut`;
 
         let rows = await db.query(creneauxQuery, []);
 
@@ -1954,7 +1954,7 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
         FROM inscriptions i
         JOIN creneaux c ON i.creneau_id = c.id
         WHERE i.user_id = ${db.isPostgres ? '$1' : '?'}
-        ORDER BY c.jour_semaine, c.heure_debut
+        ORDER BY CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut
             `;
 
     console.log('Requête mes-inscriptions pour userId:', userId);
@@ -2846,10 +2846,10 @@ app.get('/api/admin/blocs', requireAdmin, async (req, res) => {
             const creneauxSql = db.isPostgres ?
                 `SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max
                  FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id
-                 WHERE bc.bloc_id = $1 ORDER BY c.jour_semaine, c.heure_debut` :
+                 WHERE bc.bloc_id = $1 ORDER BY CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut` :
                 `SELECT c.id, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max
                  FROM creneaux c JOIN bloc_creneaux bc ON c.id = bc.creneau_id
-                 WHERE bc.bloc_id = ? ORDER BY c.jour_semaine, c.heure_debut`;
+                 WHERE bc.bloc_id = ? ORDER BY CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut`;
             bloc.creneaux = await db.query(creneauxSql, [bloc.id]);
             bloc.nb_creneaux = bloc.creneaux.length;
         }
@@ -3031,7 +3031,7 @@ app.get('/api/admin/creneaux-sans-bloc', requireAdmin, async (req, res) => {
             FROM creneaux c
             WHERE c.id NOT IN (SELECT creneau_id FROM bloc_creneaux)
             AND c.actif = ${db.isPostgres ? 'true' : '1'}
-            ORDER BY c.jour_semaine, c.heure_debut
+            ORDER BY CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut
         `;
         const rows = await db.query(sql, []);
         res.json(rows);
