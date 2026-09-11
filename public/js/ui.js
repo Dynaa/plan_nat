@@ -221,9 +221,12 @@ function displayCreneaux() {
 
     container.innerHTML = creneauxAffiches.map(creneau => {
         const capaciteMax = creneau.capacite_max || (creneau.nombre_lignes * creneau.personnes_par_ligne);
-        const disponible = creneau.inscrits < capaciteMax;
+        // Une sortie sans limite de places n'est jamais complète
+        const sansLimite = creneau.sans_limite === true || creneau.sans_limite === 1;
+        const disponible = sansLimite || creneau.inscrits < capaciteMax;
         const statusClass = disponible ? 'available' : 'full';
-        const statusText = disponible ? 'Places disponibles' : 'Complet';
+        const statusText = sansLimite ? 'Sans limite de places'
+            : disponible ? 'Places disponibles' : 'Complet';
 
         // Formater l'affichage du public cible
         const publicCibleText = creneau.public_cible === 'jeune' ? '🧒 Jeunes uniquement' :
@@ -257,7 +260,7 @@ function displayCreneaux() {
         const btnDisabled = blocqueParBloc || estPasse;
         const btnLabel = estPasse ? 'Terminé'
             : blocqueParBloc ? 'Bloc déjà utilisé'
-                : disponible ? 'S\'inscrire' : 'Liste d\'attente';
+                : (sansLimite || disponible) ? 'S\'inscrire' : 'Liste d\'attente';
 
         return `
             <div class="creneau-card ${estPasse ? 'passe' : ''}" style="border-left: 4px solid ${couleurSport};">
@@ -275,7 +278,7 @@ function displayCreneaux() {
                 </div>
                 <div class="creneau-status">
                     <div class="capacite ${statusClass}">
-                        ${creneau.inscrits}/${capaciteMax} inscrits
+                        ${sansLimite ? `${creneau.inscrits} inscrit(s)` : `${creneau.inscrits}/${capaciteMax} inscrits`}
                         ${lignesTooltip ? `<span style="color:#718096;font-size:0.75rem;"> (${lignesTooltip})</span>` : ''}
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
@@ -409,7 +412,9 @@ function displayAdminCreneaux(creneaux) {
                 </div>
                 <div class="creneau-status">
                     <div class="capacite">
-                        ${creneau.inscrits}/${creneau.capacite_max} inscrits
+                        ${(creneau.sans_limite === true || creneau.sans_limite === 1)
+                ? `${creneau.inscrits} inscrit(s) • sans limite`
+                : `${creneau.inscrits}/${creneau.capacite_max} inscrits`}
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">

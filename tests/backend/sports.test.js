@@ -208,5 +208,72 @@ describe('Multi-sports (phase 0)', () => {
             expect(res.status).toBe(400);
             expect(res.body.error).toContain('capacité');
         });
+
+        it('devrait accepter un créneau sans limite même sans capacité résolue', async () => {
+            db.get.mockResolvedValueOnce({ capacite_defaut: null });
+            db.run.mockResolvedValueOnce({ lastID: 6 });
+
+            const res = await request(app)
+                .post('/api/creneaux')
+                .send({ ...base, sport_id: 2, sans_limite: true });
+
+            expect(res.status).toBe(200);
+            const [, params] = db.run.mock.calls[0];
+            expect(params[8]).toBe(true); // sans_limite
+        });
+    });
+
+    describe('PUT /api/creneaux/:id — changement de sport', () => {
+
+        const modif = {
+            nom: 'Créneau modifié',
+            jour_semaine: 1,
+            heure_debut: '07:00',
+            heure_fin: '08:00'
+        };
+
+        it('devrait changer le sport et retirer le créneau de son bloc', async () => {
+            db.get
+                .mockResolvedValueOnce({ sport_id: 1 })        // créneau existant (natation)
+                .mockResolvedValueOnce({ capacite_defaut: 50 }) // capacité par défaut du nouveau sport
+                .mockResolvedValueOnce({ slug: 'course' });     // sport après mise à jour
+            db.run
+                .mockResolvedValueOnce({ changes: 1 })  // UPDATE creneaux
+                .mockResolvedValueOnce({ changes: 1 }); // DELETE bloc_creneaux
+
+            const res = await request(app)
+                .put('/api/creneaux/3')
+                .send({ ...modif, sport_id: 3 });
+
+            expect(res.status).toBe(200);
+            expect(res.body.message).toContain('retiré de son bloc');
+
+            const sqlAppels = db.run.mock.calls.map(c => c[0]);
+            expect(sqlAppels.some(sql => sql.includes('DELETE FROM bloc_creneaux'))).toBe(true);
+        });
+
+        it('devrait laisser le bloc intact si le créneau reste en natation', async () => {
+            // Les lignes d'eau suffisent : la capacité par défaut du sport n'est pas consultée
+            db.get.mockResolvedValueOnce({ sport_id: 1 });
+            db.run.mockResolvedValueOnce({ changes: 1 });
+
+            const res = await request(app)
+                .put('/api/creneaux/3')
+                .send({ ...modif, sport_id: 1, nombre_lignes: 2, personnes_par_ligne: 6 });
+
+            expect(res.status).toBe(200);
+            expect(res.body.message).not.toContain('retiré de son bloc');
+
+            const sqlAppels = db.run.mock.calls.map(c => c[0]);
+            expect(sqlAppels.some(sql => sql.includes('DELETE FROM bloc_creneaux'))).toBe(false);
+        });
+
+        it('devrait renvoyer 404 pour un créneau inexistant', async () => {
+            db.get.mockResolvedValueOnce(null);
+
+            const res = await request(app).put('/api/creneaux/999').send(modif);
+
+            expect(res.status).toBe(404);
+        });
     });
 });

@@ -12,10 +12,16 @@ function majChampsCapacite() {
     const champLignes = document.getElementById('creneau-lignes');
     const champPersonnes = document.getElementById('creneau-personnes');
     const champCapacite = document.getElementById('creneau-capacite');
+    const labelSansLimite = document.getElementById('creneau-sans-limite-label');
+    const caseSansLimite = document.getElementById('creneau-sans-limite');
 
     champLignes.style.display = lignesEau ? '' : 'none';
     champPersonnes.style.display = lignesEau ? '' : 'none';
     champCapacite.style.display = lignesEau ? 'none' : '';
+
+    // « Sans limite » n'a de sens que hors natation : une ligne d'eau a toujours une capacité
+    labelSansLimite.style.display = lignesEau || !sportId ? 'none' : 'flex';
+    if (lignesEau) caseSansLimite.checked = false;
 
     // La capacité reste facultative hors natation : le sport fournit une valeur par défaut
     champLignes.required = lignesEau;
@@ -26,6 +32,10 @@ function majChampsCapacite() {
     champCapacite.placeholder = sport && sport.capacite_defaut
         ? `Capacité (par défaut : ${sport.capacite_defaut})`
         : 'Capacité (nb de places)';
+
+    // La capacité n'a plus d'objet quand le créneau est sans limite
+    champCapacite.disabled = caseSansLimite.checked;
+    if (caseSansLimite.checked) champCapacite.value = '';
 
     // Éviter d'envoyer les valeurs du mode précédent
     if (lignesEau) {
@@ -48,6 +58,7 @@ async function remplirSelecteurSports() {
         sports.map(s => `<option value="${s.id}">${s.icone} ${s.nom}</option>`).join('');
 
     select.addEventListener('change', majChampsCapacite);
+    document.getElementById('creneau-sans-limite').addEventListener('change', majChampsCapacite);
     majChampsCapacite();
 }
 
@@ -62,6 +73,7 @@ async function handleCreateCreneau(e) {
     const nombre_lignes = document.getElementById('creneau-lignes').value;
     const personnes_par_ligne = document.getElementById('creneau-personnes').value;
     const capacite_max = document.getElementById('creneau-capacite').value;
+    const sans_limite = document.getElementById('creneau-sans-limite').checked;
 
     const public_cible = document.getElementById('creneau-public-cible').value;
 
@@ -69,7 +81,7 @@ async function handleCreateCreneau(e) {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, public_cible })
+            body: JSON.stringify({ nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, public_cible })
         });
 
         const data = await response.json();
@@ -274,10 +286,20 @@ async function editerCreneau(creneauId) {
             <form id="edit-creneau-form">
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nom du créneau</label>
-                    <input type="text" id="edit-nom" value="${creneau.nom}" required 
+                    <input type="text" id="edit-nom" value="${creneau.nom}" required
                            style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
                 </div>
-                
+
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Sport</label>
+                    <select id="edit-sport" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                        ${sports.map(s => `<option value="${s.id}" ${String(creneau.sport_id) === String(s.id) ? 'selected' : ''}>${s.icone} ${s.nom}</option>`).join('')}
+                    </select>
+                    <small style="color: #718096; font-size: 0.8rem;">
+                        Changer de sport retire le créneau de son bloc hebdomadaire, réservé à la natation.
+                    </small>
+                </div>
+
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Jour de la semaine</label>
                     <select id="edit-jour" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
@@ -304,20 +326,33 @@ async function editerCreneau(creneauId) {
                     </div>
                 </div>
                 
-                <div style="margin-bottom: 1.5rem;">
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nombre de lignes</label>
-                    <input type="number" id="edit-lignes" value="${creneau.nombre_lignes || 2}" min="1" required 
-                           style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                <div id="edit-bloc-lignes">
+                    <div style="margin-bottom: 1.5rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Nombre de lignes</label>
+                        <input type="number" id="edit-lignes" value="${creneau.nombre_lignes || 2}" min="1"
+                               style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                    </div>
+                    <div style="margin-bottom: 1.5rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Personnes par ligne</label>
+                        <input type="number" id="edit-personnes" value="${creneau.personnes_par_ligne || 6}" min="1"
+                               style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
+                        <small style="color: #718096; font-size: 0.8rem;">
+                            Capacité totale = lignes × personnes/ligne
+                        </small>
+                    </div>
                 </div>
-                <div style="margin-bottom: 1.5rem;">
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Personnes par ligne</label>
-                    <input type="number" id="edit-personnes" value="${creneau.personnes_par_ligne || 6}" min="1" required 
+
+                <div id="edit-bloc-capacite" style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Capacité (nb de places)</label>
+                    <input type="number" id="edit-capacite" value="${creneau.capacite_max || ''}" min="1"
                            style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
-                    <small style="color: #718096; font-size: 0.8rem;">
-                        Capacité totale = lignes × personnes/ligne = ${(creneau.nombre_lignes || 2) * (creneau.personnes_par_ligne || 6)} places
-                    </small>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; font-size: 0.9rem; color: #4a5568;">
+                        <input type="checkbox" id="edit-sans-limite" style="width: auto;"
+                               ${(creneau.sans_limite === true || creneau.sans_limite === 1) ? 'checked' : ''}>
+                        Sans limite de places
+                    </label>
                 </div>
-                
+
                 <div style="margin-bottom: 1.5rem;">
                     <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;" for="edit-public-cible">Public cible :</label>
                     <select id="edit-public-cible" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px;">
@@ -344,19 +379,44 @@ async function editerCreneau(creneauId) {
         modal.appendChild(content);
         document.body.appendChild(modal);
 
+        // Le formulaire suit le sport sélectionné, comme à la création
+        const selectSport = document.getElementById('edit-sport');
+        const caseSansLimiteEdit = document.getElementById('edit-sans-limite');
+
+        const majChampsEdition = () => {
+            const lignesEau = estSportAvecLignesEau(selectSport.value);
+            document.getElementById('edit-bloc-lignes').style.display = lignesEau ? '' : 'none';
+            document.getElementById('edit-bloc-capacite').style.display = lignesEau ? 'none' : '';
+
+            const champCap = document.getElementById('edit-capacite');
+            champCap.disabled = caseSansLimiteEdit.checked;
+            if (caseSansLimiteEdit.checked) champCap.value = '';
+
+            if (lignesEau) caseSansLimiteEdit.checked = false;
+        };
+
+        selectSport.addEventListener('change', majChampsEdition);
+        caseSansLimiteEdit.addEventListener('change', majChampsEdition);
+        majChampsEdition();
+
         // Gérer la soumission du formulaire
         document.getElementById('edit-creneau-form').addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const public_cible = document.getElementById('edit-public-cible').value;
+            const lignesEau = estSportAvecLignesEau(selectSport.value);
 
             const formData = {
                 nom: document.getElementById('edit-nom').value,
+                sport_id: selectSport.value,
                 jour_semaine: document.getElementById('edit-jour').value,
                 heure_debut: document.getElementById('edit-debut').value,
                 heure_fin: document.getElementById('edit-fin').value,
-                nombre_lignes: parseInt(document.getElementById('edit-lignes').value),
-                personnes_par_ligne: parseInt(document.getElementById('edit-personnes').value),
+                // Les lignes d'eau ne sont transmises que pour la natation
+                nombre_lignes: lignesEau ? parseInt(document.getElementById('edit-lignes').value) : null,
+                personnes_par_ligne: lignesEau ? parseInt(document.getElementById('edit-personnes').value) : null,
+                capacite_max: lignesEau ? null : document.getElementById('edit-capacite').value,
+                sans_limite: caseSansLimiteEdit.checked,
                 public_cible: public_cible
             };
 
