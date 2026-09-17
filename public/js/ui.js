@@ -231,6 +231,8 @@ function displayCreneaux() {
         const capaciteMax = creneau.capacite_max || (creneau.nombre_lignes * creneau.personnes_par_ligne);
         // Une sortie sans limite de places n'est jamais complète
         const sansLimite = creneau.sans_limite === true || creneau.sans_limite === 1;
+        // Séance annulée par le club : affichée barrée, sans inscription possible
+        const annulee = creneau.annulee === true;
         const disponible = sansLimite || creneau.inscrits < capaciteMax;
         const statusClass = disponible ? 'available' : 'full';
         const statusText = sansLimite ? 'Sans limite de places'
@@ -265,16 +267,19 @@ function displayCreneaux() {
         const dateStr = dateObj.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
         const estPasse = creneau.est_passe;
 
-        const btnDisabled = blocqueParBloc || estPasse;
-        const btnLabel = estPasse ? 'Terminé'
+        const btnDisabled = annulee || blocqueParBloc || estPasse;
+        const btnLabel = annulee ? 'Annulée'
+            : estPasse ? 'Terminé'
             : blocqueParBloc ? 'Bloc déjà utilisé'
                 : (sansLimite || disponible) ? 'S\'inscrire' : 'Liste d\'attente';
 
         return `
-            <div class="creneau-card ${estPasse ? 'passe' : ''}" style="border-left: 4px solid ${couleurSport};">
+            <div class="creneau-card ${estPasse ? 'passe' : ''} ${annulee ? 'annulee' : ''}" style="border-left: 4px solid ${couleurSport};">
                 <div class="creneau-info">
                     <div style="margin-bottom: 0.35rem;">${sportBadge}</div>
-                    <h3>${creneau.nom}</h3>
+                    <h3>${annulee
+                ? `<s>${creneau.nom}</s> <span class="badge-annulee">Annulée</span>`
+                : creneau.nom}</h3>
                     <div class="creneau-details">
                         <div>${joursMap[creneau.jour_semaine]} ${dateStr} • ${creneau.heure_debut} - ${creneau.heure_fin}</div>
                         ${creneau.lieu ? `<div style="color:#4a5568;font-size:0.85rem;margin-top:0.2rem;">📍 ${creneau.lieu}</div>` : ''}
@@ -291,9 +296,9 @@ function displayCreneaux() {
                         ${lignesTooltip ? `<span style="color:#718096;font-size:0.75rem;"> (${lignesTooltip})</span>` : ''}
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
-                    <div>${statusText}</div>
+                    <div>${annulee ? '❌ Séance annulée par le club' : statusText}</div>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <button onclick="voirInscritsPublic(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', '${creneau.date_seance}')" class="btn-warning" ${creneau.inscrits === 0 && creneau.en_attente === 0 ? 'style="display:none;"' : ''}>
+                        <button onclick="voirInscritsPublic(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', '${creneau.date_seance}')" class="btn-warning" ${annulee || (creneau.inscrits === 0 && creneau.en_attente === 0) ? 'style="display:none;"' : ''}>
                             👥 Voir inscrits
                         </button>
                         <button onclick="inscrireCreneau(${creneau.id})" 

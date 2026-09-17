@@ -433,12 +433,16 @@ describe('vues du membre', () => {
         expect((await request(app).get('/api/seances/999999/inscrits')).status).toBe(404);
     });
 
-    it('remet à zéro les inscriptions d\'un seul sport', async () => {
-        const nat = await seanceDe(await creerCreneau({ jour_semaine: 1 }), 1);
-        const vel = await seanceDe(await creerCreneau({ jour_semaine: 2, sport_id: velo }), 1);
+    it("remet à zéro la semaine en cours d'un seul sport, sans toucher aux semaines suivantes", async () => {
+        // Dimanche : toujours à venir dans la semaine en cours
+        const nat = await seanceDe(await creerCreneau({ jour_semaine: 0 }), 0);
+        const creneauVelo = await creerCreneau({ jour_semaine: 0, sport_id: velo, heure_debut: '14:00' });
+        const vel = await seanceDe(creneauVelo, 0);
+        const velSuivante = await seanceDe(creneauVelo, 1);
         connecter(anne);
-        await request(app).post('/api/inscriptions').send({ seanceId: nat.id });
-        await request(app).post('/api/inscriptions').send({ seanceId: vel.id });
+        for (const seance of [nat, vel, velSuivante]) {
+            await request(app).post('/api/inscriptions').send({ seanceId: seance.id });
+        }
         connecter(admin);
 
         const res = await request(app).post('/api/admin/reset-weekly').send({ sport_id: velo });
@@ -446,5 +450,6 @@ describe('vues du membre', () => {
         expect(res.body.inscriptionsSupprimes).toBe(1);
         expect(await inscriptionsDe(nat.id)).toHaveLength(1);
         expect(await inscriptionsDe(vel.id)).toHaveLength(0);
+        expect(await inscriptionsDe(velSuivante.id)).toHaveLength(1);
     });
 });

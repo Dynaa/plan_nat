@@ -29,6 +29,10 @@ jest.mock('express-session', () => {
 });
 
 const app = require('../../server');
+const seances = require('../../services/seances');
+
+// Fin de la semaine en cours : les semaines suivantes ne sont pas vidées
+const finSemaine = () => seances.ajouterJours(seances.lundiDeLaSemaine(0), 6);
 
 describe('Remise à zéro hebdomadaire par discipline (phase 4)', () => {
     let db;
@@ -54,11 +58,12 @@ describe('Remise à zéro hebdomadaire par discipline (phase 4)', () => {
         expect(res.body.inscriptionsSupprimes).toBe(12);
         expect(res.body.sport).toBeNull();
 
-        // Aucun filtre de sport dans la suppression.
+        // Aucun filtre de sport, seulement la limite de la semaine en cours.
         // (l'initialisation de la base a déjà utilisé db.run : on cible la requête)
         const suppression = db.run.mock.calls.find(c => c[0].startsWith('DELETE FROM inscriptions'));
         expect(suppression).toBeDefined();
-        expect(suppression[0]).toBe('DELETE FROM inscriptions');
+        expect(suppression[0]).toBe('DELETE FROM inscriptions WHERE seance_id IN (SELECT id FROM seances WHERE date_seance <= ?)');
+        expect(suppression[1]).toEqual([finSemaine()]);
     });
 
     it('devrait ne vider que la discipline demandée', async () => {
@@ -79,8 +84,8 @@ describe('Remise à zéro hebdomadaire par discipline (phase 4)', () => {
         const suppression = db.run.mock.calls.find(c => c[0].startsWith('DELETE FROM inscriptions'));
         expect(suppression).toBeDefined();
         expect(suppression[0]).toContain('WHERE seance_id IN');
-        expect(suppression[0]).toContain('sport_id');
-        expect(suppression[1]).toEqual([2]);
+        expect(suppression[0]).toContain('AND sport_id = ?');
+        expect(suppression[1]).toEqual([finSemaine(), 2]);
     });
 
     it('devrait refuser un sport inconnu sans rien supprimer', async () => {

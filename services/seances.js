@@ -69,6 +69,49 @@ const ajouterColonne = async (db, table, colonne, type) => {
     console.log(`🔄 Colonne ${table}.${colonne} ajoutée`);
 };
 
+// Retire la contrainte NOT NULL de `creneau_id`. SQLite ne sait pas modifier
+// une colonne : la table est reconstruite à l'identique, contrainte en moins
+// (et références à l'ancienne table « creneaux_old » corrigées au passage).
+const rendreCreneauFacultatif = async (db, table) => {
+    if (db.isPostgres) {
+        await db.run(`ALTER TABLE ${table} ALTER COLUMN creneau_id DROP NOT NULL`);
+        return;
+    }
+
+    const colonnes = await db.query(`PRAGMA table_info(${table})`);
+    const colonne = colonnes.find(c => c.name === 'creneau_id');
+    if (!colonne || !colonne.notnull) return;
+
+    const { sql } = await db.get(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, [table]);
+    const nouvelleDefinition = sql
+        .replace(/creneau_id\s+INTEGER\s+NOT\s+NULL/i, 'creneau_id INTEGER')
+        .replace(/"creneaux_old"/g, 'creneaux');
+    if (nouvelleDefinition === sql) {
+        console.warn(`⚠️ ${table}.creneau_id : définition inattendue, contrainte NOT NULL conservée`);
+        return;
+    }
+
+    const index = await db.query(
+        `SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL`,
+        [table]
+    );
+    const liste = colonnes.map(c => c.name).join(', ');
+
+    await db.run('BEGIN');
+    try {
+        await db.run(`ALTER TABLE ${table} RENAME TO ${table}_reconstruction`);
+        await db.run(nouvelleDefinition);
+        await db.run(`INSERT INTO ${table} (${liste}) SELECT ${liste} FROM ${table}_reconstruction`);
+        await db.run(`DROP TABLE ${table}_reconstruction`);
+        for (const { sql: creation } of index) await db.run(creation);
+        await db.run('COMMIT');
+        console.log(`🔄 ${table}.creneau_id rendu facultatif`);
+    } catch (err) {
+        await db.run('ROLLBACK');
+        throw err;
+    }
+};
+
 // Crée la table des séances et y rattache l'existant. Idempotent : sans effet
 // quand tout est déjà en place. Les colonnes creneau_id et date_seance des
 // inscriptions restent renseignées, si bien qu'une version antérieure de
@@ -122,6 +165,10 @@ const migrer = async (db) => {
     await ajouterColonne(db, 'inscriptions', 'seance_id', 'INTEGER REFERENCES seances (id)');
     await db.run(`CREATE INDEX IF NOT EXISTS idx_inscriptions_seance ON inscriptions (seance_id)`);
     await db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_inscriptions_user_seance ON inscriptions (user_id, seance_id)`);
+
+    // Les séances ponctuelles n'ont pas de créneau
+    await rendreCreneauFacultatif(db, 'inscriptions');
+    await rendreCreneauFacultatif(db, 'waitlist_tokens');
 
     // La date manquait aux jetons de liste d'attente : leur création échouait
     await ajouterColonne(db, 'waitlist_tokens', 'date_seance', db.isPostgres ? 'DATE' : 'TEXT');
@@ -247,13 +294,18 @@ const SELECT_SEANCE = `
     FROM seances s
     LEFT JOIN sports sp ON sp.id = s.sport_id`;
 
-// Séances d'une période, avec leur remplissage et leur éventuel bloc
+// Séances d'une période, avec leur remplissage et leur éventuel bloc.
+// `inclureAnnulees` : false (aucune), true (toutes) ou 'admin' (seulement
+// celles annulées par un admin, que les membres voient barrées ; les séances
+// retirées par un changement de semaine type restent masquées).
 const listerSeances = async (db, { debut, fin, publicCible = null, inclureAnnulees = false }) => {
     const filtres = [];
     if (publicCible === 'jeune' || publicCible === 'adulte') {
         filtres.push(`AND s.public_cible IN ('${publicCible}', 'les deux')`);
     }
-    if (!inclureAnnulees) {
+    if (inclureAnnulees === 'admin') {
+        filtres.push(`AND (s.annulee = false OR s.motif_annulation = 'admin')`);
+    } else if (!inclureAnnulees) {
         filtres.push('AND s.annulee = false');
     }
 
