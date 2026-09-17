@@ -129,6 +129,17 @@ const connexion = async (email, password) => {
     const remise = await admin.put(`/api/admin/semaines-types/${standard.id}/defaut`);
     verifier('rétablissement du défaut', remise.status === 200, remise.body);
 
+    // Bibliothèque : créneaux partagés et sélection d'une semaine type
+    const bibliotheque = await admin.get('/api/creneaux');
+    verifier('bibliothèque avec les semaines types de chaque créneau',
+        bibliotheque.status === 200 && bibliotheque.body.every(cr => Array.isArray(cr.semaines_types)), bibliotheque.body[0]);
+    const partages = [...new Set(bibliotheque.body.filter(cr => cr.semaines_types.some(t => t.id === copieId)).map(cr => cr.id))];
+    verifier('duplication : créneaux partagés, pas recopiés', partages.length === copie.body.semaine_type.nb_creneaux, partages.length);
+    const apercuSelection = await admin.put(`/api/admin/semaines-types/${copieId}/creneaux`).send({ creneau_ids: [], simulation: true });
+    verifier('aperçu d\'une nouvelle sélection', apercuSelection.status === 200 && Array.isArray(apercuSelection.body.semaines), apercuSelection.body);
+    const selection = await admin.put(`/api/admin/semaines-types/${copieId}/creneaux`).send({ creneau_ids: partages.slice(0, 1) });
+    verifier('enregistrement d\'une sélection', selection.status === 200, selection.body);
+
     // Ajustements séance par séance : ponctuelle, modification, annulation, rétablissement
     const stage = await admin.post('/api/admin/seances').send({
         nom: 'Stage (vérification)', sport_id: seance.sport_id, date_seance: seances.dateDuJour(lundi1, 6),

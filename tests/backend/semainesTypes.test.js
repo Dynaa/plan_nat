@@ -1,5 +1,6 @@
-// Semaines types : parcours complets sur le vrai serveur et une base SQLite
-// en mémoire. Seuls la session et l'envoi d'emails sont simulés.
+// Semaines types et bibliothèque de créneaux partagés : parcours complets
+// sur le vrai serveur et une base SQLite en mémoire. Seuls la session et
+// l'envoi d'emails sont simulés.
 const request = require('supertest');
 
 jest.mock('nodemailer', () => ({
@@ -25,7 +26,7 @@ const semainesTypes = require('../../services/semainesTypes');
 
 const db = app.locals.db;
 let natation, velo, standard;
-let admin, anne, bruno;
+let admin, anne, bruno, chloe;
 
 const LUNDI_1 = () => seances.lundiDeLaSemaine(1);
 const LUNDI_2 = () => seances.lundiDeLaSemaine(2);
@@ -45,15 +46,19 @@ const creerMembre = async (email) => {
 
 const creerType = async (nom) => (await db.run(`INSERT INTO semaines_types (nom, par_defaut) VALUES (?, 0)`, [nom])).lastID;
 
-const creerCreneau = async (typeId, champs = {}) => {
+// Créneau de la bibliothèque, sélectionné par les semaines types indiquées
+const creerCreneau = async (typeIds, champs = {}) => {
     const c = { nom: 'Créneau', sport_id: natation, jour_semaine: 1, heure_debut: '07:00', heure_fin: '08:00',
         capacite_max: 5, ...champs };
-    const res = await db.run(
+    const id = (await db.run(
         `INSERT INTO creneaux (nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, public_cible, semaine_type_id)
          VALUES (?, ?, ?, ?, ?, ?, 'les deux', ?)`,
-        [c.nom, c.sport_id, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max, typeId]
-    );
-    return res.lastID;
+        [c.nom, c.sport_id, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max, c.semaine_type_id ?? null]
+    )).lastID;
+    for (const typeId of [].concat(typeIds)) {
+        await db.run(`INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id) VALUES (?, ?)`, [typeId, id]);
+    }
+    return id;
 };
 
 const seancesDeLaSemaine = async (lundi, { inclureAnnulees = true } = {}) =>
@@ -71,7 +76,10 @@ const inscrire = async (membre, seanceId) => {
 const appliquer = (lundi, typeId, simulation = false) =>
     request(app).post(`/api/admin/semaines/${lundi}`).send({ semaine_type_id: typeId, simulation });
 
-const TABLES = ['inscriptions', 'waitlist_tokens', 'seances', 'bloc_creneaux', 'blocs', 'creneaux', 'semaines'];
+const choisirCreneaux = (typeId, ids, simulation = false) =>
+    request(app).put(`/api/admin/semaines-types/${typeId}/creneaux`).send({ creneau_ids: ids, simulation });
+
+const TABLES = ['inscriptions', 'waitlist_tokens', 'seances', 'bloc_creneaux', 'blocs', 'semaine_type_creneaux', 'creneaux', 'semaines'];
 
 beforeAll(async () => {
     await app.locals.dbPrete;
@@ -80,6 +88,7 @@ beforeAll(async () => {
     admin = { ...(await db.get(`SELECT id, role FROM users WHERE role = 'admin' LIMIT 1`)) };
     anne = await creerMembre('anne@x.fr');
     bruno = await creerMembre('bruno@x.fr');
+    chloe = await creerMembre('chloe@x.fr');
 });
 
 beforeEach(async () => {
@@ -89,39 +98,141 @@ beforeEach(async () => {
     connecter(admin);
 });
 
-describe('migration et création de créneaux', () => {
+describe('reprise des créneaux existants', () => {
 
-    it('crée une seule semaine type par défaut et y rattache les créneaux existants', async () => {
-        const orphelin = (await db.run(
-            `INSERT INTO creneaux (nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max) VALUES ('Ancien', ?, 2, '07:00', '08:00', 4)`,
-            [natation]
-        )).lastID;
+    it('rattache chaque créneau à sa semaine type d\'origine, une seule fois', async () => {
+        const vacances = await creerType('Vacances');
+        const sansType = await creerCreneau([], { nom: 'Ancien' });
+        const deVacances = await creerCreneau([], { nom: 'Vacances', semaine_type_id: vacances, heure_debut: '09:00' });
+        await db.run(`DELETE FROM migrations_appliquees WHERE nom = 'creneaux_partages_entre_semaines_types'`);
 
         await semainesTypes.migrer(db);
+        // Un créneau ajouté ensuite à la seule bibliothèque n'est pas rattaché d'office
+        const bibliotheque = await creerCreneau([], { nom: 'Bibliothèque', heure_debut: '10:00' });
         await semainesTypes.migrer(db);
 
-        const types = await request(app).get('/api/admin/semaines-types');
-        expect(types.body).toEqual([{ id: standard, nom: 'Semaine standard', par_defaut: true, nb_creneaux: 1 }]);
-        expect((await db.get(`SELECT semaine_type_id FROM creneaux WHERE id = ?`, [orphelin])).semaine_type_id).toBe(standard);
+        const liens = await db.query(`SELECT creneau_id, semaine_type_id FROM semaine_type_creneaux ORDER BY creneau_id`);
+        expect(liens).toEqual([
+            { creneau_id: sansType, semaine_type_id: standard },
+            { creneau_id: deVacances, semaine_type_id: vacances }
+        ]);
+        expect(liens.some(l => l.creneau_id === bibliotheque)).toBe(false);
     });
 
-    it('range un nouveau créneau dans la semaine type demandée, sinon celle par défaut', async () => {
+    it('fusionne les copies identiques et regroupe leurs séances et inscrits', async () => {
+        const vacances = await creerType('Vacances');
+        const original = await creerCreneau([standard], { nom: 'Lundi' });
+        const copie = await creerCreneau([vacances], { nom: 'Lundi' });
+        const different = await creerCreneau([vacances], { nom: 'Lundi', capacite_max: 8 });
+
+        // Semaine 1 : séance du créneau original ; semaine 2 : séance de la copie
+        await seances.genererSemaine(db, LUNDI_1());
+        await db.run(`INSERT INTO semaines (lundi, semaine_type_id) VALUES (?, ?)`, [LUNDI_2(), vacances]);
+        await seances.genererSemaine(db, LUNDI_2());
+        const [s1] = (await seancesDeLaSemaine(LUNDI_1())).filter(s => s.creneau_id === original);
+        const s2 = (await seancesDeLaSemaine(LUNDI_2())).find(s => s.creneau_id === copie);
+        // Semaine 2 : hors de la fenêtre des membres, l'inscription passe par la base
+        await db.run(`INSERT INTO inscriptions (user_id, creneau_id, seance_id, date_seance) VALUES (?, ?, ?, ?)`,
+            [anne.id, copie, s2.id, s2.date_seance]);
+        // Même date pour les deux : une séance annulée de la copie doublonne celle de l'original
+        await db.run(
+            `INSERT INTO seances (creneau_id, date_seance, nom, sport_id, heure_debut, heure_fin, capacite_max, annulee, motif_annulation)
+             VALUES (?, ?, 'Lundi', ?, '07:00', '08:00', 5, 1, 'semaine_type')`,
+            [copie, s1.date_seance, natation]
+        );
+
+        await semainesTypes.fusionnerDoublons(db);
+
+        const creneaux = (await db.query(`SELECT id FROM creneaux ORDER BY id`)).map(c => c.id);
+        expect(creneaux).toEqual([original, different]);
+        const liens = await db.query(`SELECT semaine_type_id FROM semaine_type_creneaux WHERE creneau_id = ? ORDER BY semaine_type_id`, [original]);
+        expect(liens.map(l => l.semaine_type_id)).toEqual([standard, vacances]);
+
+        const seancesOriginal = await db.query(`SELECT id, date_seance, annulee FROM seances WHERE creneau_id = ? ORDER BY date_seance`, [original]);
+        expect(seancesOriginal.map(s => [s.id, s.annulee])).toEqual([[s1.id, 0], [s2.id, 0]]);
+        expect(await db.query(`SELECT creneau_id, seance_id FROM inscriptions`)).toEqual([{ creneau_id: original, seance_id: s2.id }]);
+    });
+
+    it('fusionne deux séances actives à la même date en gardant tous les inscrits', async () => {
+        const vacances = await creerType('Vacances');
+        const original = await creerCreneau([standard], { nom: 'Lundi' });
+        const copie = await creerCreneau([vacances], { nom: 'Lundi' });
+        await seances.genererSemaine(db, LUNDI_1());
+        const s1 = (await seancesDeLaSemaine(LUNDI_1()))[0];
+        const s2 = (await db.run(
+            `INSERT INTO seances (creneau_id, date_seance, nom, sport_id, heure_debut, heure_fin, capacite_max)
+             VALUES (?, ?, 'Lundi', ?, '07:00', '08:00', 5)`,
+            [copie, s1.date_seance, natation]
+        )).lastID;
+        // À égalité (deux inscrits chacune), la séance la plus ancienne l'emporte
+        await inscrire(anne, s1.id);
+        await inscrire(bruno, s1.id);
+        await inscrire(anne, s2); // doublon : un seul restera
+        await inscrire(chloe, s2); // rejoint la séance gardée
+
+        await semainesTypes.fusionnerDoublons(db);
+
+        expect((await db.query(`SELECT id, creneau_id FROM seances`))).toEqual([{ id: s1.id, creneau_id: original }]);
+        const inscrits = await db.query(`SELECT user_id, creneau_id FROM inscriptions WHERE seance_id = ? ORDER BY user_id`, [s1.id]);
+        expect(inscrits).toEqual([anne, bruno, chloe].map(m => ({ user_id: m.id, creneau_id: original })));
+        expect((await db.get(`SELECT COUNT(*) AS n FROM inscriptions`)).n).toBe(3);
+    });
+
+    it('ne fusionne pas des créneaux rangés dans des blocs différents', async () => {
+        const a = await creerCreneau([standard], { nom: 'Lundi' });
+        const b = await creerCreneau([standard], { nom: 'Lundi' });
+        const bloc = (await db.run(`INSERT INTO blocs (nom, sport_id) VALUES ('Début', ?)`, [natation])).lastID;
+        await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [bloc, a]);
+
+        await semainesTypes.fusionnerDoublons(db);
+
+        expect((await db.query(`SELECT id FROM creneaux ORDER BY id`)).map(c => c.id)).toEqual([a, b]);
+    });
+});
+
+describe('bibliothèque de créneaux', () => {
+
+    it('crée un créneau dans les semaines types demandées, ou dans la seule bibliothèque', async () => {
         const vacances = await creerType('Vacances');
         const base = { nom: 'Nouveau', sport_id: velo, jour_semaine: 3, heure_debut: '18:00', heure_fin: '19:00', capacite_max: 8 };
 
-        const sansType = await request(app).post('/api/creneaux').send(base);
-        const avecType = await request(app).post('/api/creneaux').send({ ...base, semaine_type_id: vacances });
-        const inconnu = await request(app).post('/api/creneaux').send({ ...base, semaine_type_id: 999999 });
+        const partage = await request(app).post('/api/creneaux').send({ ...base, semaine_type_ids: [standard, vacances] });
+        const seul = await request(app).post('/api/creneaux').send({ ...base, nom: 'Réserve' });
+        expect((await request(app).post('/api/creneaux').send({ ...base, semaine_type_ids: [999999] })).status).toBe(400);
 
-        expect(inconnu.status).toBe(400);
-        const types = await db.query(`SELECT id, semaine_type_id FROM creneaux ORDER BY id`);
-        expect(types).toEqual([
-            { id: sansType.body.creneauId, semaine_type_id: standard },
-            { id: avecType.body.creneauId, semaine_type_id: vacances }
+        const bibliotheque = await request(app).get('/api/creneaux');
+        expect(bibliotheque.body.map(c => [c.nom, c.semaines_types.map(t => t.nom)])).toEqual([
+            ['Nouveau', ['Semaine standard', 'Vacances']],
+            ['Réserve', []]
         ]);
+        const deVacances = await request(app).get(`/api/creneaux?semaine_type=${vacances}`);
+        expect(deVacances.body.map(c => c.id)).toEqual([partage.body.creneauId]);
 
-        const liste = await request(app).get(`/api/creneaux?semaine_type=${vacances}`);
-        expect(liste.body.map(c => [c.id, c.semaine_type_nom])).toEqual([[avecType.body.creneauId, 'Vacances']]);
+        // Seul le créneau sélectionné donne une séance
+        await seances.genererSemaine(db, LUNDI_1());
+        expect(resume(await seancesDeLaSemaine(LUNDI_1()))).toEqual(['Nouveau']);
+        expect(seul.body.creneauId).toEqual(expect.any(Number));
+    });
+
+    it('répercute la modification d\'un créneau partagé sur toutes ses semaines types', async () => {
+        const vacances = await creerType('Vacances');
+        const creneau = await creerCreneau([standard, vacances], { nom: 'Lundi' });
+        await db.run(`INSERT INTO semaines (lundi, semaine_type_id) VALUES (?, ?)`, [LUNDI_2(), vacances]);
+        await seances.genererSemaine(db, LUNDI_1());
+        await seances.genererSemaine(db, LUNDI_2());
+
+        await request(app).put(`/api/creneaux/${creneau}`).send({
+            nom: 'Lundi renommé', sport_id: natation, jour_semaine: 1, heure_debut: '07:00', heure_fin: '08:00', capacite_max: 5
+        });
+
+        expect(resume(await seancesDeLaSemaine(LUNDI_1()))).toEqual(['Lundi renommé']);
+        expect(resume(await seancesDeLaSemaine(LUNDI_2()))).toEqual(['Lundi renommé']);
+    });
+
+    it('supprime un créneau de la bibliothèque avec ses liens', async () => {
+        const creneau = await creerCreneau([standard]);
+        expect((await request(app).delete(`/api/creneaux/${creneau}`)).status).toBe(200);
+        expect(await db.query(`SELECT * FROM semaine_type_creneaux`)).toEqual([]);
     });
 });
 
@@ -136,40 +247,36 @@ describe('gestion des semaines types', () => {
         expect(renommage.body.semaine_type.nom).toBe('Vacances');
         expect((await request(app).put('/api/admin/semaines-types/999999').send({ nom: 'X' })).status).toBe(404);
 
+        await creerCreneau([standard]);
         const liste = await request(app).get('/api/admin/semaines-types');
-        expect(liste.body.map(t => t.nom)).toEqual(['Semaine standard', 'Vacances']);
+        expect(liste.body.map(t => [t.nom, t.nb_creneaux])).toEqual([['Semaine standard', 1], ['Vacances', 0]]);
     });
 
-    it('duplique une semaine type avec ses créneaux et leurs blocs', async () => {
-        const lundi = await creerCreneau(standard, { nom: 'Lundi' });
-        await creerCreneau(standard, { nom: 'Mardi', jour_semaine: 2 });
-        const bloc = (await db.run(`INSERT INTO blocs (nom, sport_id) VALUES ('Début', ?)`, [natation])).lastID;
-        await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [bloc, lundi]);
+    it('duplique une semaine type en partageant ses créneaux', async () => {
+        const lundi = await creerCreneau([standard], { nom: 'Lundi' });
+        const mardi = await creerCreneau([standard], { nom: 'Mardi', jour_semaine: 2 });
 
         const res = await request(app).post('/api/admin/semaines-types').send({ nom: 'Vacances', source_id: standard });
 
         expect(res.body.message).toContain('2 créneau(x)');
-        const copies = await db.query(`SELECT id, nom FROM creneaux WHERE semaine_type_id = ? ORDER BY nom`, [res.body.semaine_type.id]);
-        expect(copies.map(c => c.nom)).toEqual(['Lundi', 'Mardi']);
-        const blocsCopie = await db.query(`SELECT bloc_id FROM bloc_creneaux WHERE creneau_id = ?`, [copies[0].id]);
-        expect(blocsCopie).toEqual([{ bloc_id: bloc }]);
+        expect((await db.get(`SELECT COUNT(*) AS n FROM creneaux`)).n).toBe(2);
+        expect(await semainesTypes.creneauxDuType(db, res.body.semaine_type.id)).toEqual(expect.arrayContaining([lundi, mardi]));
     });
 
-    it('protège les semaines types encore utilisées', async () => {
+    it('supprime une semaine type sans toucher à ses créneaux, sauf si elle est encore en service', async () => {
         expect((await request(app).delete(`/api/admin/semaines-types/${standard}`)).body.error).toContain('par défaut');
-
-        const pleine = await creerType('Pleine');
-        await creerCreneau(pleine);
-        expect((await request(app).delete(`/api/admin/semaines-types/${pleine}`)).body.error).toContain('1 créneau(x)');
 
         const planifiee = await creerType('Planifiée');
         await appliquer(LUNDI_1(), planifiee);
         expect((await request(app).delete(`/api/admin/semaines-types/${planifiee}`)).body.error).toContain('1 semaine(s) à venir');
 
-        const libre = await creerType('Libre');
-        await db.run(`INSERT INTO semaines (lundi, semaine_type_id) VALUES ('2020-01-06', ?)`, [libre]);
-        expect((await request(app).delete(`/api/admin/semaines-types/${libre}`)).status).toBe(200);
-        expect(await db.query(`SELECT * FROM semaines WHERE semaine_type_id = ?`, [libre])).toEqual([]);
+        const vacances = await creerType('Vacances');
+        const creneau = await creerCreneau([vacances]);
+        await db.run(`INSERT INTO semaines (lundi, semaine_type_id) VALUES ('2020-01-06', ?)`, [vacances]);
+        expect((await request(app).delete(`/api/admin/semaines-types/${vacances}`)).status).toBe(200);
+        expect(await db.get(`SELECT id FROM creneaux WHERE id = ?`, [creneau])).toEqual({ id: creneau });
+        expect(await db.query(`SELECT * FROM semaine_type_creneaux WHERE semaine_type_id = ?`, [vacances])).toEqual([]);
+        expect(await db.query(`SELECT * FROM semaines WHERE semaine_type_id = ?`, [vacances])).toEqual([]);
     });
 
     it('réserve la gestion aux administrateurs', async () => {
@@ -177,13 +284,14 @@ describe('gestion des semaines types', () => {
         expect((await request(app).get('/api/admin/semaines-types')).status).toBe(403);
         expect((await request(app).get('/api/admin/semaines')).status).toBe(403);
         expect((await appliquer(LUNDI_1(), standard)).status).toBe(403);
+        expect((await choisirCreneaux(standard, [])).status).toBe(403);
     });
 });
 
 describe('planning des semaines', () => {
 
     it('présente quatre semaines, par défaut en semaine type standard', async () => {
-        await creerCreneau(standard);
+        await creerCreneau([standard]);
         const vacances = await creerType('Vacances');
         await appliquer(LUNDI_2(), vacances);
 
@@ -200,9 +308,10 @@ describe('planning des semaines', () => {
     });
 
     it('génère chaque semaine d\'après sa semaine type', async () => {
-        await creerCreneau(standard, { nom: 'Standard lundi' });
         const vacances = await creerType('Vacances');
-        await creerCreneau(vacances, { nom: 'Vacances mardi', jour_semaine: 2 });
+        await creerCreneau([standard], { nom: 'Standard lundi' });
+        await creerCreneau([vacances], { nom: 'Vacances mardi', jour_semaine: 2 });
+        await creerCreneau([standard, vacances], { nom: 'Commun mercredi', jour_semaine: 3 });
         await db.run(`INSERT INTO semaines (lundi, semaine_type_id) VALUES (?, ?)`, [LUNDI_2(), vacances]);
         connecter(anne);
 
@@ -210,8 +319,8 @@ describe('planning des semaines', () => {
         connecter(admin);
         const semaine2 = await request(app).get('/api/seances?semaine=2');
 
-        expect(semaine1.body.map(s => s.nom)).toEqual(['Standard lundi']);
-        expect(semaine2.body.map(s => s.nom)).toEqual(['Vacances mardi']);
+        expect(semaine1.body.map(s => s.nom)).toEqual(['Standard lundi', 'Commun mercredi']);
+        expect(semaine2.body.map(s => s.nom)).toEqual(['Vacances mardi', 'Commun mercredi']);
     });
 
     it('refuse les semaines mal désignées ou hors du planning', async () => {
@@ -225,21 +334,20 @@ describe('planning des semaines', () => {
 });
 
 describe('appliquer une semaine type à une semaine', () => {
-    let vacances, seanceLundi, seanceMardi;
+    let vacances, seanceCommune, seanceMardi;
 
-    // Standard : lundi 7h et mardi 7h, tous deux avec des inscrits.
-    // Vacances : lundi 7h (même horaire, 10 places) et mercredi 18h.
+    // Standard : lundi 7h (partagé avec Vacances) et mardi 7h, tous deux avec
+    // des inscrits. Vacances : lundi 7h et mercredi 18h.
     beforeEach(async () => {
-        await creerCreneau(standard, { nom: 'Lundi standard', capacite_max: 1 });
-        await creerCreneau(standard, { nom: 'Mardi standard', jour_semaine: 2 });
         vacances = await creerType('Vacances');
-        await creerCreneau(vacances, { nom: 'Lundi vacances', capacite_max: 10 });
-        await creerCreneau(vacances, { nom: 'Mercredi vacances', jour_semaine: 3, heure_debut: '18:00', heure_fin: '19:00' });
+        await creerCreneau([standard, vacances], { nom: 'Lundi commun', capacite_max: 1 });
+        await creerCreneau([standard], { nom: 'Mardi standard', jour_semaine: 2 });
+        await creerCreneau([vacances], { nom: 'Mercredi vacances', jour_semaine: 3, heure_debut: '18:00', heure_fin: '19:00' });
 
         await seances.genererSemaine(db, LUNDI_1());
-        [seanceLundi, seanceMardi] = await seancesDeLaSemaine(LUNDI_1());
-        await inscrire(anne, seanceLundi.id);
-        await inscrire(bruno, seanceLundi.id); // en attente : une seule place
+        [seanceCommune, seanceMardi] = await seancesDeLaSemaine(LUNDI_1());
+        await inscrire(anne, seanceCommune.id);
+        await inscrire(bruno, seanceCommune.id); // en attente : une seule place
         await inscrire(anne, seanceMardi.id);
     });
 
@@ -253,33 +361,27 @@ describe('appliquer une semaine type à une semaine', () => {
         })]);
         expect(res.body.bilan.annulees[0].inscrits[0].email).toBeUndefined();
 
-        expect(resume(await seancesDeLaSemaine(LUNDI_1()))).toEqual(['Lundi standard', 'Mardi standard']);
+        expect(resume(await seancesDeLaSemaine(LUNDI_1()))).toEqual(['Lundi commun', 'Mardi standard']);
         expect(await db.query(`SELECT * FROM semaines`)).toEqual([]);
     });
 
-    it('conserve la séance équivalente avec ses inscrits, annule les autres et crée les manquantes', async () => {
+    it('garde la séance du créneau partagé avec ses inscrits, annule les autres et crée les manquantes', async () => {
         const res = await appliquer(LUNDI_1(), vacances);
 
         expect(res.status).toBe(200);
         expect(res.body.message).toContain('1 séance(s) annulée(s), 1 personne(s) prévenue(s)');
-        // La séance du lundi passe à 10 places : Bruno quitte la liste d'attente
-        expect(res.body.message).toContain("1 personne(s) en liste d'attente ont obtenu une place");
 
         const semaine = await seancesDeLaSemaine(LUNDI_1());
-        expect(resume(semaine)).toEqual(['Lundi vacances', 'Mardi standard (annulée)', 'Mercredi vacances']);
-        expect(semaine[0]).toMatchObject({ id: seanceLundi.id, capacite_max: 10, inscrits: 2, en_attente: 0 });
+        expect(resume(semaine)).toEqual(['Lundi commun', 'Mardi standard (annulée)', 'Mercredi vacances']);
+        expect(semaine[0]).toMatchObject({ id: seanceCommune.id, inscrits: 1, en_attente: 1 });
         expect(semaine[1]).toMatchObject({ inscrits: 0, motif_annulation: 'semaine_type' });
 
-        const lienCreneau = await db.get(`SELECT DISTINCT creneau_id FROM inscriptions WHERE seance_id = ?`, [seanceLundi.id]);
-        expect(lienCreneau.creneau_id).toBe(semaine[0].creneau_id);
-
-        // Les membres ne voient pas la séance annulée
         connecter(anne);
-        expect((await request(app).get('/api/seances?semaine=1')).body.map(s => s.nom)).toEqual(['Lundi vacances', 'Mercredi vacances']);
-        expect((await request(app).get('/api/mes-inscriptions')).body.map(i => i.nom)).toEqual(['Lundi vacances']);
+        expect((await request(app).get('/api/seances?semaine=1')).body.map(s => s.nom)).toEqual(['Lundi commun', 'Mercredi vacances']);
+        expect((await request(app).get('/api/mes-inscriptions')).body.map(i => i.nom)).toEqual(['Lundi commun']);
     });
 
-    it('rétablit les séances annulées et rattache les conservées en revenant à la semaine type initiale', async () => {
+    it('rétablit les séances annulées en revenant à la semaine type initiale', async () => {
         await appliquer(LUNDI_1(), vacances);
 
         const retour = await appliquer(LUNDI_1(), standard);
@@ -287,12 +389,8 @@ describe('appliquer une semaine type à une semaine', () => {
         expect(retour.body.bilan).toMatchObject({ conservees: 1, reactivees: 1, creees: 0 });
         expect(retour.body.bilan.annulees.map(s => s.nom)).toEqual(['Mercredi vacances']);
         const semaine = await seancesDeLaSemaine(LUNDI_1());
-        expect(resume(semaine)).toEqual(['Lundi standard', 'Mardi standard', 'Mercredi vacances (annulée)']);
-        // Les inscrits du lundi ont suivi, ceux du mardi avaient été désinscrits
-        expect(semaine.map(s => s.inscrits)).toEqual([2, 0, 0]);
-        expect((await db.query(`SELECT * FROM semaines`))).toEqual([
-            expect.objectContaining({ lundi: LUNDI_1(), semaine_type_id: standard })
-        ]);
+        expect(resume(semaine)).toEqual(['Lundi commun', 'Mardi standard', 'Mercredi vacances (annulée)']);
+        expect(semaine.map(s => s.inscrits)).toEqual([1, 0, 0]);
     });
 
     it('supporte les allers-retours sans doublon de séance', async () => {
@@ -301,12 +399,9 @@ describe('appliquer une semaine type à une semaine', () => {
         }
 
         const actives = (await seancesDeLaSemaine(LUNDI_1(), { inclureAnnulees: false })).map(s => s.nom);
-        expect(actives).toEqual(['Lundi vacances', 'Mercredi vacances']);
-        const doublons = await db.get(
-            `SELECT COUNT(*) AS n FROM (SELECT creneau_id FROM seances GROUP BY creneau_id, date_seance HAVING COUNT(*) > 1)`
-        );
-        expect(doublons.n).toBe(0);
-        expect((await seancesDeLaSemaine(LUNDI_1()))[0]).toMatchObject({ id: seanceLundi.id, inscrits: 2 });
+        expect(actives).toEqual(['Lundi commun', 'Mercredi vacances']);
+        expect((await db.get(`SELECT COUNT(*) AS n FROM seances`)).n).toBe(3);
+        expect((await seancesDeLaSemaine(LUNDI_1()))[0]).toMatchObject({ id: seanceCommune.id, inscrits: 1, en_attente: 1 });
     });
 
     it('fait suivre la nouvelle semaine type par défaut aux semaines sans choix explicite', async () => {
@@ -317,15 +412,58 @@ describe('appliquer une semaine type à une semaine', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.message).toContain('séance(s) annulée(s)');
-        const types = await request(app).get('/api/admin/semaines-types');
-        expect(types.body.filter(t => t.par_defaut).map(t => t.nom)).toEqual(['Vacances']);
-
-        expect(resume(await seancesDeLaSemaine(LUNDI_1(), { inclureAnnulees: false }))).toEqual(['Lundi vacances', 'Mercredi vacances']);
-        expect(resume(await seancesDeLaSemaine(LUNDI_2(), { inclureAnnulees: false }))).toEqual(['Lundi standard', 'Mardi standard']);
+        expect(resume(await seancesDeLaSemaine(LUNDI_1(), { inclureAnnulees: false }))).toEqual(['Lundi commun', 'Mercredi vacances']);
+        expect(resume(await seancesDeLaSemaine(LUNDI_2(), { inclureAnnulees: false }))).toEqual(['Lundi commun', 'Mardi standard']);
 
         const planning = (await request(app).get('/api/admin/semaines')).body;
         expect(planning.map(s => [s.semaine_type_nom, s.explicite])).toEqual([
             ['Vacances', false], ['Vacances', false], ['Semaine standard', true], ['Vacances', false]
         ]);
+    });
+});
+
+describe('choisir les créneaux d\'une semaine type', () => {
+    let lundi, mardi, jeudi, seanceMardi;
+
+    beforeEach(async () => {
+        lundi = await creerCreneau([standard], { nom: 'Lundi' });
+        mardi = await creerCreneau([standard], { nom: 'Mardi', jour_semaine: 2 });
+        jeudi = await creerCreneau([], { nom: 'Jeudi', jour_semaine: 4 });
+        await seances.genererSemaine(db, LUNDI_1());
+        seanceMardi = (await seancesDeLaSemaine(LUNDI_1())).find(s => s.nom === 'Mardi');
+        await inscrire(anne, seanceMardi.id);
+    });
+
+    it("montre l'impact sur chaque semaine qui suit la semaine type, sans rien modifier", async () => {
+        const vacances = await creerType('Vacances');
+        await appliquer(seances.lundiDeLaSemaine(3), vacances); // cette semaine-là n'est pas concernée
+
+        const res = await choisirCreneaux(standard, [lundi, jeudi], true);
+
+        expect(res.body.semaines.map(s => s.lundi)).toEqual([0, 1, 2].map(o => seances.lundiDeLaSemaine(o)));
+        expect(res.body.semaines[1]).toMatchObject({ conservees: 1, creees: 1, personnes_concernees: 1 });
+        expect(await semainesTypes.creneauxDuType(db, standard)).toEqual(expect.arrayContaining([lundi, mardi]));
+    });
+
+    it('retire et ajoute des séances dans les semaines concernées', async () => {
+        const res = await choisirCreneaux(standard, [lundi, jeudi]);
+
+        expect(res.status).toBe(200);
+        expect(res.body.message).toContain('1 personne(s) prévenue(s)');
+        expect(resume(await seancesDeLaSemaine(LUNDI_1()))).toEqual(['Lundi', 'Mardi (annulée)', 'Jeudi']);
+        expect(await db.query(`SELECT * FROM inscriptions WHERE seance_id = ?`, [seanceMardi.id])).toEqual([]);
+
+        // Les semaines suivantes suivent aussi la nouvelle sélection
+        await seances.genererSemaine(db, LUNDI_2());
+        expect(resume(await seancesDeLaSemaine(LUNDI_2()))).toEqual(['Lundi', 'Jeudi']);
+
+        // La planification reste implicite (semaine type par défaut)
+        expect(await db.query(`SELECT * FROM semaines`)).toEqual([]);
+    });
+
+    it('refuse une sélection mal formée', async () => {
+        expect((await choisirCreneaux(standard, [lundi, 999999])).body.error).toBe('Créneau inconnu');
+        expect((await request(app).put(`/api/admin/semaines-types/${standard}/creneaux`).send({})).status).toBe(400);
+        expect((await choisirCreneaux(999999, [])).status).toBe(404);
     });
 });

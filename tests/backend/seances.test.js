@@ -50,6 +50,14 @@ const creerCreneau = async (db, champs = {}) => {
         [c.nom, c.sport_id, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max, c.sans_limite,
             c.public_cible, c.nombre_lignes || null, c.personnes_par_ligne || null]
     );
+    // Une fois les semaines types en place, le créneau rejoint celle par défaut
+    const liaison = await db.get(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'semaine_type_creneaux'`);
+    if (liaison) {
+        await db.run(
+            `INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id) SELECT id, ? FROM semaines_types WHERE par_defaut = true`,
+            [res.lastID]
+        );
+    }
     return res.lastID;
 };
 

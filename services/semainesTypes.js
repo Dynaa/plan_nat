@@ -1,16 +1,17 @@
 // services/semainesTypes.js
 
 // Semaines types. Un club n'a pas le même planning en période scolaire et
-// pendant les vacances : chaque créneau appartient à une semaine type, et
-// chaque semaine du calendrier suit l'une d'elles — celle choisie par un
-// admin, sinon la semaine type par défaut.
+// pendant les vacances. Les créneaux forment une bibliothèque ; une semaine
+// type en est une sélection, et un même créneau peut servir à plusieurs
+// semaines types. Chaque semaine du calendrier suit la semaine type choisie
+// par un admin, sinon celle par défaut.
 
 const seances = require('./seances');
 
 const NOM_PAR_DEFAUT = 'Semaine standard';
 
 // Motif d'annulation d'une séance retirée par un changement de semaine type :
-// elle revit si la semaine revient à une semaine type qui la contient.
+// elle revit si la semaine revient à une semaine type qui contient son créneau.
 const MOTIF_SEMAINE_TYPE = 'semaine_type';
 
 class ErreurSemaineType extends Error {
@@ -34,8 +35,100 @@ const colonneExiste = async (db, table, colonne) => {
     return colonnes.some(c => c.name === colonne);
 };
 
-// Idempotent. À lancer après la création des créneaux d'exemple : les créneaux
-// sans semaine type sont rattachés à la semaine type par défaut.
+// Migrations à ne jouer qu'une fois (elles ne sont pas idempotentes)
+const migrationUnique = async (db, nom, migration) => {
+    await db.run(db.adaptSQL(
+        `CREATE TABLE IF NOT EXISTS migrations_appliquees (nom TEXT PRIMARY KEY, appliquee_le DATETIME DEFAULT CURRENT_TIMESTAMP)`,
+        `CREATE TABLE IF NOT EXISTS migrations_appliquees (nom VARCHAR(100) PRIMARY KEY, appliquee_le TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+    ));
+    if (await db.get(`SELECT nom FROM migrations_appliquees WHERE nom = ?`, [nom])) return;
+    await migration();
+    await db.run(`INSERT INTO migrations_appliquees (nom) VALUES (?)`, [nom]);
+};
+
+// Réglages qui rendent deux créneaux interchangeables (fusion des doublons)
+const CHAMPS_IDENTITE = ['nom', 'sport_id', 'jour_semaine', 'heure_debut', 'heure_fin', 'capacite_max',
+    'lieu', 'nombre_lignes', 'personnes_par_ligne', 'public_cible'];
+
+const cleDuCreneau = (creneau, blocs) => JSON.stringify([
+    ...CHAMPS_IDENTITE.map(c => String(creneau[c] ?? '').trim()),
+    seances.estVrai(creneau.sans_limite),
+    blocs.slice().sort()
+]);
+
+// Remplace le créneau `doublonId` par `garderId` partout, puis le supprime.
+// Deux séances à la même date se fondent en une : celle qui a lieu (ou, à
+// défaut, la plus remplie) accueille les inscrits de l'autre.
+const fusionnerCreneau = async (db, garderId, doublonId) => {
+    await db.run(
+        `INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id)
+         SELECT l.semaine_type_id, ? FROM semaine_type_creneaux l
+         WHERE l.creneau_id = ? AND NOT EXISTS (
+             SELECT 1 FROM semaine_type_creneaux d WHERE d.creneau_id = ? AND d.semaine_type_id = l.semaine_type_id
+         )`,
+        [garderId, doublonId, garderId]
+    );
+    await db.run(`DELETE FROM semaine_type_creneaux WHERE creneau_id = ?`, [doublonId]);
+    await db.run(`DELETE FROM bloc_creneaux WHERE creneau_id = ?`, [doublonId]); // mêmes blocs que le créneau gardé
+
+    const nbInscriptions = async (seanceId) =>
+        parseInt((await db.get(`SELECT COUNT(*) AS n FROM inscriptions WHERE seance_id = ?`, [seanceId])).n, 10) || 0;
+
+    const seancesDoublon = await db.query(`SELECT id, date_seance, annulee FROM seances WHERE creneau_id = ?`, [doublonId]);
+    for (const seance of seancesDoublon) {
+        const autre = await db.get(
+            `SELECT id, annulee FROM seances WHERE creneau_id = ? AND date_seance = ?`,
+            [garderId, seance.date_seance]
+        );
+        if (!autre) {
+            await db.run(`UPDATE seances SET creneau_id = ? WHERE id = ?`, [garderId, seance.id]);
+            continue;
+        }
+
+        const score = async (s) => [seances.estVrai(s.annulee) ? 0 : 1, await nbInscriptions(s.id), -s.id];
+        const [a, b] = [await score(seance), await score(autre)];
+        const doublonGagne = a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2];
+        const [garde, perdue] = doublonGagne ? [seance, autre] : [autre, seance];
+
+        const inscriptions = await db.query(`SELECT id, user_id FROM inscriptions WHERE seance_id = ?`, [perdue.id]);
+        for (const inscription of inscriptions) {
+            const deja = await db.get(`SELECT id FROM inscriptions WHERE seance_id = ? AND user_id = ?`, [garde.id, inscription.user_id]);
+            if (deja) {
+                await db.run(`DELETE FROM inscriptions WHERE id = ?`, [inscription.id]);
+            } else {
+                await db.run(`UPDATE inscriptions SET seance_id = ?, creneau_id = ? WHERE id = ?`, [garde.id, garderId, inscription.id]);
+            }
+        }
+        await db.run(`DELETE FROM waitlist_tokens WHERE seance_id = ?`, [perdue.id]);
+        await db.run(`DELETE FROM seances WHERE id = ?`, [perdue.id]);
+        await db.run(`UPDATE seances SET creneau_id = ? WHERE id = ?`, [garderId, garde.id]);
+        await seances.renumeroterAttente(db, garde.id);
+    }
+
+    await db.run(`UPDATE inscriptions SET creneau_id = ? WHERE creneau_id = ?`, [garderId, doublonId]);
+    await db.run(`UPDATE waitlist_tokens SET creneau_id = ? WHERE creneau_id = ?`, [garderId, doublonId]);
+    await db.run(`DELETE FROM creneaux WHERE id = ?`, [doublonId]);
+};
+
+const fusionnerDoublons = async (db) => {
+    const creneaux = await db.query(`SELECT * FROM creneaux WHERE actif = true ORDER BY id`);
+    const blocs = await db.query(`SELECT bloc_id, creneau_id FROM bloc_creneaux`);
+    const premiers = new Map();
+    let fusionnes = 0;
+
+    for (const creneau of creneaux) {
+        const cle = cleDuCreneau(creneau, blocs.filter(b => b.creneau_id === creneau.id).map(b => String(b.bloc_id)));
+        if (premiers.has(cle)) {
+            await fusionnerCreneau(db, premiers.get(cle), creneau.id);
+            fusionnes++;
+        } else {
+            premiers.set(cle, creneau.id);
+        }
+    }
+    if (fusionnes > 0) console.log(`🔄 ${fusionnes} créneau(x) en double fusionné(s)`);
+};
+
+// À lancer après la création des créneaux d'exemple.
 const migrer = async (db) => {
     await db.run(db.adaptSQL(
         `CREATE TABLE IF NOT EXISTS semaines_types (
@@ -67,17 +160,35 @@ const migrer = async (db) => {
         )`
     ));
 
+    // Créneaux sélectionnés par chaque semaine type
+    await db.run(db.adaptSQL(
+        `CREATE TABLE IF NOT EXISTS semaine_type_creneaux (
+            semaine_type_id INTEGER NOT NULL,
+            creneau_id INTEGER NOT NULL,
+            PRIMARY KEY (semaine_type_id, creneau_id),
+            FOREIGN KEY (semaine_type_id) REFERENCES semaines_types (id) ON DELETE CASCADE,
+            FOREIGN KEY (creneau_id) REFERENCES creneaux (id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS semaine_type_creneaux (
+            semaine_type_id INTEGER NOT NULL REFERENCES semaines_types (id) ON DELETE CASCADE,
+            creneau_id INTEGER NOT NULL REFERENCES creneaux (id) ON DELETE CASCADE,
+            PRIMARY KEY (semaine_type_id, creneau_id)
+        )`
+    ));
+    await db.run(`CREATE INDEX IF NOT EXISTS idx_semaine_type_creneaux_creneau ON semaine_type_creneaux (creneau_id)`);
+
+    // Ancienne appartenance d'un créneau à une seule semaine type. La colonne
+    // n'est plus utilisée qu'à la reprise ci-dessous ; elle reste en base pour
+    // permettre un retour à la version précédente.
     if (!(await colonneExiste(db, 'creneaux', 'semaine_type_id'))) {
         await db.run(`ALTER TABLE creneaux ADD COLUMN semaine_type_id INTEGER REFERENCES semaines_types (id)`);
-        console.log('🔄 Colonne creneaux.semaine_type_id ajoutée');
     }
     if (!(await colonneExiste(db, 'seances', 'motif_annulation'))) {
         await db.run(`ALTER TABLE seances ADD COLUMN motif_annulation ${db.isPostgres ? 'VARCHAR(50)' : 'TEXT'}`);
         console.log('🔄 Colonne seances.motif_annulation ajoutée');
     }
 
-    let defaut = await typeParDefaut(db);
-    if (!defaut) {
+    if (!(await typeParDefaut(db))) {
         const existante = await db.get(`SELECT id FROM semaines_types ORDER BY id LIMIT 1`);
         if (existante) {
             await db.run(`UPDATE semaines_types SET par_defaut = true WHERE id = ?`, [existante.id]);
@@ -91,13 +202,24 @@ const migrer = async (db) => {
             );
             console.log(`🔄 Semaine type « ${NOM_PAR_DEFAUT} » créée`);
         }
-        defaut = await typeParDefaut(db);
     }
 
-    const rattaches = await db.run(`UPDATE creneaux SET semaine_type_id = ? WHERE semaine_type_id IS NULL`, [defaut.id]);
-    if (rattaches.changes > 0) {
-        console.log(`🔄 ${rattaches.changes} créneau(x) rattaché(s) à « ${defaut.nom} »`);
-    }
+    // Reprise : chaque créneau rejoint sa semaine type d'origine (par défaut
+    // s'il n'en avait pas), puis les copies identiques issues d'une
+    // duplication se fondent en un seul créneau partagé.
+    await migrationUnique(db, 'creneaux_partages_entre_semaines_types', async () => {
+        const defaut = await typeParDefaut(db);
+        const lies = await db.run(
+            `INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id)
+             SELECT COALESCE(c.semaine_type_id, ?), c.id FROM creneaux c
+             WHERE NOT EXISTS (SELECT 1 FROM semaine_type_creneaux l WHERE l.creneau_id = c.id)`,
+            [defaut.id]
+        );
+        if (lies.changes > 0) {
+            console.log(`🔄 ${lies.changes} créneau(x) rattaché(s) à leur semaine type`);
+        }
+        await fusionnerDoublons(db);
+    });
 };
 
 // --- Lecture --------------------------------------------------------------
@@ -118,10 +240,19 @@ const trouverType = async (db, id) => normaliserType(
 
 const listerTypes = async (db) => (await db.query(
     `SELECT t.id, t.nom, t.par_defaut,
-            (SELECT COUNT(*) FROM creneaux c WHERE c.semaine_type_id = t.id AND c.actif = true) AS nb_creneaux
+            (SELECT COUNT(*) FROM semaine_type_creneaux l JOIN creneaux c ON c.id = l.creneau_id
+             WHERE l.semaine_type_id = t.id AND c.actif = true) AS nb_creneaux
      FROM semaines_types t
      ORDER BY t.par_defaut DESC, t.nom`
 )).map(normaliserType);
+
+// Identifiants des créneaux actifs sélectionnés par une semaine type
+const creneauxDuType = async (db, typeId) => (await db.query(
+    `SELECT c.id FROM creneaux c
+     JOIN semaine_type_creneaux l ON l.creneau_id = c.id
+     WHERE l.semaine_type_id = ? AND c.actif = true`,
+    [typeId]
+)).map(c => c.id);
 
 // Semaine type suivie par la semaine commençant `lundi`
 const typeDeLaSemaine = async (db, lundi) => {
@@ -185,31 +316,18 @@ const creerType = async (db, nom) => {
     return trouverType(db, resultat.lastID);
 };
 
-// Copie une semaine type : ses créneaux actifs et leur appartenance aux blocs
+// Nouvelle semaine type reprenant la sélection d'une autre (mêmes créneaux, partagés)
 const dupliquerType = async (db, sourceId, nom) => {
     const source = await trouverType(db, sourceId);
     if (!source) throw new ErreurSemaineType('Semaine type non trouvée', 404);
 
     const copie = await creerType(db, nom);
-    const creneaux = await db.query(`SELECT * FROM creneaux WHERE semaine_type_id = ? AND actif = true ORDER BY id`, [sourceId]);
-    const colonnes = ['nom', 'sport_id', 'jour_semaine', 'heure_debut', 'heure_fin', 'capacite_max', 'sans_limite',
-        'lieu', 'nombre_lignes', 'personnes_par_ligne', 'licences_autorisees', 'public_cible'];
-
-    for (const creneau of creneaux) {
-        const insertion = await db.run(
-            db.adaptSQL(
-                `INSERT INTO creneaux (${colonnes.join(', ')}, semaine_type_id) VALUES (${colonnes.map(() => '?').join(', ')}, ?)`,
-                `INSERT INTO creneaux (${colonnes.join(', ')}, semaine_type_id) VALUES (${colonnes.map(() => '?').join(', ')}, ?) RETURNING id`
-            ),
-            [...colonnes.map(c => creneau[c] === undefined ? null : creneau[c]), copie.id]
-        );
-        const blocs = await db.query(`SELECT bloc_id FROM bloc_creneaux WHERE creneau_id = ?`, [creneau.id]);
-        for (const { bloc_id } of blocs) {
-            await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (?, ?)`, [bloc_id, insertion.lastID]);
-        }
-    }
-
-    return { ...copie, nb_creneaux: creneaux.length };
+    const resultat = await db.run(
+        `INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id)
+         SELECT ?, creneau_id FROM semaine_type_creneaux WHERE semaine_type_id = ?`,
+        [copie.id, source.id]
+    );
+    return { ...copie, nb_creneaux: resultat.changes || 0 };
 };
 
 const renommerType = async (db, id, nom) => {
@@ -218,18 +336,13 @@ const renommerType = async (db, id, nom) => {
     return trouverType(db, id);
 };
 
-// Une semaine type encore utilisée (par défaut, créneaux, semaines à venir)
-// ne peut pas disparaître.
+// Supprimer une semaine type ne touche pas aux créneaux, qui restent dans la
+// bibliothèque. Elle ne doit plus être en service (par défaut, semaines à venir).
 const supprimerType = async (db, id) => {
     const type = await trouverType(db, id);
     if (!type) throw new ErreurSemaineType('Semaine type non trouvée', 404);
     if (type.par_defaut) {
         throw new ErreurSemaineType('La semaine type par défaut ne peut pas être supprimée : choisissez-en une autre par défaut d\'abord');
-    }
-
-    const creneaux = await db.get(`SELECT COUNT(*) AS n FROM creneaux WHERE semaine_type_id = ?`, [id]);
-    if (parseInt(creneaux.n, 10) > 0) {
-        throw new ErreurSemaineType(`Cette semaine type contient encore ${creneaux.n} créneau(x) : supprimez-les d'abord`);
     }
 
     const aVenir = await db.get(
@@ -240,6 +353,7 @@ const supprimerType = async (db, id) => {
         throw new ErreurSemaineType(`Cette semaine type est appliquée à ${aVenir.n} semaine(s) à venir : choisissez-en une autre pour ces semaines d'abord`);
     }
 
+    await db.run(`DELETE FROM semaine_type_creneaux WHERE semaine_type_id = ?`, [id]);
     await db.run(`DELETE FROM semaines WHERE semaine_type_id = ?`, [id]);
     await db.run(`DELETE FROM semaines_types WHERE id = ?`, [id]);
 };
@@ -258,79 +372,49 @@ const lundiValide = (lundi) => {
     }
 };
 
-// Une séance d'une autre semaine type trouve son équivalent dans la nouvelle :
-// même sport, même jour, mêmes horaires.
-const correspond = (seance, creneau, lundi) =>
-    String(seance.sport_id) === String(creneau.sport_id)
-    && seance.date_seance === seances.dateDuJour(lundi, creneau.jour_semaine)
-    && seance.heure_debut === creneau.heure_debut
-    && seance.heure_fin === creneau.heure_fin;
-
 // Fait suivre à une semaine la semaine type `typeId`, sans toucher aux jours
-// passés :
-// - une séance qui a son équivalent dans la semaine type est conservée avec
-//   ses inscrits, et rattachée au créneau correspondant ;
+// passés ni aux séances ponctuelles :
+// - une séance dont le créneau figure dans la semaine type est conservée ;
 // - les autres sont annulées et leurs inscrits désinscrits ;
 // - les séances manquantes sont créées, celles annulées par un précédent
-//   changement de semaine type sont rétablies.
+//   changement de semaine type sont rétablies. Une annulation décidée par un
+//   admin est respectée.
 //
-// Avec `simulation`, rien n'est écrit : le résultat décrit l'impact.
-// `explicite: false` applique la semaine type par défaut sans l'enregistrer
-// comme un choix (la semaine suivra les prochains changements de défaut).
+// Options :
+// - `simulation` : rien n'est écrit, le résultat décrit l'impact ;
+// - `explicite: false` : applique la semaine type sans l'enregistrer comme un
+//   choix (la semaine continue de suivre la semaine type par défaut) ;
+// - `selection` : créneaux à considérer à la place de ceux de la semaine type
+//   (aperçu d'une sélection pas encore enregistrée).
 //
-// Renvoie { conservees, creees, reactivees, annulees: [{ seance, inscrits }],
-// seancesRattachees: [id] }.
-const appliquerType = async (db, lundi, typeId, { simulation = false, explicite = true } = {}) => {
+// Renvoie { lundi, semaine_type, conservees, creees, reactivees, annulees: [{ seance, inscrits }] }.
+const appliquerType = async (db, lundi, typeId, { simulation = false, explicite = true, selection = null } = {}) => {
     lundiValide(lundi);
     const type = await trouverType(db, typeId);
     if (!type) throw new ErreurSemaineType('Semaine type non trouvée', 404);
 
     const dimanche = seances.ajouterJours(lundi, 6);
     const aujourdhui = seances.aujourdhuiIso();
+    const retenus = new Set((selection || await creneauxDuType(db, type.id)).map(String));
+    const retenu = (s) => retenus.has(String(s.creneau_id));
 
     const seancesSemaine = (await db.query(
-        `SELECT s.*, c.semaine_type_id AS type_creneau
-         FROM seances s
-         LEFT JOIN creneaux c ON c.id = s.creneau_id
-         WHERE s.date_seance BETWEEN ? AND ?
-         ORDER BY s.date_seance, s.heure_debut, s.id`,
+        `SELECT * FROM seances WHERE date_seance BETWEEN ? AND ? ORDER BY date_seance, heure_debut, id`,
         [lundi, dimanche]
     )).map(row => ({ ...row, date_seance: seances.normaliserDate(row.date_seance), annulee: seances.estVrai(row.annulee) }));
 
-    const creneauxDuType = await db.query(
-        `SELECT * FROM creneaux WHERE semaine_type_id = ? AND actif = true ORDER BY id`,
-        [type.id]
+    const aVenir = seancesSemaine.filter(s => s.creneau_id && s.date_seance >= aujourdhui);
+    const conservees = aVenir.filter(s => !s.annulee && retenu(s));
+    const aAnnuler = aVenir.filter(s => !s.annulee && !retenu(s));
+    const aReactiver = aVenir.filter(s => s.annulee && s.motif_annulation === MOTIF_SEMAINE_TYPE && retenu(s));
+
+    const presents = new Set(seancesSemaine.map(s => String(s.creneau_id)));
+    const creneauxACreer = retenus.size === 0 ? [] : await db.query(
+        `SELECT id, jour_semaine FROM creneaux
+         WHERE actif = true AND id IN (${[...retenus].map(() => '?').join(', ')})`,
+        [...retenus]
     );
-
-    const duType = (s) => String(s.type_creneau) === String(type.id);
-    const aVenir = seancesSemaine.filter(s => s.date_seance >= aujourdhui);
-    const dejaDuType = aVenir.filter(s => !s.annulee && duType(s));
-
-    // Créneaux de la semaine type déjà pourvus cette semaine : séance active, ou
-    // annulée par un admin (sa décision l'emporte sur la correspondance)
-    const pourvus = new Set(seancesSemaine
-        .filter(s => duType(s) && (!s.annulee || s.motif_annulation !== MOTIF_SEMAINE_TYPE))
-        .map(s => String(s.creneau_id)));
-
-    // Les séances ponctuelles (sans créneau) ne dépendent d'aucune semaine type
-    const rattachements = [];
-    const aAnnuler = [];
-    for (const seance of aVenir.filter(s => s.creneau_id && !s.annulee && !duType(s))) {
-        const equivalent = creneauxDuType.find(c => !pourvus.has(String(c.id)) && correspond(seance, c, lundi));
-        if (equivalent) {
-            pourvus.add(String(equivalent.id));
-            rattachements.push({ seance, creneau: equivalent });
-        } else {
-            aAnnuler.push(seance);
-        }
-    }
-
-    const aReactiver = aVenir.filter(s => s.annulee && s.motif_annulation === MOTIF_SEMAINE_TYPE
-        && duType(s) && !pourvus.has(String(s.creneau_id)));
-    aReactiver.forEach(s => pourvus.add(String(s.creneau_id)));
-
-    const dejaPresents = new Set(seancesSemaine.map(s => String(s.creneau_id)));
-    const creees = creneauxDuType.filter(c => !pourvus.has(String(c.id)) && !dejaPresents.has(String(c.id))
+    const creees = creneauxACreer.filter(c => !presents.has(String(c.id))
         && seances.dateDuJour(lundi, c.jour_semaine) >= aujourdhui).length;
 
     const annulees = [];
@@ -349,11 +433,10 @@ const appliquerType = async (db, lundi, typeId, { simulation = false, explicite 
     const bilan = {
         lundi,
         semaine_type: type,
-        conservees: dejaDuType.length + rattachements.length,
+        conservees: conservees.length,
         creees,
         reactivees: aReactiver.length,
-        annulees,
-        seancesRattachees: rattachements.map(r => r.seance.id)
+        annulees
     };
     if (simulation) return bilan;
 
@@ -374,19 +457,6 @@ const appliquerType = async (db, lundi, typeId, { simulation = false, explicite 
         await db.run(`DELETE FROM inscriptions WHERE seance_id = ?`, [seance.id]);
         await db.run(`UPDATE seances SET annulee = true, motif_annulation = ? WHERE id = ?`, [MOTIF_SEMAINE_TYPE, seance.id]);
     }
-
-    for (const { seance, creneau } of rattachements) {
-        // Une ancienne séance annulée de ce créneau occuperait sa place (même date)
-        const anciennes = seancesSemaine.filter(s => s.annulee && s.motif_annulation === MOTIF_SEMAINE_TYPE
-            && String(s.creneau_id) === String(creneau.id));
-        for (const ancienne of anciennes) {
-            await db.run(`DELETE FROM waitlist_tokens WHERE seance_id = ?`, [ancienne.id]);
-            await db.run(`DELETE FROM inscriptions WHERE seance_id = ?`, [ancienne.id]);
-            await db.run(`DELETE FROM seances WHERE id = ?`, [ancienne.id]);
-        }
-        await seances.rattacherAuCreneau(db, seance.id, creneau);
-    }
-
     for (const seance of aReactiver) {
         await db.run(`UPDATE seances SET annulee = false, motif_annulation = NULL WHERE id = ?`, [seance.id]);
     }
@@ -396,31 +466,91 @@ const appliquerType = async (db, lundi, typeId, { simulation = false, explicite 
 
     return bilan;
 };
+
+// Semaines à venir qui suivent une semaine type (par choix ou par défaut)
+const semainesSuivant = async (db, typeId) =>
+    (await planning(db)).filter(s => String(s.semaine_type_id) === String(typeId));
+
 // Change la semaine type par défaut, et la fait suivre aux semaines à venir
 // qui n'ont pas de choix explicite. Renvoie les bilans de ces semaines.
 const definirParDefaut = async (db, id) => {
     const type = await trouverType(db, id);
     if (!type) throw new ErreurSemaineType('Semaine type non trouvée', 404);
 
+    const concernees = (await planning(db)).filter(s => !s.explicite);
     await db.run(`UPDATE semaines_types SET par_defaut = false WHERE id != ?`, [id]);
     await db.run(`UPDATE semaines_types SET par_defaut = true WHERE id = ?`, [id]);
 
     const bilans = [];
-    for (const semaine of await planning(db)) {
-        if (!semaine.explicite) {
-            bilans.push(await appliquerType(db, semaine.lundi, id, { explicite: false }));
-        }
+    for (const semaine of concernees) {
+        bilans.push(await appliquerType(db, semaine.lundi, id, { explicite: false }));
     }
     return bilans;
+};
+
+// Remplace la sélection de créneaux d'une semaine type et répercute le
+// changement sur les semaines à venir qui la suivent. Avec `simulation`,
+// décrit seulement l'impact semaine par semaine.
+const definirCreneaux = async (db, typeId, creneauIds, { simulation = false } = {}) => {
+    const type = await trouverType(db, typeId);
+    if (!type) throw new ErreurSemaineType('Semaine type non trouvée', 404);
+    if (!Array.isArray(creneauIds)) throw new ErreurSemaineType('Liste de créneaux attendue');
+
+    const ids = [...new Set(creneauIds.map(Number).filter(Number.isInteger))];
+    if (ids.length > 0) {
+        const connus = await db.get(
+            `SELECT COUNT(*) AS n FROM creneaux WHERE id IN (${ids.map(() => '?').join(', ')})`,
+            ids
+        );
+        if (parseInt(connus.n, 10) !== ids.length) throw new ErreurSemaineType('Créneau inconnu');
+    }
+
+    const semaines = await semainesSuivant(db, type.id);
+    if (simulation) {
+        const bilans = [];
+        for (const semaine of semaines) {
+            bilans.push(await appliquerType(db, semaine.lundi, type.id, { simulation: true, selection: ids }));
+        }
+        return bilans;
+    }
+
+    await db.run(`DELETE FROM semaine_type_creneaux WHERE semaine_type_id = ?`, [type.id]);
+    for (const id of ids) {
+        await db.run(`INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id) VALUES (?, ?)`, [type.id, id]);
+    }
+
+    const bilans = [];
+    for (const semaine of semaines) {
+        bilans.push(await appliquerType(db, semaine.lundi, type.id, { explicite: semaine.explicite }));
+    }
+    return bilans;
+};
+
+// Un nouveau créneau rejoint les semaines types indiquées ; les semaines à
+// venir qui les suivent reçoivent sa séance.
+const ajouterCreneauAuxTypes = async (db, creneauId, typeIds) => {
+    for (const typeId of typeIds) {
+        const type = await trouverType(db, typeId);
+        if (!type) throw new ErreurSemaineType('Semaine type inconnue');
+        await db.run(
+            `INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id)
+             SELECT ?, ? WHERE NOT EXISTS (
+                 SELECT 1 FROM semaine_type_creneaux WHERE semaine_type_id = ? AND creneau_id = ?
+             )`,
+            [type.id, creneauId, type.id, creneauId]
+        );
+    }
 };
 
 module.exports = {
     MOTIF_SEMAINE_TYPE,
     ErreurSemaineType,
     migrer,
+    fusionnerDoublons,
     typeParDefaut,
     trouverType,
     listerTypes,
+    creneauxDuType,
     typeDeLaSemaine,
     planning,
     creerType,
@@ -428,5 +558,7 @@ module.exports = {
     renommerType,
     supprimerType,
     appliquerType,
-    definirParDefaut
+    definirParDefaut,
+    definirCreneaux,
+    ajouterCreneauAuxTypes
 };

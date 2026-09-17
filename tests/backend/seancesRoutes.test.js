@@ -48,6 +48,11 @@ const creerCreneau = async (champs = {}) => {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [c.nom, c.sport_id, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max, c.sans_limite, c.public_cible]
     );
+    // Le créneau fait partie de la semaine type par défaut
+    await db.run(
+        `INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id) SELECT id, ? FROM semaines_types WHERE par_defaut = true`,
+        [res.lastID]
+    );
     return res.lastID;
 };
 
@@ -67,7 +72,7 @@ const inscriptionsDe = (seanceId) => db.query(
 beforeAll(async () => {
     await app.locals.dbPrete;
     // Repartir d'un planning vide (l'initialisation crée des créneaux d'exemple)
-    for (const table of ['inscriptions', 'waitlist_tokens', 'seances', 'bloc_creneaux', 'blocs', 'creneaux']) {
+    for (const table of ['inscriptions', 'waitlist_tokens', 'seances', 'bloc_creneaux', 'blocs', 'semaine_type_creneaux', 'creneaux']) {
         await db.run(`DELETE FROM ${table}`);
     }
     natation = (await db.get(`SELECT id FROM sports WHERE slug = 'natation'`)).id;
@@ -79,7 +84,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-    for (const table of ['inscriptions', 'waitlist_tokens', 'seances', 'bloc_creneaux', 'blocs', 'creneaux']) {
+    for (const table of ['inscriptions', 'waitlist_tokens', 'seances', 'bloc_creneaux', 'blocs', 'semaine_type_creneaux', 'creneaux']) {
         await db.run(`DELETE FROM ${table}`);
     }
     await db.run(`UPDATE meta_rules_config SET enabled = 0`);

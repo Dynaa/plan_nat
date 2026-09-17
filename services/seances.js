@@ -241,18 +241,18 @@ const normaliserSeance = (row) => {
 };
 
 // Crée les séances manquantes de la semaine commençant `lundi`, une par
-// créneau actif de la semaine type qu'elle suit (choisie pour cette semaine,
-// sinon celle par défaut). Une semaine où un créneau a déjà sa séance n'est
-// pas retouchée, même si cette séance a été déplacée ou annulée.
+// créneau actif sélectionné par la semaine type qu'elle suit (choisie pour
+// cette semaine, sinon celle par défaut). Une semaine où un créneau a déjà sa
+// séance n'est pas retouchée, même si cette séance a été déplacée ou annulée.
 const genererSemaine = async (db, lundi) => {
     const dimanche = ajouterJours(lundi, 6);
-    const typeParDefaut = `(SELECT id FROM semaines_types WHERE par_defaut = true ORDER BY id LIMIT 1)`;
     const creneaux = await db.query(
         `SELECT c.* FROM creneaux c
+         JOIN semaine_type_creneaux l ON l.creneau_id = c.id
          WHERE c.actif = true
-           AND COALESCE(c.semaine_type_id, ${typeParDefaut}) = COALESCE(
+           AND l.semaine_type_id = COALESCE(
                (SELECT semaine_type_id FROM semaines WHERE lundi = ?),
-               ${typeParDefaut}
+               (SELECT id FROM semaines_types WHERE par_defaut = true ORDER BY id LIMIT 1)
            )`,
         [lundi]
     );
@@ -404,23 +404,6 @@ const synchroniserCreneau = async (db, creneauId) => {
     return aVenir.map(s => s.id);
 };
 
-// Rattache une séance à un autre créneau (changement de semaine type) : elle
-// en prend les réglages, sauf si elle a été ajustée à la main, et garde ses
-// inscrits.
-const rattacherAuCreneau = async (db, seanceId, creneau) => {
-    const seance = await db.get(`SELECT modifiee FROM seances WHERE id = ?`, [seanceId]);
-    if (estVrai(seance && seance.modifiee)) {
-        await db.run(`UPDATE seances SET creneau_id = ? WHERE id = ?`, [creneau.id, seanceId]);
-    } else {
-        await db.run(
-            `UPDATE seances SET creneau_id = ?, ${COLONNES_REGLAGES.map(c => `${c} = ?`).join(', ')} WHERE id = ?`,
-            [creneau.id, ...reglagesDuCreneau(creneau), seanceId]
-        );
-    }
-    await db.run(`UPDATE inscriptions SET creneau_id = ? WHERE seance_id = ?`, [creneau.id, seanceId]);
-    await db.run(`UPDATE waitlist_tokens SET creneau_id = ? WHERE seance_id = ?`, [creneau.id, seanceId]);
-};
-
 // --- Inscriptions ----------------------------------------------------------
 
 const compterInscrits = async (db, seanceId) => {
@@ -519,7 +502,6 @@ module.exports = {
     trouverSeanceParCreneau,
     resoudreSeance,
     synchroniserCreneau,
-    rattacherAuCreneau,
     compterInscrits,
     prochainePositionAttente,
     renumeroterAttente,

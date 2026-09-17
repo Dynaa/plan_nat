@@ -431,6 +431,9 @@ function displayAdminCreneaux(creneaux) {
                 <div class="creneau-info">
                     <div style="margin-bottom: 0.35rem;">${sportBadge}</div>
                     <h4>${creneau.nom}</h4>
+                    <div style="margin: 0.25rem 0;">${(creneau.semaines_types || []).length
+                ? creneau.semaines_types.map(t => `<span style="display:inline-block;background:#edf2f7;color:#4a5568;border-radius:999px;padding:1px 8px;font-size:0.7rem;margin-right:0.25rem;">🗓 ${t.nom}</span>`).join('')
+                : '<span style="font-size:0.75rem;color:#a0aec0;">Dans aucune semaine type</span>'}</div>
                     <div class="creneau-details">
                         ${joursMap[creneau.jour_semaine]} • ${creneau.heure_debut} - ${creneau.heure_fin}
                         ${creneau.lieu ? `<div style="color:#4a5568;font-size:0.85rem;margin-top:0.2rem;">📍 ${creneau.lieu}</div>` : ''}
@@ -453,7 +456,10 @@ function displayAdminCreneaux(creneaux) {
                         <button onclick="editerCreneau(${creneau.id})" class="btn-success">
                             ✏️ Modifier
                         </button>
-                        <button onclick="supprimerCreneau(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', ${creneau.inscrits + creneau.en_attente})" 
+                        ${semaineTypeCourante ? `<button onclick="retirerCreneauDuType(${creneau.id})" class="btn-warning" title="Le créneau reste dans la bibliothèque">
+                            ➖ Retirer de la semaine type
+                        </button>` : ''}
+                        <button ${semaineTypeCourante ? 'style="display:none;"' : ''} onclick="supprimerCreneau(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', ${creneau.inscrits + creneau.en_attente})" 
                                 class="btn-danger" 
                                 title="${creneau.inscrits + creneau.en_attente > 0 ? 'Suppression forcée (avec inscriptions)' : 'Supprimer le créneau'}">
                             ${creneau.inscrits + creneau.en_attente > 0 ? '🗑️ Supprimer (forcé)' : '🗑️ Supprimer'}
