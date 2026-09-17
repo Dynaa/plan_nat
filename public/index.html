@@ -316,6 +316,36 @@
                     </div>
 
                     <div class="admin-section">
+                        <h3>Importer des comptes (CSV ou Excel)</h3>
+                        <p style="color: #4a5568; margin-bottom: 1rem;">
+                            Colonnes reconnues : <strong>Nom</strong>, <strong>Prénom</strong>, <strong>Email</strong>,
+                            et facultativement <strong>Licence</strong> et <strong>Public</strong> (jeune / adulte).
+                            Chaque nouveau membre reçoit un email pour choisir son mot de passe.
+                            <a href="#" id="import-modele-link">Télécharger un modèle</a>
+                        </p>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                            <label>Licence par défaut (si absente du fichier)
+                                <select id="import-defaut-licence">
+                                    <option value="">— À choisir ligne par ligne —</option>
+                                    <option value="Compétition">🏆 Compétition</option>
+                                    <option value="Loisir/Senior">🏊‍♂️ Loisir/Senior</option>
+                                    <option value="Benjamins/Junior">🧒 Benjamins/Junior</option>
+                                    <option value="Poussins/Pupilles">👶 Poussins/Pupilles</option>
+                                </select>
+                            </label>
+                            <label>Public par défaut (si absent du fichier)
+                                <select id="import-defaut-public">
+                                    <option value="adulte">Adulte</option>
+                                    <option value="jeune">Jeune</option>
+                                    <option value="les deux">Les deux</option>
+                                </select>
+                            </label>
+                        </div>
+                        <input type="file" id="import-fichier" accept=".csv,.xlsx,.xls,.ods">
+                        <div id="import-apercu" style="margin-top: 1rem;"></div>
+                    </div>
+
+                    <div class="admin-section">
                         <h3>Gestion des utilisateurs</h3>
                         <div id="admin-users-list"></div>
                     </div>

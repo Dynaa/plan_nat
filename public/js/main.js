@@ -135,6 +135,9 @@ function setupMainEventListeners() {
     if (createUserForm) {
         createUserForm.addEventListener('submit', handleCreateUser);
     }
+
+    // Import de comptes depuis un fichier CSV/Excel
+    initImportComptes();
 }
 
 
