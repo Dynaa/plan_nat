@@ -133,6 +133,15 @@ NODE_ENV=production npm start
 - **SQLite** : sauvegarder le fichier `database.sqlite`
 - **PostgreSQL** : utiliser `pg_dump`
 
+### Tests
+- `npm test` : tests backend (base SQLite en mémoire)
+- `npm run test:e2e` : tests de l'interface (Playwright)
+- Vérification sur PostgreSQL, sur une base **jetable** dont le nom contient « test » :
+  ```bash
+  createdb plan_nat_test
+  DATABASE_URL=postgres://<utilisateur>@localhost:5432/plan_nat_test node scripts/verifier-seances-postgres.js
+  ```
+
 ## 📞 Support
 
 En cas de problème :

@@ -295,7 +295,7 @@ function displayCreneaux() {
                         <button onclick="voirInscritsPublic(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', '${creneau.date_seance}')" class="btn-warning" ${creneau.inscrits === 0 && creneau.en_attente === 0 ? 'style="display:none;"' : ''}>
                             👥 Voir inscrits
                         </button>
-                        <button onclick="inscrireCreneau(${creneau.id}, '${creneau.date_seance}')" 
+                        <button onclick="inscrireCreneau(${creneau.id})" 
                                 class="btn-success" 
                                 ${btnDisabled ? 'disabled' : ''}
                                 ${btnDisabled ? 'style="background: #a0aec0; cursor: not-allowed;"' : ''}>
@@ -388,7 +388,7 @@ function displayMesInscriptions(inscriptions) {
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <span class="statut-badge ${statutClass}">${statutText}</span>
-                    <button onclick="desinscrireCreneau(${inscription.creneau_id}, '${inscription.date_seance}')" 
+                    <button onclick="desinscrireCreneau(${inscription.seance_id})" 
                             class="btn-danger">
                         Se désinscrire
                     </button>
@@ -441,9 +441,9 @@ function displayAdminCreneaux(creneaux) {
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <button onclick="voirInscriptions(${creneau.id})" class="btn-warning">
+                        ${creneau.seance_id ? `<button onclick="voirInscriptions(${creneau.seance_id})" class="btn-warning">
                             👥 Inscriptions
-                        </button>
+                        </button>` : ''}
                         <button onclick="editerCreneau(${creneau.id})" class="btn-success">
                             ✏️ Modifier
                         </button>
@@ -458,7 +458,11 @@ function displayAdminCreneaux(creneaux) {
         `;
     }).join('');
 }
-function displayInscriptionsModal(inscriptions, creneauId) {
+// Inscriptions d'une séance datée (données : { seance, inscriptions })
+function displayInscriptionsModal({ seance, inscriptions }, seanceId) {
+    // Un rechargement remplace la fenêtre déjà ouverte
+    document.querySelectorAll('.modal-inscriptions').forEach(m => m.remove());
+
     const modal = document.createElement('div');
     modal.style.cssText = `
         position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -477,7 +481,7 @@ function displayInscriptionsModal(inscriptions, creneauId) {
 
     content.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-            <h3>Inscriptions au créneau</h3>
+            <h3>Inscriptions — ${seance.nom}<br><small style="font-weight: normal; color: #718096;">${new Date(seance.date_seance).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} • ${seance.heure_debut} - ${seance.heure_fin}</small></h3>
             <button onclick="this.closest('.modal').remove()" style="background: #e53e3e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Fermer</button>
         </div>
         
@@ -490,7 +494,7 @@ function displayInscriptionsModal(inscriptions, creneauId) {
                             <strong>${i.prenom} ${i.nom}</strong><br>
                             <small style="color: #718096;">${i.email}</small>
                         </div>
-                        <button onclick="desinscrireUtilisateur(${i.user_id}, ${creneauId}, '${i.prenom} ${i.nom}')" 
+                        <button onclick="desinscrireUtilisateur(${i.user_id}, ${seanceId}, '${i.prenom} ${i.nom}')" 
                                 style="background: #e53e3e; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
                             🗑️ Désinscrire
                         </button>
@@ -508,11 +512,11 @@ function displayInscriptionsModal(inscriptions, creneauId) {
                         <small style="color: #718096;">${i.email}</small>
                     </div>
                     <div style="display: flex; gap: 0.25rem;">
-                        <button onclick="promouvoirUtilisateur(${i.user_id}, ${creneauId}, '${i.prenom} ${i.nom}')" 
+                        <button onclick="promouvoirUtilisateur(${i.user_id}, ${seanceId}, '${i.prenom} ${i.nom}')" 
                                 style="background: #38a169; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
                             ⬆️ Promouvoir
                         </button>
-                        <button onclick="desinscrireUtilisateur(${i.user_id}, ${creneauId}, '${i.prenom} ${i.nom}')" 
+                        <button onclick="desinscrireUtilisateur(${i.user_id}, ${seanceId}, '${i.prenom} ${i.nom}')" 
                                 style="background: #e53e3e; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
                             🗑️ Retirer
                         </button>
@@ -527,7 +531,7 @@ function displayInscriptionsModal(inscriptions, creneauId) {
             <div style="display: flex; gap: 0.5rem; align-items: center;">
                 <input type="email" id="email-inscription" placeholder="Email de l'utilisateur" 
                        style="flex: 1; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px;">
-                <button onclick="inscrireUtilisateur(${creneauId})" 
+                <button onclick="inscrireUtilisateur(${seanceId})" 
                         style="background: #4299e1; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
                     Inscrire
                 </button>
@@ -535,7 +539,7 @@ function displayInscriptionsModal(inscriptions, creneauId) {
         </div>
     `;
 
-    modal.className = 'modal';
+    modal.className = 'modal modal-inscriptions';
     modal.appendChild(content);
     document.body.appendChild(modal);
 
@@ -546,9 +550,9 @@ function displayInscriptionsModal(inscriptions, creneauId) {
     });
 }
 
-async function voirInscritsPublic(creneauId, nomCreneau, date_seance) {
+async function voirInscritsPublic(seanceId, nomCreneau, date_seance) {
     try {
-        const response = await fetch(`/api/creneaux/${creneauId}/inscrits?date_seance=${date_seance}`);
+        const response = await fetch(`/api/seances/${seanceId}/inscrits`);
         const data = await response.json();
 
         if (response.ok) {

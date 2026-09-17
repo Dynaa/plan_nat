@@ -68,74 +68,68 @@ describe('Business Rules Logic', () => {
     });
 
     describe('verifierMetaRegles', () => {
-        it('devrait autoriser l\'inscription si les meta-règles sont désactivées', async () => {
+        // Séance du jeudi 17 septembre 2026, en natation
+        const seanceJeudi = { id: 10, creneau_id: 3, sport_id: 1, date_seance: '2026-09-17' };
+
+        it("devrait autoriser l'inscription si les meta-règles sont désactivées", async () => {
             mockDb.get.mockResolvedValueOnce({ enabled: false });
 
-            const result = await verifierMetaRegles(mockDb, 1, 10);
+            const result = await verifierMetaRegles(mockDb, 1, seanceJeudi);
 
             expect(result.autorise).toBe(true);
             expect(mockDb.get).toHaveBeenCalledTimes(1);
         });
 
-        it('devrait interdire une inscription listée dans les jours interdits d\'une meta-règle (format string csv)', async () => {
-            // Configuration Meta-règles activées
-            mockDb.get.mockResolvedValueOnce({ enabled: true });
-            // User Infos
-            mockDb.get.mockResolvedValueOnce({ licence_type: 'Natation adulte' });
-            // Creneau Infos (Ex: Jeudi = 4)
-            mockDb.get.mockResolvedValueOnce({ jour_semaine: 4 });
-            // Meta-règles pour ce type
+        it("devrait interdire une inscription listée dans les jours interdits d'une meta-règle (format string csv)", async () => {
+            mockDb.get
+                .mockResolvedValueOnce({ enabled: true })
+                .mockResolvedValueOnce({ licence_type: 'Natation adulte' })
+                .mockResolvedValueOnce({ id: 99 }); // inscrit le mardi de la même semaine
             mockDb.query.mockResolvedValueOnce([{
                 jour_source: 2, // Inscrit le Mardi
-                jours_interdits: "4,6", // Interdit le Jeudi et Samedi
-                description: "Interdit car deja inscrit mardi"
+                jours_interdits: '4,6', // Interdit le Jeudi et Samedi
+                description: 'Interdit car deja inscrit mardi'
             }]);
-            // Verification si inscrit au jour source
-            mockDb.get.mockResolvedValueOnce({ id: 99 }); // Oui, il est inscrit le mardi
 
-            const result = await verifierMetaRegles(mockDb, 1, 10);
+            const result = await verifierMetaRegles(mockDb, 1, seanceJeudi);
 
             expect(result.autorise).toBe(false);
             expect(result.message).toContain('Inscription interdite : vous êtes déjà inscrit');
+            // Les règles sont celles du sport de la séance
+            expect(mockDb.query.mock.calls[0][1]).toEqual(['Natation adulte', 1]);
+            // L'inscription déclenchante est cherchée le mardi de la même semaine, même sport
+            expect(mockDb.get.mock.calls[2][1]).toEqual([1, '2026-09-15', 1]);
         });
 
-        it('devrait autoriser si le créneau n\'est pas dans les jours interdits d\'une meta-règle (format JSON)', async () => {
-            // Configuration Meta-règles activées
-            mockDb.get.mockResolvedValueOnce({ enabled: true });
-            // User Infos
-            mockDb.get.mockResolvedValueOnce({ licence_type: 'Natation adulte' });
-            // Creneau Infos (Ex: Vendredi = 5)
-            mockDb.get.mockResolvedValueOnce({ jour_semaine: 5 });
-            // Meta-règles pour ce type
+        it("devrait autoriser si la séance n'est pas dans les jours interdits d'une meta-règle (format JSON)", async () => {
+            mockDb.get
+                .mockResolvedValueOnce({ enabled: true })
+                .mockResolvedValueOnce({ licence_type: 'Natation adulte' });
             mockDb.query.mockResolvedValueOnce([{
-                jour_source: 2, // Inscrit le Mardi
-                jours_interdits: "[4,6]", // Interdit le Jeudi et Samedi
-                description: "Interdit car deja inscrit mardi"
+                jour_source: 2,
+                jours_interdits: '[4,6]',
+                description: 'Interdit car deja inscrit mardi'
             }]);
-            // Verification si inscrit au jour source
-            mockDb.get.mockResolvedValueOnce({ id: 99 }); // Oui, il est inscrit le mardi
 
-            const result = await verifierMetaRegles(mockDb, 1, 10);
+            // Vendredi 18 septembre
+            const result = await verifierMetaRegles(mockDb, 1, { ...seanceJeudi, date_seance: '2026-09-18' });
 
             expect(result.autorise).toBe(true);
+            // Jour non concerné : aucune recherche d'inscription déclenchante
+            expect(mockDb.get).toHaveBeenCalledTimes(2);
         });
 
-        it('devrait autoriser si l\'utilisateur n\'est pas inscrit au jour source', async () => {
-            // Configuration Meta-règles activées
-            mockDb.get.mockResolvedValueOnce({ enabled: true });
-            // User Infos
-            mockDb.get.mockResolvedValueOnce({ licence_type: 'Natation adulte' });
-            // Creneau Infos (Ex: Jeudi = 4)
-            mockDb.get.mockResolvedValueOnce({ jour_semaine: 4 });
-            // Meta-règles pour ce type
+        it("devrait autoriser si l'utilisateur n'est pas inscrit au jour source", async () => {
+            mockDb.get
+                .mockResolvedValueOnce({ enabled: true })
+                .mockResolvedValueOnce({ licence_type: 'Natation adulte' })
+                .mockResolvedValueOnce(null); // pas inscrit le mardi
             mockDb.query.mockResolvedValueOnce([{
-                jour_source: 2, // Inscrit le Mardi
-                jours_interdits: "[4,6]", // Interdit le Jeudi et Samedi
+                jour_source: 2,
+                jours_interdits: '[4,6]'
             }]);
-            // Verification si inscrit au jour source
-            mockDb.get.mockResolvedValueOnce(null); // Non, pas inscrit le mardi
 
-            const result = await verifierMetaRegles(mockDb, 1, 10);
+            const result = await verifierMetaRegles(mockDb, 1, seanceJeudi);
 
             expect(result.autorise).toBe(true);
         });

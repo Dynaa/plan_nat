@@ -140,13 +140,13 @@ async function loadAdminCreneaux() {
         showMessage('Erreur de connexion', 'error');
     }
 }
-async function voirInscriptions(creneauId) {
+async function voirInscriptions(seanceId) {
     try {
-        const response = await fetch(`/api/admin/inscriptions/${creneauId}`);
+        const response = await fetch(`/api/admin/seances/${seanceId}/inscriptions`);
         const data = await response.json();
 
         if (response.ok) {
-            displayInscriptionsModal(data, creneauId);
+            displayInscriptionsModal(data, seanceId);
         } else {
             showMessage('Erreur lors du chargement des inscriptions', 'error');
         }
@@ -154,12 +154,12 @@ async function voirInscriptions(creneauId) {
         showMessage('Erreur de connexion', 'error');
     }
 }
-async function desinscrireUtilisateur(userId, creneauId, nomUtilisateur) {
+async function desinscrireUtilisateur(userId, seanceId, nomUtilisateur) {
     const confirmation = confirm(`Désinscrire ${nomUtilisateur} de ce créneau ?`);
     if (!confirmation) return;
 
     try {
-        const response = await fetch(`/api/admin/inscriptions/${userId}/${creneauId}`, {
+        const response = await fetch(`/api/admin/seances/${seanceId}/inscriptions/${userId}`, {
             method: 'DELETE'
         });
 
@@ -168,7 +168,7 @@ async function desinscrireUtilisateur(userId, creneauId, nomUtilisateur) {
         if (response.ok) {
             showMessage(data.message, 'success');
             // Recharger la modal des inscriptions
-            voirInscriptions(creneauId);
+            voirInscriptions(seanceId);
             // Recharger les listes
             loadAdminCreneaux();
         } else {
@@ -179,7 +179,7 @@ async function desinscrireUtilisateur(userId, creneauId, nomUtilisateur) {
         showMessage('Erreur lors de la désinscription', 'error');
     }
 }
-async function inscrireUtilisateur(creneauId) {
+async function inscrireUtilisateur(seanceId) {
     const email = document.getElementById('email-inscription').value;
     if (!email) {
         showMessage('Veuillez saisir un email', 'error');
@@ -190,7 +190,7 @@ async function inscrireUtilisateur(creneauId) {
         const response = await fetch(`/api/admin/inscriptions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, creneauId })
+            body: JSON.stringify({ email, seanceId })
         });
 
         const data = await response.json();
@@ -199,7 +199,7 @@ async function inscrireUtilisateur(creneauId) {
             showMessage(data.message, 'success');
             document.getElementById('email-inscription').value = '';
             // Recharger la modal des inscriptions
-            voirInscriptions(creneauId);
+            voirInscriptions(seanceId);
             // Recharger les listes
             loadAdminCreneaux();
         } else {
@@ -210,12 +210,12 @@ async function inscrireUtilisateur(creneauId) {
         showMessage('Erreur lors de l\'inscription', 'error');
     }
 }
-async function promouvoirUtilisateur(userId, creneauId, nomUtilisateur) {
+async function promouvoirUtilisateur(userId, seanceId, nomUtilisateur) {
     const confirmation = confirm(`Promouvoir ${nomUtilisateur} de la liste d'attente vers les inscrits ?`);
     if (!confirmation) return;
 
     try {
-        const response = await fetch(`/api/admin/inscriptions/${userId}/${creneauId}/promote`, {
+        const response = await fetch(`/api/admin/seances/${seanceId}/inscriptions/${userId}/promote`, {
             method: 'PUT'
         });
 
@@ -224,7 +224,7 @@ async function promouvoirUtilisateur(userId, creneauId, nomUtilisateur) {
         if (response.ok) {
             showMessage(data.message, 'success');
             // Recharger la modal des inscriptions
-            voirInscriptions(creneauId);
+            voirInscriptions(seanceId);
             // Recharger les listes
             loadAdminCreneaux();
         } else {

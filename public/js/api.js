@@ -18,7 +18,7 @@ async function loadSports() {
 
 async function loadCreneaux() {
     try {
-        const response = await fetch(`/api/creneaux?semaine=${currentSemaineOffset}`);
+        const response = await fetch(`/api/seances?semaine=${currentSemaineOffset}`);
         const data = await response.json();
 
         if (response.ok) {
@@ -36,12 +36,12 @@ async function loadCreneaux() {
         showMessage('Erreur de connexion', 'error');
     }
 }
-async function inscrireCreneau(creneauId, date_seance) {
+async function inscrireCreneau(seanceId) {
     try {
         const response = await fetch('/api/inscriptions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ creneauId, date_seance })
+            body: JSON.stringify({ seanceId })
         });
 
         const data = await response.json();
@@ -87,16 +87,14 @@ async function loadMesInscriptions() {
         showMessage('Erreur de connexion', 'error');
     }
 }
-async function desinscrireCreneau(creneauId, date_seance) {
+async function desinscrireCreneau(seanceId) {
     if (!confirm('Êtes-vous sûr de vouloir vous désinscrire de ce créneau ?')) {
         return;
     }
 
     try {
-        const response = await fetch(`/api/inscriptions/${creneauId}`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date_seance })
+        const response = await fetch(`/api/seances/${seanceId}/inscription`, {
+            method: 'DELETE'
         });
 
         const data = await response.json();

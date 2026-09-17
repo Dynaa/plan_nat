@@ -7,8 +7,9 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
-const { verifierLimitesSeances, verifierRegleBloc, verifierMetaRegles, sportDuCreneau } = require('./services/businessRules');
+const { verifierLimitesSeances, verifierRegleBloc, verifierMetaRegles } = require('./services/businessRules');
 const importComptes = require('./services/importComptes');
+const seances = require('./services/seances');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -887,6 +888,9 @@ async function initializeDatabase() {
             console.error('❌ Erreur migration sport_id (meta_rules):', err.message);
         }
 
+        // Séances datées : table, colonnes de rattachement et reprise de l'existant
+        await seances.migrer(db);
+
         // Créer admin par défaut
         // En production, ADMIN_PASSWORD doit être définie : pas de mot de passe par défaut
         if (process.env.NODE_ENV === 'production' && !process.env.ADMIN_PASSWORD) {
@@ -1044,7 +1048,7 @@ console.log('🔍 DATABASE_URL présente:', !!process.env.DATABASE_URL);
 console.log('🔍 Type détecté:', db.isPostgres ? 'PostgreSQL' : 'SQLite');
 
 // Initialisation unifiée pour PostgreSQL et SQLite
-initializeDatabase().then(() => {
+const dbPrete = initializeDatabase().then(() => {
     console.log(`✅ Base de données ${db.isPostgres ? 'PostgreSQL' : 'SQLite'} initialisée avec succès`);
 }).catch(err => {
     console.error('❌ ERREUR CRITIQUE initialisation base de données:', err);
@@ -1057,131 +1061,45 @@ const generateSecureToken = () => {
     return crypto.randomBytes(32).toString('hex');
 };
 
-// Fonction pour créer un token d'inscription et envoyer l'email
 // Promotion automatique de la liste d'attente après un gain de places
-// (capacité augmentée, ou créneau passé sans limite).
+// (capacité augmentée, ou créneau passé sans limite), séance par séance.
 // Contrairement à la libération d'une place unique — qui notifie tout le monde
 // et récompense le premier à confirmer — les places sont ici disponibles
 // immédiatement : on promeut donc directement, dans l'ordre d'attente.
-const promouvoirListeAttente = async (db, creneauId) => {
-    const creneau = await db.get(
-        db.adaptSQL(
-            `SELECT nom, capacite_max, sans_limite FROM creneaux WHERE id = ?`,
-            `SELECT nom, capacite_max, sans_limite FROM creneaux WHERE id = $1`
-        ),
-        [creneauId]
-    );
-
-    if (!creneau) return { promus: [] };
-
-    const sansLimite = creneau.sans_limite === true || creneau.sans_limite === 1;
-    const capacite = parseInt(creneau.capacite_max, 10) || 0;
-    const aujourdhui = new Date().toISOString().split('T')[0];
-
-    // Seules les séances à venir méritent d'être repourvues
-    const dates = await db.query(
-        db.adaptSQL(
-            `SELECT DISTINCT date_seance FROM inscriptions
-             WHERE creneau_id = ? AND statut = 'attente' AND date_seance >= ?
-             ORDER BY date_seance`,
-            `SELECT DISTINCT date_seance FROM inscriptions
-             WHERE creneau_id = $1 AND statut = 'attente' AND date_seance >= $2
-             ORDER BY date_seance`
-        ),
-        [creneauId, aujourdhui]
-    );
-
+const promouvoirSeances = async (seanceIds) => {
     const promus = [];
-
-    for (const { date_seance } of dates) {
-        const compte = await db.get(
-            db.adaptSQL(
-                `SELECT COUNT(*) as total FROM inscriptions
-                 WHERE creneau_id = ? AND statut = 'inscrit' AND date_seance = ?`,
-                `SELECT COUNT(*) as total FROM inscriptions
-                 WHERE creneau_id = $1 AND statut = 'inscrit' AND date_seance = $2`
-            ),
-            [creneauId, date_seance]
-        );
-
-        const inscrits = parseInt(compte.total, 10) || 0;
-        const placesLibres = sansLimite ? Infinity : capacite - inscrits;
-        if (placesLibres <= 0) continue;
-
-        const enAttente = await db.query(
-            db.adaptSQL(
-                `SELECT user_id FROM inscriptions
-                 WHERE creneau_id = ? AND statut = 'attente' AND date_seance = ?
-                 ORDER BY position_attente ASC`,
-                `SELECT user_id FROM inscriptions
-                 WHERE creneau_id = $1 AND statut = 'attente' AND date_seance = $2
-                 ORDER BY position_attente ASC`
-            ),
-            [creneauId, date_seance]
-        );
-
-        const aPromouvoir = sansLimite ? enAttente : enAttente.slice(0, placesLibres);
-
-        for (const { user_id } of aPromouvoir) {
-            await db.run(
-                db.adaptSQL(
-                    `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL
-                     WHERE creneau_id = ? AND user_id = ? AND date_seance = ?`,
-                    `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL
-                     WHERE creneau_id = $1 AND user_id = $2 AND date_seance = $3`
-                ),
-                [creneauId, user_id, date_seance]
-            );
-            promus.push({ userId: user_id, date_seance });
-        }
-
-        // Renuméroter ceux qui restent en attente pour garder des positions continues
-        const restants = enAttente.slice(aPromouvoir.length);
-        for (let i = 0; i < restants.length; i++) {
-            await db.run(
-                db.adaptSQL(
-                    `UPDATE inscriptions SET position_attente = ?
-                     WHERE creneau_id = ? AND user_id = ? AND date_seance = ?`,
-                    `UPDATE inscriptions SET position_attente = $1
-                     WHERE creneau_id = $2 AND user_id = $3 AND date_seance = $4`
-                ),
-                [i + 1, creneauId, restants[i].user_id, date_seance]
-            );
+    for (const seanceId of seanceIds) {
+        const resultat = await seances.promouvoirSeance(db, seanceId);
+        for (const userId of resultat.promus) {
+            promus.push({ userId, seance: resultat.seance });
         }
     }
-
     if (promus.length > 0) {
-        console.log(`✅ ${promus.length} inscription(s) promue(s) depuis la liste d'attente du créneau "${creneau.nom}"`);
+        console.log(`✅ ${promus.length} inscription(s) promue(s) depuis la liste d'attente`);
     }
-
-    return { promus, creneauNom: creneau.nom };
+    return promus;
 };
 
-// Prévenir un membre que sa place d'attente est devenue une inscription ferme
-const notifierPromotion = async (userId, creneauNom, date_seance) => {
-    try {
-        const user = await db.get(
-            db.adaptSQL(
-                `SELECT email, nom, prenom FROM users WHERE id = ?`,
-                `SELECT email, nom, prenom FROM users WHERE id = $1`
-            ),
-            [userId]
-        );
-        if (!user) return false;
+// « jeudi 17 septembre »
+const dateLisible = (dateSeance) => new Date(`${dateSeance}T12:00:00Z`).toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris'
+});
 
-        const dateLisible = new Date(date_seance).toLocaleDateString('fr-FR', {
-            weekday: 'long', day: '2-digit', month: 'long'
-        });
+// Prévenir un membre que sa place d'attente est devenue une inscription ferme
+const notifierPromotion = async (userId, seance) => {
+    try {
+        const user = await db.get(`SELECT email, nom, prenom FROM users WHERE id = ?`, [userId]);
+        if (!user) return false;
 
         return await sendEmail(
             user.email,
-            `✅ Votre place est confirmée - ${creneauNom}`,
+            `✅ Votre place est confirmée - ${seance.nom}`,
             `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2 style="color: #28A0E8;">✅ Votre place est confirmée</h2>
                 <p>Bonjour ${user.prenom} ${user.nom},</p>
                 <p>Vous étiez en liste d'attente pour le créneau
-                   <strong>${creneauNom}</strong> du ${dateLisible}.</p>
+                   <strong>${seance.nom}</strong> du ${dateLisible(seance.date_seance)}.</p>
                 <p>Des places ont été ajoutées : <strong>votre inscription est désormais confirmée</strong>.
                    Vous n'avez aucune démarche à faire.</p>
                 <p style="color: #6b7280; font-size: 14px;">
@@ -1201,14 +1119,14 @@ const notifierPromotion = async (userId, creneauNom, date_seance) => {
     }
 };
 
-const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
+// Une place s'est libérée : chaque personne en attente reçoit un lien, le
+// premier à confirmer obtient la place.
+const notifyWaitlistUser = async (userId, seance) => {
     try {
-        // Récupérer les infos utilisateur et créneau
         const userInfo = await db.get(`SELECT email, nom, prenom FROM users WHERE id = ?`, [userId]);
-        const creneauInfo = await db.get(`SELECT nom, jour_semaine, heure_debut, heure_fin FROM creneaux WHERE id = ?`, [creneauId]);
 
-        if (!userInfo || !creneauInfo) {
-            console.error('❌ Utilisateur ou créneau introuvable pour notification');
+        if (!userInfo) {
+            console.error('❌ Utilisateur introuvable pour notification');
             return false;
         }
 
@@ -1217,16 +1135,14 @@ const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 24); // Expire dans 24h
 
-        // Sauvegarder le token
-        await db.run(`INSERT INTO waitlist_tokens (token, user_id, creneau_id, date_seance, expires_at) VALUES (?, ?, ?, ?, ?)`,
-            [token, userId, creneauId, date_seance, expiresAt.toISOString()]);
+        await db.run(
+            `INSERT INTO waitlist_tokens (token, user_id, creneau_id, seance_id, date_seance, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
+            [token, userId, seance.creneau_id, seance.id, seance.date_seance, expiresAt.toISOString()]
+        );
 
         // Créer le lien d'inscription
         const inscriptionLink = `${getBaseUrl()}/inscription-attente?token=${token}`;
-
-        // Jours de la semaine
-        const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-        const jourNom = jours[creneauInfo.jour_semaine];
+        const jour = dateLisible(seance.date_seance);
 
         // Template d'email
         const emailContent = `
@@ -1239,13 +1155,6 @@ const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
                 
                 <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 15px 0;">
                     <p style="margin: 0; color: #92400e; font-weight: bold;">
-                        ⚡ Attention : Cet email a été envoyé à toutes les personnes en liste d'attente. 
-                        Le premier qui confirme son inscription obtiendra la place !
-                    </p>
-                </div>
-                
-                <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 15px 0;">
-                    <p style="margin: 0; color: #92400e; font-weight: bold;">
                         ⚡ Premier arrivé, premier servi !
                     </p>
                     <p style="margin: 5px 0 0 0; color: #92400e; font-size: 14px;">
@@ -1254,10 +1163,10 @@ const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
                 </div>
                 
                 <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                    <h3 style="margin: 0; color: #1f2937;">${creneauInfo.nom}</h3>
+                    <h3 style="margin: 0; color: #1f2937;">${seance.nom}</h3>
                     <p style="margin: 10px 0 0 0; color: #6b7280;">
-                        📅 ${jourNom}<br>
-                        🕐 ${creneauInfo.heure_debut} - ${creneauInfo.heure_fin}
+                        📅 ${jour.charAt(0).toUpperCase() + jour.slice(1)}<br>
+                        🕐 ${seance.heure_debut} - ${seance.heure_fin}
                     </p>
                 </div>
                 
@@ -1285,27 +1194,23 @@ const notifyWaitlistUser = async (userId, creneauId, date_seance) => {
             </div>
         `;
 
-        // Envoyer l'email
         const emailSent = await sendEmail(
             userInfo.email,
-            `🏊‍♀️ Place disponible - ${creneauInfo.nom}`,
+            `🏊‍♀️ Place disponible - ${seance.nom}`,
             emailContent
         );
 
         if (emailSent) {
-            console.log(`✅ Email de notification envoyé à ${userInfo.email} pour le créneau ${creneauInfo.nom}`);
+            console.log(`✅ Email de notification envoyé à ${userInfo.email} pour la séance ${seance.nom} du ${seance.date_seance}`);
             return true;
-        } else {
-            console.error(`❌ Échec envoi email à ${userInfo.email}`);
-            return false;
         }
-
+        console.error(`❌ Échec envoi email à ${userInfo.email}`);
+        return false;
     } catch (err) {
         console.error('❌ Erreur notification liste d\'attente:', err);
         return false;
     }
 };
-
 // URL publique de l'application, utilisée dans les liens envoyés par email.
 // RAILWAY_PUBLIC_DOMAIN / RAILWAY_STATIC_URL ne contiennent pas le protocole.
 const getBaseUrl = () => {
@@ -1774,26 +1679,6 @@ async function resoudreCapaciteAvecSport(db, sportId, champs) {
     return Number.isInteger(defaut) && defaut > 0 ? defaut : null;
 }
 
-function getSeanceDate(jourSemaine, offsetSemaines = 0) {
-    // jourSemaine: 0=Dimanche, 1=Lundi, ..., 6=Samedi
-    const today = new Date();
-    // Ajuster pour que la semaine commence le Lundi (1) et finisse le Dimanche (7 dans ce calcul interne)
-    let currentDayOfWeek = today.getDay();
-    if (currentDayOfWeek === 0) currentDayOfWeek = 7;
-
-    let targetDayOfWeek = jourSemaine;
-    if (targetDayOfWeek === 0) targetDayOfWeek = 7;
-
-    // Différence en jours par rapport à aujourd'hui pour atteindre le même jour de cette semaine
-    const diff = targetDayOfWeek - currentDayOfWeek;
-
-    const targetDate = new Date(today);
-    targetDate.setDate(today.getDate() + diff + (offsetSemaines * 7));
-
-    // Formater en YYYY-MM-DD
-    return targetDate.toISOString().split('T')[0];
-}
-
 // Routes des créneaux
 // Liste des sports actifs (ordre d'affichage)
 app.get('/api/sports', async (req, res) => {
@@ -1826,106 +1711,107 @@ app.get('/api/admin/lieux', requireAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/creneaux', async (req, res) => {
+// Profil de consultation : public ciblé et droits d'administration
+const profilVisiteur = async (userId) => {
+    if (!userId) return { publicCible: 'adulte', isAdmin: false };
+    const user = await db.get(`SELECT role, public_cible FROM users WHERE id = ?`, [userId]);
+    return {
+        publicCible: (user && user.public_cible) || 'adulte',
+        isAdmin: !!user && user.role === 'admin'
+    };
+};
+
+// Semaine demandée (0 = en cours), ou null si le visiteur ne peut pas la consulter
+const semaineDemandee = (valeur, isAdmin) => {
+    const offset = Number(valeur || 0);
+    const max = isAdmin ? seances.SEMAINES_ADMIN : seances.SEMAINES_MEMBRES;
+    return Number.isInteger(offset) && offset >= 0 && offset < max ? offset : null;
+};
+
+// Séances d'une semaine, telles que le visiteur peut les réserver
+app.get('/api/seances', async (req, res) => {
     const userId = req.session ? req.session.userId : null;
-    const offsetSemaines = parseInt(req.query.semaine || '0', 10); // 0 = cette semaine, 1 = semaine pro
 
     try {
-        // Retrieve user's public_cible if logged in
-        let userPublicCible = 'adulte'; // Default
-        let isAdmin = false;
-
-        if (userId) {
-            const uSql = db.isPostgres ? `SELECT role, public_cible FROM users WHERE id = $1` : `SELECT role, public_cible FROM users WHERE id = ?`;
-            const u = await db.get(uSql, [userId]);
-            if (u) {
-                userPublicCible = u.public_cible || 'adulte';
-                isAdmin = u.role === 'admin';
-            }
+        const { publicCible, isAdmin } = await profilVisiteur(userId);
+        const offset = semaineDemandee(req.query.semaine, isAdmin);
+        if (offset === null) {
+            return res.status(400).json({ error: 'Semaine non consultable' });
         }
 
-        // Prepare filter condition
-        let targetFilterSql = '';
-        if (!isAdmin) {
-            if (userPublicCible === 'jeune') {
-                targetFilterSql = ` AND c.public_cible IN ('jeune', 'les deux')`;
-            } else if (userPublicCible === 'adulte') {
-                targetFilterSql = ` AND c.public_cible IN ('adulte', 'les deux')`;
-            }
-            // If user is 'les deux', no filter needed
+        const debut = seances.lundiDeLaSemaine(offset);
+        const fin = seances.ajouterJours(debut, 6);
+        await seances.genererSemaine(db, debut);
+
+        // Un admin voit toutes les séances, quel que soit leur public
+        const liste = await seances.listerSeances(db, { debut, fin, publicCible: isAdmin ? null : publicCible });
+
+        // Bloc déjà utilisé cette semaine par une autre séance du membre
+        const occupes = userId ? await seances.blocsOccupes(db, userId, debut, fin) : new Map();
+        for (const seance of liste) {
+            const occupe = seance.bloc_id ? occupes.get(String(seance.bloc_id)) : null;
+            seance.inscrit_dans_bloc = occupe && occupe.seance_id !== seance.id ? occupe.nom : null;
         }
 
-        let creneauxQuery = db.isPostgres ?
-            `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom,
-                    s.slug as sport_slug, s.nom as sport_nom, s.icone as sport_icone, s.couleur as sport_couleur
+        res.json(liste);
+    } catch (err) {
+        console.error('Erreur récupération séances:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des séances' });
+    }
+});
+
+// Créneaux (modèles des séances), avec le remplissage de leur séance de la
+// semaine demandée. Sert à l'administration ; les membres passent par /api/seances.
+app.get('/api/creneaux', async (req, res) => {
+    const userId = req.session ? req.session.userId : null;
+
+    try {
+        const { publicCible, isAdmin } = await profilVisiteur(userId);
+        const offset = semaineDemandee(req.query.semaine, isAdmin);
+        if (offset === null) {
+            return res.status(400).json({ error: 'Semaine non consultable' });
+        }
+
+        const debut = seances.lundiDeLaSemaine(offset);
+        const fin = seances.ajouterJours(debut, 6);
+        await seances.genererSemaine(db, debut);
+
+        const filtrePublic = !isAdmin && (publicCible === 'jeune' || publicCible === 'adulte')
+            ? ` AND c.public_cible IN ('${publicCible}', 'les deux')`
+            : '';
+
+        const rows = await db.query(
+            `SELECT c.*, b.id AS bloc_id, b.nom AS bloc_nom,
+                    sp.slug AS sport_slug, sp.nom AS sport_nom, sp.icone AS sport_icone, sp.couleur AS sport_couleur,
+                    s.id AS seance_id, s.date_seance AS date_seance,
+                    (SELECT COUNT(*) FROM inscriptions i WHERE i.seance_id = s.id AND i.statut = 'inscrit') AS inscrits,
+                    (SELECT COUNT(*) FROM inscriptions i WHERE i.seance_id = s.id AND i.statut = 'attente') AS en_attente
              FROM creneaux c
-             LEFT JOIN sports s ON c.sport_id = s.id
+             LEFT JOIN sports sp ON c.sport_id = sp.id
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
-             WHERE c.actif = true${targetFilterSql}
-             ORDER BY s.ordre, CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut` :
-            `SELECT c.*, b.id as bloc_id, b.nom as bloc_nom,
-                    s.slug as sport_slug, s.nom as sport_nom, s.icone as sport_icone, s.couleur as sport_couleur
-             FROM creneaux c
-             LEFT JOIN sports s ON c.sport_id = s.id
-             LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
-             LEFT JOIN blocs b ON bc.bloc_id = b.id
-             WHERE c.actif = 1${targetFilterSql}
-             ORDER BY s.ordre, CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut`;
+             LEFT JOIN seances s ON s.creneau_id = c.id AND s.date_seance BETWEEN ? AND ?
+             WHERE c.actif = true${filtrePublic}
+             ORDER BY sp.ordre, CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut`,
+            [debut, fin]
+        );
 
-        let rows = await db.query(creneauxQuery, []);
-
-        // Enrichir chaque créneau avec ses dates et les infos d'inscription
-        const today = new Date().toISOString().split('T')[0];
-
-        for (let row of rows) {
-            row.date_seance = getSeanceDate(row.jour_semaine, offsetSemaines);
-            row.est_passe = row.date_seance < today;
-
-            // Compter les inscrits et en attente
-            const statsQuery = db.isPostgres ?
-                `SELECT 
-                    COUNT(CASE WHEN statut = 'inscrit' THEN 1 END) as inscrits,
-                    COUNT(CASE WHEN statut = 'attente' THEN 1 END) as en_attente
-                 FROM inscriptions WHERE creneau_id = $1 AND date_seance = $2` :
-                `SELECT 
-                    COUNT(CASE WHEN statut = 'inscrit' THEN 1 END) as inscrits,
-                    COUNT(CASE WHEN statut = 'attente' THEN 1 END) as en_attente
-                 FROM inscriptions WHERE creneau_id = ? AND date_seance = ?`;
-
-            const stats = await db.get(statsQuery, [row.id, row.date_seance]);
-            row.inscrits = stats.inscrits || 0;
-            row.en_attente = stats.en_attente || 0;
-
-            row.inscrit_dans_bloc = null;
-            if (userId && row.bloc_id) {
-                // Vérifier si l'user est inscrit dans un créneau de ce bloc à la même date
-                const blocQuery = db.isPostgres ?
-                    `SELECT c2.nom as creneau_nom
-                     FROM inscriptions i2
-                     JOIN creneaux c2 ON i2.creneau_id = c2.id
-                     JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
-                     WHERE i2.statut = 'inscrit' AND i2.user_id = $1 AND bc2.bloc_id = $2 AND i2.date_seance = $3 LIMIT 1` :
-                    `SELECT c2.nom as creneau_nom
-                     FROM inscriptions i2
-                     JOIN creneaux c2 ON i2.creneau_id = c2.id
-                     JOIN bloc_creneaux bc2 ON c2.id = bc2.creneau_id
-                     WHERE i2.statut = 'inscrit' AND i2.user_id = ? AND bc2.bloc_id = ? AND i2.date_seance = ? LIMIT 1`;
-
-                const blocResult = await db.get(blocQuery, [userId, row.bloc_id, row.date_seance]);
-                if (blocResult) {
-                    row.inscrit_dans_bloc = blocResult.creneau_nom;
-                }
-            }
-        }
-
-        res.json(rows);
+        const aujourdhui = seances.aujourdhuiIso();
+        res.json(rows.map(row => {
+            const date = row.date_seance ? seances.normaliserDate(row.date_seance) : null;
+            return {
+                ...row,
+                date_seance: date,
+                est_passe: !!date && date < aujourdhui,
+                inscrits: parseInt(row.inscrits, 10) || 0,
+                en_attente: parseInt(row.en_attente, 10) || 0
+            };
+        }));
     } catch (err) {
         console.error('Erreur récupération créneaux:', err);
         return res.status(500).json({ error: 'Erreur lors de la récupération des créneaux' });
     }
 });
-
 
 app.get('/api/creneaux/:creneauId', async (req, res) => {
     const creneauId = req.params.creneauId;
@@ -1948,64 +1834,69 @@ app.get('/api/creneaux/:creneauId', async (req, res) => {
     }
 });
 
-// Route pour récupérer la liste des inscrits à un créneau (PUBLIC)
-app.get('/api/creneaux/:creneauId/inscrits', requireAuth, async (req, res) => {
-    const creneauId = req.params.creneauId;
-    const date_seance = req.query.date_seance;
-
-    if (!date_seance) {
-        return res.status(400).json({ error: 'La date de séance est requise' });
+const envoyerInscritsSeance = async (res, seance) => {
+    if (!seance) {
+        return res.status(404).json({ error: 'Séance non trouvée' });
     }
 
-    const query = db.isPostgres ? `
-        SELECT u.nom, u.prenom, i.statut, i.position_attente
-        FROM inscriptions i
-        JOIN users u ON i.user_id = u.id
-        WHERE i.creneau_id = $1 AND i.date_seance = $2
-        ORDER BY 
-            CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
-            i.position_attente ASC,
-            i.created_at ASC
-    ` : `
-        SELECT u.nom, u.prenom, i.statut, i.position_attente
-        FROM inscriptions i
-        JOIN users u ON i.user_id = u.id
-        WHERE i.creneau_id = ? AND i.date_seance = ?
-        ORDER BY 
-            CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
-            i.position_attente ASC,
-            i.created_at ASC
-    `;
+    const rows = await db.query(
+        `SELECT u.nom, u.prenom, i.statut, i.position_attente
+         FROM inscriptions i
+         JOIN users u ON i.user_id = u.id
+         WHERE i.seance_id = ?
+         ORDER BY
+             CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+             i.position_attente ASC,
+             i.created_at ASC`,
+        [seance.id]
+    );
+    res.json(rows);
+};
 
+// Inscrits d'une séance, visibles des membres connectés
+app.get('/api/seances/:seanceId/inscrits', requireAuth, async (req, res) => {
     try {
-        const rows = await db.query(query, [creneauId, date_seance]);
-        res.json(rows);
+        await envoyerInscritsSeance(res, await seances.trouverSeance(db, req.params.seanceId));
     } catch (err) {
         console.error('Erreur récupération inscrits publics:', err);
         return res.status(500).json({ error: 'Erreur lors de la récupération des inscrits' });
     }
 });
 
-// Route pour les inscriptions de l'utilisateur
-app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
-    const userId = req.session.userId;
-
-    const query = `
-        SELECT i.*, c.nom, c.jour_semaine, c.heure_debut, c.heure_fin, c.sport_id,
-               s.nom as sport_nom, s.icone as sport_icone, s.couleur as sport_couleur
-        FROM inscriptions i
-        JOIN creneaux c ON i.creneau_id = c.id
-        LEFT JOIN sports s ON c.sport_id = s.id
-        WHERE i.user_id = ${db.isPostgres ? '$1' : '?'}
-        ORDER BY s.ordre, CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut
-            `;
-
-    console.log('Requête mes-inscriptions pour userId:', userId);
+// Ancienne forme (créneau + date), pour les pages ouvertes avant la mise à jour
+app.get('/api/creneaux/:creneauId/inscrits', requireAuth, async (req, res) => {
+    if (!req.query.date_seance) {
+        return res.status(400).json({ error: 'La date de séance est requise' });
+    }
 
     try {
-        const rows = await db.query(query, [userId]);
-        console.log('Inscriptions trouvées:', rows.length);
-        res.json(rows);
+        const seance = await seances.trouverSeanceParCreneau(db, req.params.creneauId, req.query.date_seance);
+        await envoyerInscritsSeance(res, seance);
+    } catch (err) {
+        console.error('Erreur récupération inscrits publics:', err);
+        return res.status(500).json({ error: 'Erreur lors de la récupération des inscrits' });
+    }
+});
+
+// Inscriptions du membre, de la séance la plus proche à la plus lointaine
+app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
+    try {
+        const rows = await db.query(
+            `SELECT i.id, i.user_id, i.seance_id, i.creneau_id, i.statut, i.position_attente, i.created_at,
+                    s.date_seance, s.nom, s.heure_debut, s.heure_fin, s.lieu, s.sport_id,
+                    sp.nom AS sport_nom, sp.icone AS sport_icone, sp.couleur AS sport_couleur
+             FROM inscriptions i
+             JOIN seances s ON i.seance_id = s.id
+             LEFT JOIN sports sp ON s.sport_id = sp.id
+             WHERE i.user_id = ?
+             ORDER BY s.date_seance, s.heure_debut`,
+            [req.session.userId]
+        );
+
+        res.json(rows.map(row => {
+            const date = seances.normaliserDate(row.date_seance);
+            return { ...row, date_seance: date, jour_semaine: seances.jourSemaineDe(date) };
+        }));
     } catch (err) {
         console.error('Erreur SQL mes-inscriptions:', err.message);
         return res.status(500).json({
@@ -2013,7 +1904,6 @@ app.get('/api/mes-inscriptions', requireAuth, async (req, res) => {
         });
     }
 });
-
 // Servir les fichiers statiques
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -2038,6 +1928,9 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('❌ Promesse rejetée non gérée:', reason);
 });
 
+// Les tests d'intégration attendent la fin de l'initialisation
+app.locals.dbPrete = dbPrete;
+app.locals.db = db;
 module.exports = app; // Mettre à disposition l'application pour les tests (Supertest)
 
 if (require.main === module) {
@@ -2343,17 +2236,19 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
             }
         }
 
+        // Les séances à venir suivent le créneau, sauf celles ajustées à la main
+        const seancesMisesAJour = await seances.synchroniserCreneau(db, creneauId);
+
         // Places gagnées (capacité augmentée ou passage sans limite) : repourvoir
         // la liste d'attente dans l'ordre, sans attendre une action de l'admin.
         let promus = [];
         const gainDePlaces = (sansLimite && !etaitSansLimite) || capaciteMax > capaciteAvant;
         if (gainDePlaces) {
-            const resultat = await promouvoirListeAttente(db, creneauId);
-            promus = resultat.promus;
+            promus = await promouvoirSeances(seancesMisesAJour);
 
             // Les emails ne doivent pas faire échouer la modification
             for (const promu of promus) {
-                notifierPromotion(promu.userId, resultat.creneauNom, promu.date_seance)
+                notifierPromotion(promu.userId, promu.seance)
                     .catch(err => console.error('❌ Erreur envoi email de promotion:', err));
             }
         }
@@ -2374,6 +2269,17 @@ app.put('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
 });
 
 
+// Supprime un créneau et tout ce qui en dépend : ses séances (passées
+// comprises), leurs jetons de liste d'attente et leurs inscriptions.
+// PostgreSQL impose cet ordre à cause des clés étrangères.
+const supprimerCreneauEtSeances = async (creneauId) => {
+    const seancesDuCreneau = `SELECT id FROM seances WHERE creneau_id = ?`;
+    await db.run(`DELETE FROM inscriptions WHERE creneau_id = ? OR seance_id IN (${seancesDuCreneau})`, [creneauId, creneauId]);
+    await db.run(`DELETE FROM waitlist_tokens WHERE creneau_id = ? OR seance_id IN (${seancesDuCreneau})`, [creneauId, creneauId]);
+    await db.run(`DELETE FROM seances WHERE creneau_id = ?`, [creneauId]);
+    return db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId]);
+};
+
 // Route de suppression de créneaux (ADMIN)
 app.delete('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     const creneauId = req.params.creneauId;
@@ -2381,17 +2287,21 @@ app.delete('/api/creneaux/:creneauId', requireAdmin, async (req, res) => {
     console.log('Tentative de suppression du créneau:', creneauId);
 
     try {
-        // Vérifier d'abord s'il y a des inscriptions
-        const result = await db.get(`SELECT COUNT(*) as count FROM inscriptions WHERE creneau_id = ? `, [creneauId]);
+        // Refuser tant que des membres sont inscrits à l'une de ses séances
+        const result = await db.get(
+            `SELECT COUNT(*) as count FROM inscriptions
+             WHERE creneau_id = ? OR seance_id IN (SELECT id FROM seances WHERE creneau_id = ?)`,
+            [creneauId, creneauId]
+        );
+        const nbInscriptions = parseInt(result && result.count, 10) || 0;
 
-        if (result && result.count > 0) {
+        if (nbInscriptions > 0) {
             return res.status(400).json({
-                error: `Impossible de supprimer ce créneau car ${result.count} personne(s) y sont inscrites.Veuillez d'abord les désinscrire.`
+                error: `Impossible de supprimer ce créneau car ${nbInscriptions} personne(s) y sont inscrites. Veuillez d'abord les désinscrire.`
             });
         }
 
-        // Supprimer le créneau s'il n'y a pas d'inscriptions
-        const deleteResult = await db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId]);
+        const deleteResult = await supprimerCreneauEtSeances(creneauId);
 
         if (deleteResult.changes === 0) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
@@ -2412,11 +2322,7 @@ app.delete('/api/creneaux/:creneauId/force', requireAdmin, async (req, res) => {
     console.log('Suppression forcée du créneau:', creneauId);
 
     try {
-        // Supprimer d'abord toutes les inscriptions
-        await db.run(`DELETE FROM inscriptions WHERE creneau_id = ?`, [creneauId]);
-
-        // Puis supprimer le créneau
-        const deleteResult = await db.run(`DELETE FROM creneaux WHERE id = ?`, [creneauId]);
+        const deleteResult = await supprimerCreneauEtSeances(creneauId);
 
         if (deleteResult.changes === 0) {
             return res.status(404).json({ error: 'Créneau non trouvé' });
@@ -2429,7 +2335,6 @@ app.delete('/api/creneaux/:creneauId/force', requireAdmin, async (req, res) => {
         res.status(500).json({ error: 'Erreur lors de la suppression du créneau' });
     }
 });
-
 // --- GESTION DES UTILISATEURS (ADMIN) ---
 
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
@@ -2903,8 +2808,8 @@ app.get('/api/mes-meta-regles', requireAuth, async (req, res) => {
 app.get('/api/mes-limites', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     // Le quota est hebdomadaire : il dépend de la semaine consultée (0 = courante, 1 = suivante)
-    const offsetSemaines = parseInt(req.query.semaine || '0', 10);
-    const dateRef = getSeanceDate(new Date().getDay(), offsetSemaines);
+    const offsetSemaines = parseInt(req.query.semaine || '0', 10) || 0;
+    const dateRef = seances.lundiDeLaSemaine(offsetSemaines);
 
     try {
         // Un quota par sport contraint : aujourd'hui la natation seule, mais
@@ -3279,117 +3184,98 @@ app.get('/api/admin/creneaux-sans-bloc', requireAdmin, async (req, res) => {
     }
 });
 
-// Routes d'administration des créneaux
-app.get('/api/admin/inscriptions/:creneauId', requireAdmin, async (req, res) => {
-    const creneauId = req.params.creneauId;
-    const date_seance = req.query.date_seance; // Optionnel, pour filtrer
+// --- INSCRIPTIONS D'UNE SÉANCE ---
 
-    let query = '';
-    let params = [creneauId];
+// Séance désignée par l'URL ; répond 404 si elle n'existe pas
+const seanceDeLaRoute = async (req, res) => {
+    const seance = await seances.trouverSeance(db, req.params.seanceId);
+    if (!seance) res.status(404).json({ error: 'Séance non trouvée' });
+    return seance;
+};
 
-    if (date_seance) {
-        query = db.isPostgres ? `
-            SELECT i.*, u.nom, u.prenom, u.email
-            FROM inscriptions i
-            JOIN users u ON i.user_id = u.id
-            WHERE i.creneau_id = $1 AND i.date_seance = $2
-            ORDER BY 
-                CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
-                i.position_attente ASC,
-                i.created_at ASC
-        ` : `
-            SELECT i.*, u.nom, u.prenom, u.email
-            FROM inscriptions i
-            JOIN users u ON i.user_id = u.id
-            WHERE i.creneau_id = ? AND i.date_seance = ?
-            ORDER BY 
-                CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
-                i.position_attente ASC,
-                i.created_at ASC
-        `;
-        params.push(date_seance);
-    } else {
-        query = db.isPostgres ? `
-            SELECT i.*, u.nom, u.prenom, u.email
-            FROM inscriptions i
-            JOIN users u ON i.user_id = u.id
-            WHERE i.creneau_id = $1
-            ORDER BY 
-                i.date_seance DESC,
-                CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
-                i.position_attente ASC,
-                i.created_at ASC
-        ` : `
-            SELECT i.*, u.nom, u.prenom, u.email
-            FROM inscriptions i
-            JOIN users u ON i.user_id = u.id
-            WHERE i.creneau_id = ?
-            ORDER BY 
-                i.date_seance DESC,
-                CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
-                i.position_attente ASC,
-                i.created_at ASC
-        `;
+// Une place s'est libérée : toute la liste d'attente est prévenue, le premier
+// à confirmer via son lien l'obtient. Renvoie le nombre d'emails envoyés.
+const notifierListeAttente = async (seance) => {
+    const enAttente = await db.query(
+        `SELECT user_id FROM inscriptions WHERE seance_id = ? AND statut = 'attente' ORDER BY position_attente ASC`,
+        [seance.id]
+    );
+
+    let envoyes = 0;
+    for (const { user_id } of enAttente) {
+        if (await notifyWaitlistUser(user_id, seance)) envoyes++;
     }
+    if (enAttente.length > 0) {
+        console.log(`📧 ${envoyes}/${enAttente.length} personne(s) en liste d'attente notifiée(s)`);
+    }
+    return envoyes;
+};
 
+const seanceAVenir = (seance) => !seance.annulee && seance.date_seance >= seances.aujourdhuiIso();
+
+// Inscrits et liste d'attente d'une séance (ADMIN)
+app.get('/api/admin/seances/:seanceId/inscriptions', requireAdmin, async (req, res) => {
     try {
-        const rows = await db.query(query, params);
-        res.json(rows);
+        const seance = await seanceDeLaRoute(req, res);
+        if (!seance) return;
+
+        const inscriptions = await db.query(
+            `SELECT i.*, u.nom, u.prenom, u.email
+             FROM inscriptions i
+             JOIN users u ON i.user_id = u.id
+             WHERE i.seance_id = ?
+             ORDER BY
+                 CASE WHEN i.statut = 'inscrit' THEN 0 ELSE 1 END,
+                 i.position_attente ASC,
+                 i.created_at ASC`,
+            [seance.id]
+        );
+        res.json({ seance, inscriptions });
     } catch (err) {
         console.error('Erreur récupération inscriptions:', err);
         return res.status(500).json({ error: 'Erreur lors de la récupération des inscriptions' });
     }
 });
 
-// Route pour inscrire un utilisateur à un créneau (ADMIN)
+// Inscrire un membre à une séance (ADMIN). L'admin passe outre la capacité
+// et les méta-règles, dont il est seulement averti.
 app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
-    const { email, creneauId, date_seance } = req.body;
+    const { email, seanceId, creneauId, date_seance } = req.body;
 
-    console.log('Admin inscription:', { email, creneauId, date_seance });
-
-    if (!email || !creneauId || !date_seance) {
-        return res.status(400).json({ error: 'Email, ID du créneau et date de séance requis' });
+    if (!email || !(seanceId || (creneauId && date_seance))) {
+        return res.status(400).json({ error: 'Email et séance requis' });
     }
 
     try {
-        // Trouver l'utilisateur par email
-        const userSql = db.isPostgres ?
-            `SELECT id FROM users WHERE email = $1` :
-            `SELECT id FROM users WHERE email = ?`;
+        const seance = await seances.resoudreSeance(db, req.body);
+        if (!seance) {
+            return res.status(404).json({ error: 'Séance non trouvée' });
+        }
 
-        const user = await db.get(userSql, [email]);
-
+        const user = await db.get(`SELECT id FROM users WHERE LOWER(email) = ?`, [email.trim().toLowerCase()]);
         if (!user) {
             return res.status(404).json({ error: 'Utilisateur non trouvé avec cet email' });
         }
 
-        // Vérifier si déjà inscrit
-        const checkSql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
-
-        const existingInscription = await db.get(checkSql, [user.id, creneauId, date_seance]);
-
-        if (existingInscription) {
-            return res.status(400).json({ error: 'Cet utilisateur est déjà inscrit à ce créneau pour cette date' });
+        const existante = await db.get(
+            `SELECT id FROM inscriptions WHERE user_id = ? AND seance_id = ?`,
+            [user.id, seance.id]
+        );
+        if (existante) {
+            return res.status(400).json({ error: 'Cet utilisateur est déjà inscrit à cette séance' });
         }
 
-        // Vérifier les méta-règles (avec avertissement pour l'admin)
-        const metaReglesCheck = await verifierMetaRegles(db, user.id, creneauId);
-
+        const metaReglesCheck = await verifierMetaRegles(db, user.id, seance);
         if (!metaReglesCheck.autorise) {
-            // Pour l'admin, on retourne un avertissement mais on permet l'inscription
             console.log('⚠️ Admin outrepasse méta-règle:', metaReglesCheck.message);
         }
 
-        // Inscrire l'utilisateur (inscription directe par l'admin)
-        const insertSql = db.isPostgres ?
-            `INSERT INTO inscriptions (user_id, creneau_id, statut, date_seance) VALUES ($1, $2, 'inscrit', $3) RETURNING id` :
-            `INSERT INTO inscriptions (user_id, creneau_id, statut, date_seance) VALUES (?, ?, 'inscrit', ?)`;
+        await db.run(
+            `INSERT INTO inscriptions (user_id, creneau_id, seance_id, date_seance, statut) VALUES (?, ?, ?, ?, 'inscrit')`,
+            [user.id, seance.creneau_id, seance.id, seance.date_seance]
+        );
 
-        await db.run(insertSql, [user.id, creneauId, date_seance]);
-
-        console.log('Inscription admin réussie:', { email, creneauId, date_seance });
+        console.log('Inscription admin réussie:', { email, seanceId: seance.id });
 
         let message = `Utilisateur ${email} inscrit avec succès`;
         if (!metaReglesCheck.autorise) {
@@ -3403,71 +3289,49 @@ app.post('/api/admin/inscriptions', requireAdmin, async (req, res) => {
     }
 });
 
-// Route pour désinscrire un utilisateur d'un créneau (ADMIN)
-app.delete('/api/admin/inscriptions/:userId/:creneauId', requireAdmin, async (req, res) => {
-    const { userId, creneauId } = req.params;
-    const { date_seance } = req.body;
-
-    console.log('Admin désinscription:', { userId, creneauId, date_seance });
-
-    if (!date_seance) return res.status(400).json({ error: 'Date de séance requise' });
-
+// Retirer un membre d'une séance (ADMIN)
+app.delete('/api/admin/seances/:seanceId/inscriptions/:userId', requireAdmin, async (req, res) => {
     try {
-        // Vérifier l'inscription existante
-        const checkSql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
+        const seance = await seanceDeLaRoute(req, res);
+        if (!seance) return;
 
-        const inscription = await db.get(checkSql, [userId, creneauId, date_seance]);
-
-        if (!inscription) {
+        const retrait = await seances.retirerInscription(db, seance.id, req.params.userId);
+        if (!retrait) {
             return res.status(404).json({ error: 'Inscription non trouvée' });
         }
 
-        // Supprimer l'inscription
-        const deleteSql = db.isPostgres ?
-            `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
-            `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
+        console.log('Désinscription admin réussie:', { userId: req.params.userId, seanceId: seance.id });
 
-        await db.run(deleteSql, [userId, creneauId, date_seance]);
-
-        console.log('Désinscription admin réussie:', { userId, creneauId, date_seance });
-        res.json({ message: 'Utilisateur désinscrit avec succès' });
+        let message = 'Utilisateur désinscrit avec succès';
+        if (retrait.placeLiberee && seanceAVenir(seance)) {
+            const envoyes = await notifierListeAttente(seance);
+            if (envoyes > 0) message += `. ${envoyes} personne(s) en liste d'attente ont été notifiées par email.`;
+        }
+        res.json({ message });
     } catch (err) {
         console.error('Erreur désinscription admin:', err);
         return res.status(500).json({ error: 'Erreur lors de la désinscription' });
     }
 });
 
-// Route pour promouvoir un utilisateur de la liste d'attente (ADMIN)
-app.put('/api/admin/inscriptions/:userId/:creneauId/promote', requireAdmin, async (req, res) => {
-    const { userId, creneauId } = req.params;
-    const { date_seance } = req.body;
-
-    console.log('Admin promotion:', { userId, creneauId, date_seance });
-
-    if (!date_seance) return res.status(400).json({ error: 'Date de séance requise' });
-
+// Faire passer un membre de la liste d'attente aux inscrits (ADMIN)
+app.put('/api/admin/seances/:seanceId/inscriptions/:userId/promote', requireAdmin, async (req, res) => {
     try {
-        // Vérifier que l'utilisateur est en attente
-        const checkSql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3 AND statut = 'attente'` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ? AND statut = 'attente'`;
+        const seance = await seanceDeLaRoute(req, res);
+        if (!seance) return;
 
-        const inscription = await db.get(checkSql, [userId, creneauId, date_seance]);
-
+        const inscription = await db.get(
+            `SELECT id FROM inscriptions WHERE seance_id = ? AND user_id = ? AND statut = 'attente'`,
+            [seance.id, req.params.userId]
+        );
         if (!inscription) {
             return res.status(404).json({ error: 'Utilisateur non trouvé en liste d\'attente' });
         }
 
-        // Promouvoir l'utilisateur
-        const promoteSql = db.isPostgres ?
-            `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
-            `UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
+        await db.run(`UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE id = ?`, [inscription.id]);
+        await seances.renumeroterAttente(db, seance.id);
 
-        await db.run(promoteSql, [userId, creneauId, date_seance]);
-
-        console.log('Promotion admin réussie:', { userId, creneauId, date_seance });
+        console.log('Promotion admin réussie:', { userId: req.params.userId, seanceId: seance.id });
         res.json({ message: 'Utilisateur promu avec succès' });
     } catch (err) {
         console.error('Erreur promotion admin:', err);
@@ -3475,117 +3339,87 @@ app.put('/api/admin/inscriptions/:userId/:creneauId/promote', requireAdmin, asyn
     }
 });
 
-// Route d'inscription à un créneau
+// Inscription d'un membre à une séance : { seanceId }, ou { creneauId,
+// date_seance } pour les pages ouvertes avant la mise à jour
 app.post('/api/inscriptions', requireAuth, async (req, res) => {
-    const { creneauId, date_seance } = req.body;
+    const { seanceId, creneauId, date_seance } = req.body;
     const userId = req.session.userId;
 
-    console.log('Tentative d\'inscription:', { userId, creneauId, date_seance });
+    console.log('Tentative d\'inscription:', { userId, seanceId, creneauId, date_seance });
 
-    if (!creneauId || !date_seance) {
-        return res.status(400).json({ error: 'ID du créneau et date de séance requis' });
+    if (!seanceId && !(creneauId && date_seance)) {
+        return res.status(400).json({ error: 'Séance requise' });
     }
 
     try {
-        // Vérifier si l'utilisateur est déjà inscrit
-        const sql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
+        const seance = await seances.resoudreSeance(db, req.body);
+        if (!seance) {
+            return res.status(404).json({ error: 'Séance non trouvée' });
+        }
 
-        const existingInscription = await db.get(sql, [userId, creneauId, date_seance]);
+        // Seules les séances à venir des semaines ouvertes aux membres se réservent
+        const finFenetre = seances.ajouterJours(seances.lundiDeLaSemaine(seances.SEMAINES_MEMBRES), -1);
+        if (seance.annulee) {
+            return res.status(400).json({ error: 'Cette séance est annulée' });
+        }
+        if (seance.date_seance < seances.aujourdhuiIso()) {
+            return res.status(400).json({ error: 'Cette séance est terminée' });
+        }
+        if (seance.date_seance > finFenetre) {
+            return res.status(400).json({ error: 'Les inscriptions à cette séance ne sont pas encore ouvertes' });
+        }
 
+        const existingInscription = await db.get(
+            `SELECT id FROM inscriptions WHERE user_id = ? AND seance_id = ?`,
+            [userId, seance.id]
+        );
         if (existingInscription) {
             return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau pour cette date' });
         }
 
-        // Quota hebdomadaire : seulement si le sport du créneau en a un de configuré
-        const sportCreneau = await sportDuCreneau(db, creneauId);
-        const limitesBrutes = await verifierLimitesSeances(db, userId, sportCreneau, date_seance);
+        // Quota hebdomadaire : seulement si le sport de la séance en a un de configuré
+        const limitesBrutes = await verifierLimitesSeances(db, userId, seance.sport_id, seance.date_seance);
         const limites = limitesBrutes.limiteApplicable ? limitesBrutes : null;
+        const libelleSport = seance.sport_nom ? ` de ${seance.sport_nom.toLowerCase()}` : '';
 
         if (limites && limites.limiteAtteinte) {
-            const sportNom = await db.get(
-                db.adaptSQL(`SELECT nom FROM sports WHERE id = ?`, `SELECT nom FROM sports WHERE id = $1`),
-                [sportCreneau]
-            );
-            const libelle = sportNom ? ` de ${sportNom.nom.toLowerCase()}` : '';
             return res.status(400).json({
-                error: `Vous avez atteint votre limite de ${limites.maxSeances} séances${libelle} par semaine (${limites.seancesActuelles}/${limites.maxSeances})`
+                error: `Vous avez atteint votre limite de ${limites.maxSeances} séances${libelleSport} par semaine (${limites.seancesActuelles}/${limites.maxSeances})`
             });
         }
 
-        // Vérifier la règle de bloc (1 séance par bloc maximum)
-        const regleBloc = await verifierRegleBloc(db, userId, creneauId);
-
+        // Règle de bloc : une séance par bloc dans la semaine
+        const regleBloc = await verifierRegleBloc(db, userId, seance);
         if (!regleBloc.autorise) {
-            return res.status(400).json({
-                error: regleBloc.message
-            });
+            return res.status(400).json({ error: regleBloc.message });
         }
 
-        // Vérifier la capacité du créneau et les inscriptions actuelles
-        const creneauSql = db.isPostgres ?
-            `SELECT c.nom, c.capacite_max, c.sans_limite,
-                    COUNT(i.id) as inscrits_actuels
-             FROM creneaux c
-             LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit' AND i.date_seance = $2
-             WHERE c.id = $1
-             GROUP BY c.id, c.nom, c.capacite_max, c.sans_limite` :
-            `SELECT c.nom, c.capacite_max, c.sans_limite,
-                    COUNT(i.id) as inscrits_actuels
-             FROM creneaux c
-             LEFT JOIN inscriptions i ON c.id = i.creneau_id AND i.statut = 'inscrit' AND i.date_seance = ?
-             WHERE c.id = ?
-             GROUP BY c.id, c.nom, c.capacite_max, c.sans_limite`;
+        const inscritActuels = await seances.compterInscrits(db, seance.id);
 
-        const creneauInfo = await db.get(creneauSql, db.isPostgres ? [creneauId, date_seance] : [date_seance, creneauId]);
-
-        if (!creneauInfo) {
-            return res.status(404).json({ error: 'Créneau non trouvé' });
-        }
-
-        const inscritActuels = parseInt(creneauInfo.inscrits_actuels) || 0;
-        const capaciteMax = parseInt(creneauInfo.capacite_max);
-
-        // Déterminer le statut d'inscription
         let statut = 'inscrit';
         let positionAttente = null;
-        // Le décompte restant n'a de sens que pour le sport soumis au quota
+        // Le décompte restant n'a de sens que pour un sport soumis au quota
         let message = limites
-            ? `Inscription réussie au créneau "${creneauInfo.nom}" ! Il vous reste ${limites.seancesRestantes - 1} séance(s) de natation cette semaine.`
-            : `Inscription réussie au créneau "${creneauInfo.nom}" !`;
+            ? `Inscription réussie au créneau "${seance.nom}" ! Il vous reste ${limites.seancesRestantes - 1} séance(s)${libelleSport} cette semaine.`
+            : `Inscription réussie au créneau "${seance.nom}" !`;
 
-        // Un créneau sans limite (sortie extérieure) n'est jamais complet :
+        // Une séance sans limite (sortie extérieure) n'est jamais complète :
         // pas de liste d'attente, tout le monde est inscrit.
-        const sansLimite = creneauInfo.sans_limite === true || creneauInfo.sans_limite === 1;
-
-        if (!sansLimite && inscritActuels >= capaciteMax) {
-            // Créneau complet, mettre en liste d'attente
+        if (!seance.sans_limite && inscritActuels >= seance.capacite_max) {
             statut = 'attente';
-
-            // Obtenir la prochaine position sur la liste d'attente
-            const positionSql = db.isPostgres ?
-                `SELECT COALESCE(MAX(position_attente), 0) + 1 as next_pos 
-                 FROM inscriptions 
-                 WHERE creneau_id = $1 AND statut = 'attente' AND date_seance = $2` :
-                `SELECT COALESCE(MAX(position_attente), 0) + 1 as next_pos 
-                 FROM inscriptions 
-                 WHERE creneau_id = ? AND statut = 'attente' AND date_seance = ?`;
-
-            const posResult = await db.get(positionSql, [creneauId, date_seance]);
-            positionAttente = posResult.next_pos;
-
+            positionAttente = await seances.prochainePositionAttente(db, seance.id);
             message = `Créneau complet ! Vous avez été ajouté à la liste d'attente (position ${positionAttente}).`;
         }
 
-        // Insérer l'inscription avec le bon statut
-        const insertSql = db.isPostgres ?
-            `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente, date_seance) VALUES ($1, $2, $3, $4, $5) RETURNING id` :
-            `INSERT INTO inscriptions (user_id, creneau_id, statut, position_attente, date_seance) VALUES (?, ?, ?, ?, ?)`;
+        const result = await db.run(
+            db.adaptSQL(
+                `INSERT INTO inscriptions (user_id, creneau_id, seance_id, date_seance, statut, position_attente) VALUES (?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO inscriptions (user_id, creneau_id, seance_id, date_seance, statut, position_attente) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+            ),
+            [userId, seance.creneau_id, seance.id, seance.date_seance, statut, positionAttente]
+        );
 
-        const result = await db.run(insertSql, [userId, creneauId, statut, positionAttente, date_seance]);
-
-        console.log('Inscription réussie:', { userId, creneauId, statut, positionAttente, date_seance, inscritActuels, capaciteMax });
+        console.log('Inscription réussie:', { userId, seanceId: seance.id, statut, positionAttente, inscritActuels, capaciteMax: seance.capacite_max });
 
         res.json({
             message,
@@ -3597,36 +3431,48 @@ app.post('/api/inscriptions', requireAuth, async (req, res) => {
                 : null
         });
     } catch (err) {
+        // Double clic : la contrainte d'unicité a devancé la vérification
+        if (err.message && (err.message.includes('UNIQUE constraint failed') || err.message.includes('duplicate key'))) {
+            return res.status(400).json({ error: 'Vous êtes déjà inscrit à ce créneau pour cette date' });
+        }
         console.error('Erreur inscription:', err);
         return res.status(500).json({ error: 'Erreur lors de l\'inscription' });
     }
 });
+// Jeton de liste d'attente encore valable, avec son membre et sa séance
+const jetonAttenteValide = async (token) => {
+    const jeton = await db.get(
+        `SELECT wt.*, u.email, u.nom, u.prenom
+         FROM waitlist_tokens wt
+         JOIN users u ON wt.user_id = u.id
+         WHERE wt.token = ? AND wt.used = ? AND wt.expires_at > ?`,
+        [token, false, new Date().toISOString()]
+    );
+    if (!jeton || !jeton.seance_id) return null;
+
+    const seance = await seances.trouverSeance(db, jeton.seance_id);
+    return seance && !seance.annulee ? { jeton, seance } : null;
+};
 
 // Route pour obtenir les infos du token (pour affichage)
 app.get('/api/inscription-attente/info/:token', async (req, res) => {
-    const { token } = req.params;
-
     try {
-        const tokenInfo = await db.get(`
-            SELECT u.email, u.nom, u.prenom, c.nom as creneau_nom, c.jour_semaine, c.heure_debut, c.heure_fin
-            FROM waitlist_tokens wt
-            JOIN users u ON wt.user_id = u.id
-            JOIN creneaux c ON wt.creneau_id = c.id
-            WHERE wt.token = ? AND wt.used = ? AND wt.expires_at > ?
-        `, [token, false, new Date().toISOString()]);
+        const valide = await jetonAttenteValide(req.params.token);
 
-        if (!tokenInfo) {
+        if (!valide) {
             return res.status(400).json({ error: 'Token invalide ou expiré' });
         }
 
-        const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+        const { jeton, seance } = valide;
+        const jour = dateLisible(seance.date_seance);
 
         res.json({
-            user: `${tokenInfo.prenom} ${tokenInfo.nom}`,
-            email: tokenInfo.email,
-            creneau: tokenInfo.creneau_nom,
-            jour: jours[tokenInfo.jour_semaine],
-            horaire: `${tokenInfo.heure_debut} - ${tokenInfo.heure_fin}`
+            user: `${jeton.prenom} ${jeton.nom}`,
+            email: jeton.email,
+            creneau: seance.nom,
+            jour: jour.charAt(0).toUpperCase() + jour.slice(1),
+            horaire: `${seance.heure_debut} - ${seance.heure_fin}`,
+            date_seance: seance.date_seance
         });
     } catch (err) {
         console.error('Erreur info token:', err);
@@ -3643,176 +3489,101 @@ app.post('/api/inscription-attente', async (req, res) => {
     }
 
     try {
-        // Vérifier le token
-        const tokenInfo = await db.get(`
-            SELECT wt.*, u.email, u.nom, u.prenom, c.nom as creneau_nom, c.capacite_max
-            FROM waitlist_tokens wt
-            JOIN users u ON wt.user_id = u.id
-            JOIN creneaux c ON wt.creneau_id = c.id
-            WHERE wt.token = ? AND wt.used = ? AND wt.expires_at > ?
-        `, [token, false, new Date().toISOString()]);
+        const valide = await jetonAttenteValide(token);
 
-        if (!tokenInfo) {
+        if (!valide) {
             return res.status(400).json({ error: 'Token invalide ou expiré' });
         }
 
-        // Vérifier si l'utilisateur est toujours en liste d'attente
-        const currentInscription = await db.get(`
-            SELECT * FROM inscriptions 
-            WHERE user_id = ? AND creneau_id = ? AND date_seance = ? AND statut = 'attente'
-        `, [tokenInfo.user_id, tokenInfo.creneau_id, tokenInfo.date_seance]);
+        const { jeton, seance } = valide;
 
-        if (!currentInscription) {
+        const enAttente = await db.get(
+            `SELECT id FROM inscriptions WHERE user_id = ? AND seance_id = ? AND statut = 'attente'`,
+            [jeton.user_id, seance.id]
+        );
+
+        if (!enAttente) {
             return res.status(400).json({ error: 'Vous n\'êtes plus en liste d\'attente pour ce créneau' });
         }
 
-        // Vérifier s'il y a encore de la place (vérification en temps réel)
-        const inscritActuels = await db.get(`
-            SELECT COUNT(*) as count 
-            FROM inscriptions 
-            WHERE creneau_id = ? AND date_seance = ? AND statut = 'inscrit'
-        `, [tokenInfo.creneau_id, tokenInfo.date_seance]);
-
-        if (inscritActuels.count >= tokenInfo.capacite_max) {
+        // Vérification en temps réel : le premier à confirmer prend la place
+        if (!seance.sans_limite && await seances.compterInscrits(db, seance.id) >= seance.capacite_max) {
             return res.status(409).json({
                 error: 'Désolé, quelqu\'un d\'autre a pris la place avant vous ! Le créneau est à nouveau complet.',
                 tooLate: true
             });
         }
 
-        // Promouvoir l'utilisateur
-        await db.run(`
-            UPDATE inscriptions 
-            SET statut = 'inscrit', position_attente = NULL 
-            WHERE user_id = ? AND creneau_id = ? AND date_seance = ?
-        `, [tokenInfo.user_id, tokenInfo.creneau_id, tokenInfo.date_seance]);
+        await db.run(`UPDATE inscriptions SET statut = 'inscrit', position_attente = NULL WHERE id = ?`, [enAttente.id]);
+        await seances.renumeroterAttente(db, seance.id);
 
-        // Marquer le token comme utilisé
+        // Ce jeton est consommé ; ceux des autres membres pour cette séance n'ont plus d'objet
         await db.run(`UPDATE waitlist_tokens SET used = ? WHERE token = ?`, [true, token]);
+        await db.run(`UPDATE waitlist_tokens SET used = ? WHERE seance_id = ? AND token != ?`, [true, seance.id, token]);
 
-        // Invalider tous les autres tokens pour ce créneau et cette date pour éviter les tentatives inutiles
-        await db.run(`UPDATE waitlist_tokens SET used = ? WHERE creneau_id = ? AND date_seance = ? AND token != ?`, [true, tokenInfo.creneau_id, tokenInfo.date_seance, token]);
-
-        // Réorganiser les positions d'attente
-        await db.run(`
-            UPDATE inscriptions 
-            SET position_attente = position_attente - 1 
-            WHERE creneau_id = ? AND date_seance = ? AND statut = 'attente' AND position_attente > ?
-        `, [tokenInfo.creneau_id, tokenInfo.date_seance, currentInscription.position_attente]);
-
-        console.log(`✅ Inscription via token réussie: ${tokenInfo.email} -> ${tokenInfo.creneau_nom}`);
+        console.log(`✅ Inscription via token réussie: ${jeton.email} -> ${seance.nom} (${seance.date_seance})`);
 
         res.json({
-            message: `Inscription confirmée pour le créneau "${tokenInfo.creneau_nom}" !`,
+            message: `Inscription confirmée pour le créneau "${seance.nom}" !`,
             success: true,
-            creneau: tokenInfo.creneau_nom
+            creneau: seance.nom
         });
-
     } catch (err) {
         console.error('Erreur inscription via token:', err);
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
 
-// Route de désinscription
-app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
-    const creneauId = req.params.creneauId;
-    const { date_seance } = req.body;
+// Désinscription d'un membre. Le départ d'un inscrit libère une place :
+// la liste d'attente est alors prévenue par email.
+const desinscrire = async (req, res, seance) => {
     const userId = req.session.userId;
+    const retrait = seance ? await seances.retirerInscription(db, seance.id, userId) : null;
 
-    console.log('Tentative de désinscription:', { userId, creneauId, date_seance });
-
-    if (!date_seance) {
-        return res.status(400).json({ error: 'La date de séance est requise' });
+    if (!retrait) {
+        return res.status(404).json({ error: 'Inscription non trouvée' });
     }
 
+    console.log('Désinscription réussie:', { userId, seanceId: seance.id });
+
+    if (retrait.placeLiberee && seanceAVenir(seance)) {
+        const emailsEnvoyes = await notifierListeAttente(seance);
+        if (emailsEnvoyes > 0) {
+            return res.json({
+                message: `Désinscription réussie. ${emailsEnvoyes} personne(s) en liste d'attente ont été notifiées par email.`,
+                notification: true,
+                emailsEnvoyes
+            });
+        }
+    }
+
+    res.json({ message: 'Désinscription réussie' });
+};
+
+app.delete('/api/seances/:seanceId/inscription', requireAuth, async (req, res) => {
     try {
-        // Vérifier l'inscription existante
-        const checkSql = db.isPostgres ?
-            `SELECT * FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
-            `SELECT * FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
-
-        const inscription = await db.get(checkSql, [userId, creneauId, date_seance]);
-
-        if (!inscription) {
-            return res.status(404).json({ error: 'Inscription non trouvée' });
-        }
-
-        // Supprimer l'inscription
-        const deleteSql = db.isPostgres ?
-            `DELETE FROM inscriptions WHERE user_id = $1 AND creneau_id = $2 AND date_seance = $3` :
-            `DELETE FROM inscriptions WHERE user_id = ? AND creneau_id = ? AND date_seance = ?`;
-
-        await db.run(deleteSql, [userId, creneauId, date_seance]);
-
-        console.log('Désinscription réussie:', { userId, creneauId });
-
-        // Si c'était un inscrit (pas en attente), notifier le premier de la liste d'attente
-        if (inscription.statut === 'inscrit') {
-            const premierEnAttenteSql = db.isPostgres ?
-                `SELECT * FROM inscriptions 
-                 WHERE creneau_id = $1 AND statut = 'attente' AND date_seance = $2
-                 ORDER BY position_attente ASC LIMIT 1` :
-                `SELECT * FROM inscriptions 
-                 WHERE creneau_id = ? AND statut = 'attente' AND date_seance = ?
-                 ORDER BY position_attente ASC LIMIT 1`;
-
-            const premierEnAttente = await db.get(premierEnAttenteSql, [creneauId, date_seance]);
-
-            if (premierEnAttente) {
-                // Récupérer TOUTES les personnes en liste d'attente
-                const toutesPersonnesAttenteSql = db.isPostgres ?
-                    `SELECT user_id FROM inscriptions 
-                     WHERE creneau_id = $1 AND statut = 'attente' AND date_seance = $2
-                     ORDER BY position_attente ASC` :
-                    `SELECT user_id FROM inscriptions 
-                     WHERE creneau_id = ? AND statut = 'attente' AND date_seance = ?
-                     ORDER BY position_attente ASC`;
-
-                const personnesEnAttente = await db.query(toutesPersonnesAttenteSql, [creneauId, date_seance]);
-
-                if (personnesEnAttente && personnesEnAttente.length > 0) {
-                    console.log(`📧 Envoi d'emails à ${personnesEnAttente.length} personne(s) en liste d'attente`);
-
-                    // Envoyer un email à chaque personne en liste d'attente
-                    let emailsEnvoyes = 0;
-                    for (const personne of personnesEnAttente) {
-                        const emailSent = await notifyWaitlistUser(personne.user_id, creneauId, date_seance);
-                        if (emailSent) emailsEnvoyes++;
-                    }
-
-                    res.json({
-                        message: `Désinscription réussie. ${emailsEnvoyes} personne(s) en liste d'attente ont été notifiées par email.`,
-                        notification: true,
-                        emailsEnvoyes
-                    });
-                } else {
-                    res.json({ message: 'Désinscription réussie' });
-                }
-            } else {
-                res.json({ message: 'Désinscription réussie' });
-            }
-        } else {
-            // Si c'était quelqu'un en attente, réorganiser les positions
-            if (inscription.position_attente) {
-                const reorganiserSql = db.isPostgres ?
-                    `UPDATE inscriptions 
-                     SET position_attente = position_attente - 1 
-                     WHERE creneau_id = $1 AND statut = 'attente' AND position_attente > $2` :
-                    `UPDATE inscriptions 
-                     SET position_attente = position_attente - 1 
-                     WHERE creneau_id = ? AND statut = 'attente' AND position_attente > ?`;
-
-                await db.run(reorganiserSql, [creneauId, inscription.position_attente]);
-            }
-            res.json({ message: 'Désinscription réussie' });
-        }
+        await desinscrire(req, res, await seances.trouverSeance(db, req.params.seanceId));
     } catch (err) {
         console.error('Erreur désinscription:', err);
         return res.status(500).json({ error: 'Erreur lors de la désinscription' });
     }
 });
 
+// Ancienne forme (créneau + date), pour les pages ouvertes avant la mise à jour
+app.delete('/api/inscriptions/:creneauId', requireAuth, async (req, res) => {
+    const { date_seance } = req.body || {};
+
+    if (!date_seance) {
+        return res.status(400).json({ error: 'La date de séance est requise' });
+    }
+
+    try {
+        await desinscrire(req, res, await seances.trouverSeanceParCreneau(db, req.params.creneauId, date_seance));
+    } catch (err) {
+        console.error('Erreur désinscription:', err);
+        return res.status(500).json({ error: 'Erreur lors de la désinscription' });
+    }
+});
 // Routes d'administration des limites de licence
 app.get('/api/admin/licence-limits', requireAdmin, async (req, res) => {
     try {
@@ -3896,7 +3667,7 @@ app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
         }
 
         const filtreSport = sport_id
-            ? ` WHERE creneau_id IN (SELECT id FROM creneaux WHERE sport_id = ${db.isPostgres ? '$1' : '?'})`
+            ? ` WHERE seance_id IN (SELECT id FROM seances WHERE sport_id = ${db.isPostgres ? '$1' : '?'})`
             : '';
         const params = sport_id ? [sport_id] : [];
 

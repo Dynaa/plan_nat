@@ -4,11 +4,15 @@ test.describe('Interface / Inscription au créneau', () => {
 
     test.beforeEach(async ({ page }) => {
         // ⚡ Les mocks réseau DOIVENT être enregistrés AVANT page.goto()
-        await page.route('**/api/creneaux*', async route => {
+        // La page principale liste des séances datées
+        await page.route('**/api/seances*', async route => {
             await route.fulfill({
                 json: [{
                     id: 1,
+                    creneau_id: 11,
                     nom: 'Natation Lundi Soir',
+                    date_seance: '2099-01-05',
+                    est_passe: false,
                     jour_semaine: 1,
                     heure_debut: '19:00',
                     heure_fin: '20:30',
@@ -23,7 +27,10 @@ test.describe('Interface / Inscription au créneau', () => {
                     sport_couleur: '#28A0E8'
                 }, {
                     id: 2,
+                    creneau_id: 12,
                     nom: 'Sortie longue',
+                    date_seance: '2099-01-11',
+                    est_passe: false,
                     jour_semaine: 0,
                     heure_debut: '09:00',
                     heure_fin: '12:00',
@@ -94,12 +101,12 @@ test.describe('Interface / Inscription au créneau', () => {
         await expect(quotaDetails).toContainText('séance(s) restante(s)');
     });
 
-    test('Un créneau mocké s\'affiche dans la liste', async ({ page }) => {
+    test('Une séance mockée s\'affiche dans la liste, avec sa date', async ({ page }) => {
         // Le créneau mocké doit être visible dans l'onglet créneaux (actif par défaut)
         const creneauCard = page.locator('.creneau-card').first();
         await expect(creneauCard).toBeVisible({ timeout: 6000 });
         await expect(creneauCard).toContainText('Natation Lundi Soir');
-        await expect(creneauCard).toContainText('19:00 - 20:30');
+        await expect(creneauCard).toContainText('Lundi 05/01 • 19:00 - 20:30');
     });
 
     test('Le filtre par sport n\'affiche que les créneaux de la discipline choisie', async ({ page }) => {
@@ -130,8 +137,10 @@ test.describe('Interface / Inscription au créneau', () => {
 
     test('Cliquer sur S\'inscrire envoie une requête à l\'API', async ({ page }) => {
         // Préparer le mock pour la réponse de l'inscription
+        let corpsInscription = null;
         await page.route('**/api/inscriptions', async route => {
             if (route.request().method() === 'POST') {
+                corpsInscription = route.request().postDataJSON();
                 await route.fulfill({ json: { message: 'Inscription réussie !' }, status: 200 });
             } else {
                 await route.continue();
@@ -150,5 +159,8 @@ test.describe('Interface / Inscription au créneau', () => {
         const message = page.locator('#message');
         await expect(message).toBeVisible({ timeout: 5000 });
         await expect(message).toContainText(/[Ii]nscription réussie/i);
+
+        // L'inscription désigne la séance datée
+        expect(corpsInscription).toEqual({ seanceId: 1 });
     });
 });

@@ -72,7 +72,7 @@ describe('Quota hebdomadaire par sport (phase 1)', () => {
             // Le décompte borne la semaine et filtre sur le sport
             const [sqlCompte, paramsCompte] = mockDb.get.mock.calls[2];
             expect(sqlCompte).toContain('date_seance BETWEEN');
-            expect(sqlCompte).toContain('c.sport_id');
+            expect(sqlCompte).toContain('s.sport_id');
             expect(paramsCompte).toEqual([7, '2026-09-07', '2026-09-13', 1]);
 
             expect(result.seancesActuelles).toBe(1);
