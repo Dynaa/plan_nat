@@ -17,6 +17,7 @@ class ErreurSemaineType extends Error {
     constructor(message, status = 400) {
         super(message);
         this.status = status;
+        this.metier = true;
     }
 }
 
@@ -305,8 +306,11 @@ const appliquerType = async (db, lundi, typeId, { simulation = false, explicite 
     const aVenir = seancesSemaine.filter(s => s.date_seance >= aujourdhui);
     const dejaDuType = aVenir.filter(s => !s.annulee && duType(s));
 
-    // Créneaux de la semaine type déjà pourvus d'une séance active cette semaine
-    const pourvus = new Set(seancesSemaine.filter(s => !s.annulee && duType(s)).map(s => String(s.creneau_id)));
+    // Créneaux de la semaine type déjà pourvus cette semaine : séance active, ou
+    // annulée par un admin (sa décision l'emporte sur la correspondance)
+    const pourvus = new Set(seancesSemaine
+        .filter(s => duType(s) && (!s.annulee || s.motif_annulation !== MOTIF_SEMAINE_TYPE))
+        .map(s => String(s.creneau_id)));
 
     // Les séances ponctuelles (sans créneau) ne dépendent d'aucune semaine type
     const rattachements = [];
@@ -373,7 +377,8 @@ const appliquerType = async (db, lundi, typeId, { simulation = false, explicite 
 
     for (const { seance, creneau } of rattachements) {
         // Une ancienne séance annulée de ce créneau occuperait sa place (même date)
-        const anciennes = seancesSemaine.filter(s => s.annulee && String(s.creneau_id) === String(creneau.id));
+        const anciennes = seancesSemaine.filter(s => s.annulee && s.motif_annulation === MOTIF_SEMAINE_TYPE
+            && String(s.creneau_id) === String(creneau.id));
         for (const ancienne of anciennes) {
             await db.run(`DELETE FROM waitlist_tokens WHERE seance_id = ?`, [ancienne.id]);
             await db.run(`DELETE FROM inscriptions WHERE seance_id = ?`, [ancienne.id]);

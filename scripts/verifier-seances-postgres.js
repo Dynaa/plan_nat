@@ -129,6 +129,34 @@ const connexion = async (email, password) => {
     const remise = await admin.put(`/api/admin/semaines-types/${standard.id}/defaut`);
     verifier('rétablissement du défaut', remise.status === 200, remise.body);
 
+    // Ajustements séance par séance : ponctuelle, modification, annulation, rétablissement
+    const stage = await admin.post('/api/admin/seances').send({
+        nom: 'Stage (vérification)', sport_id: seance.sport_id, date_seance: seances.dateDuJour(lundi1, 6),
+        heure_debut: '14:00', heure_fin: '16:00', capacite_max: 5
+    });
+    verifier('séance ponctuelle créée sans créneau', stage.status === 200 && stage.body.seance.creneau_id === null, stage.body);
+    const stageId = stage.body.seance.id;
+    const inscriptionStage = await membre.post('/api/inscriptions').send({ seanceId: stageId });
+    verifier('inscription à la séance ponctuelle', inscriptionStage.status === 200, inscriptionStage.body);
+
+    const modifStage = await admin.put(`/api/admin/seances/${stageId}`).send({
+        nom: 'Stage (vérification)', date_seance: seances.dateDuJour(lundi1, 5), heure_debut: '15:00', heure_fin: '17:00',
+        capacite_max: 6, lieu: 'Ailleurs'
+    });
+    verifier('modification de la séance', modifStage.status === 200 && modifStage.body.changements.length === 3, modifStage.body);
+
+    const annulationStage = await admin.post(`/api/admin/seances/${stageId}/annulation`);
+    verifier('annulation de la séance', annulationStage.status === 200, annulationStage.body);
+    const vueMembre = await membre.get('/api/seances?semaine=1');
+    verifier('séance annulée visible pour les membres', vueMembre.body.some(s => s.id === stageId && s.annulee === true), vueMembre.body);
+    const retablissement = await admin.delete(`/api/admin/seances/${stageId}/annulation`);
+    verifier('rétablissement de la séance', retablissement.status === 200, retablissement.body);
+    const detail = await admin.get('/api/admin/seances?semaine=1');
+    verifier('détail admin de la semaine', detail.status === 200 && detail.body.seances.some(s => s.id === stageId), detail.body);
+
+    const resetSemaine = await admin.post('/api/admin/reset-weekly').send({});
+    verifier('remise à zéro limitée à la semaine en cours', resetSemaine.status === 200, resetSemaine.body);
+
     // Reprise d'une inscription héritée (sans séance)
     const semaineSuivante = seances.lundiDeLaSemaine(1);
     const autre = liste.body.find(s => s.creneau_id !== seance.creneau_id);

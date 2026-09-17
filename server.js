@@ -11,6 +11,7 @@ const { verifierLimitesSeances, verifierRegleBloc, verifierMetaRegles } = requir
 const importComptes = require('./services/importComptes');
 const seances = require('./services/seances');
 const semainesTypes = require('./services/semainesTypes');
+const seancesAdmin = require('./services/seancesAdmin');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -1748,7 +1749,10 @@ app.get('/api/seances', async (req, res) => {
         await seances.genererSemaine(db, debut);
 
         // Un admin voit toutes les séances, quel que soit leur public
-        const liste = await seances.listerSeances(db, { debut, fin, publicCible: isAdmin ? null : publicCible });
+        // Les séances annulées par le club restent visibles, barrées
+        const liste = await seances.listerSeances(db, {
+            debut, fin, publicCible: isAdmin ? null : publicCible, inclureAnnulees: 'admin'
+        });
 
         // Bloc déjà utilisé cette semaine par une autre séance du membre
         const occupes = userId ? await seances.blocsOccupes(db, userId, debut, fin) : new Map();
@@ -1849,7 +1853,7 @@ app.get('/api/creneaux/:creneauId', async (req, res) => {
 // --- SEMAINES TYPES ET PLANNING (ADMIN) ---
 
 // Prévenir un membre que sa séance est annulée (changement de semaine type)
-const notifierAnnulation = async (inscrit, seance) => {
+const notifierAnnulation = async (inscrit, seance, contexte = 'Le planning de la semaine a changé') => {
     const jour = dateLisible(seance.date_seance);
     const place = inscrit.statut === 'attente' ? "Votre place en liste d'attente a été retirée" : 'Votre inscription a été retirée';
     try {
@@ -1860,7 +1864,7 @@ const notifierAnnulation = async (inscrit, seance) => {
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2 style="color: #c53030;">❌ Séance annulée</h2>
                 <p>Bonjour ${echapperHtml(inscrit.prenom)} ${echapperHtml(inscrit.nom)},</p>
-                <p>Le planning de la semaine a changé : la séance
+                <p>${contexte} : la séance
                    <strong>${echapperHtml(seance.nom)}</strong> du ${jour} (${seance.heure_debut} - ${seance.heure_fin})
                    n'aura pas lieu.</p>
                 <p>${place} ; elle ne compte plus dans votre quota de la semaine.
@@ -1886,14 +1890,14 @@ const notifierAnnulation = async (inscrit, seance) => {
 
 // Les emails d'annulation partent en arrière-plan, espacés comme les autres
 // envois groupés. Renvoie le nombre de personnes prévenues.
-const prevenirAnnulations = (bilans) => {
+const prevenirAnnulations = (bilans, contexte) => {
     const aPrevenir = bilans.flatMap(bilan =>
         bilan.annulees.flatMap(({ seance, inscrits }) => inscrits.map(inscrit => ({ inscrit, seance }))));
 
     (async () => {
         for (const [index, { inscrit, seance }] of aPrevenir.entries()) {
             if (index > 0) await new Promise(r => setTimeout(r, DELAI_ENTRE_EMAILS_MS));
-            await notifierAnnulation(inscrit, seance);
+            await notifierAnnulation(inscrit, seance, contexte);
         }
     })().catch(err => console.error('❌ Erreur envoi des emails d\'annulation:', err));
 
@@ -1925,7 +1929,8 @@ const resumeBilan = (bilan) => ({
 });
 
 const repondreErreur = (res, err, contexte) => {
-    if (err instanceof semainesTypes.ErreurSemaineType) {
+    // Erreurs métier (semaines types, séances) : message destiné à l'admin
+    if (err.metier) {
         return res.status(err.status).json({ error: err.message });
     }
     console.error(`Erreur ${contexte}:`, err);
@@ -2032,6 +2037,147 @@ app.post('/api/admin/semaines/:lundi', requireAdmin, async (req, res) => {
         res.json({ message, bilan: resume });
     } catch (err) {
         repondreErreur(res, err, "l'application de la semaine type");
+    }
+});
+// --- AJUSTEMENTS D'UNE SÉANCE (ADMIN) ---
+
+// Prévenir un inscrit qu'une séance change de date, d'horaire ou de lieu
+const notifierModification = async (inscrit, seance, changements) => {
+    const lignes = changements.map(c => {
+        const [avant, apres] = c.type === 'date' ? [dateLisible(c.avant), dateLisible(c.apres)] : [c.avant, c.apres];
+        return `<li><strong>${c.libelle}</strong> : ${echapperHtml(avant)} → <strong>${echapperHtml(apres)}</strong></li>`;
+    }).join('');
+    const place = inscrit.statut === 'attente' ? "Votre place en liste d'attente est conservée" : 'Votre inscription est conservée';
+
+    try {
+        return await sendEmail(
+            inscrit.email,
+            `✏️ Séance modifiée - ${seance.nom}`,
+            `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #b7791f;">✏️ Séance modifiée</h2>
+                <p>Bonjour ${echapperHtml(inscrit.prenom)} ${echapperHtml(inscrit.nom)},</p>
+                <p>La séance <strong>${echapperHtml(seance.nom)}</strong> a été modifiée :</p>
+                <ul>${lignes}</ul>
+                <p>${place}. Si ce changement ne vous convient pas, désinscrivez-vous
+                   depuis l'application pour libérer votre place.</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${getBaseUrl()}"
+                       style="background: #28A0E8; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+                        Voir mes inscriptions
+                    </a>
+                </div>
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    ACC Triathlon - Gestion des créneaux
+                </p>
+            </div>
+            `
+        );
+    } catch (err) {
+        console.error(`❌ Erreur envoi email de modification à ${inscrit.email}:`, err.message);
+        return false;
+    }
+};
+
+const prevenirModifications = (inscrits, seance, changements) => {
+    (async () => {
+        for (const [index, inscrit] of inscrits.entries()) {
+            if (index > 0) await new Promise(r => setTimeout(r, DELAI_ENTRE_EMAILS_MS));
+            await notifierModification(inscrit, seance, changements);
+        }
+    })().catch(err => console.error('❌ Erreur envoi des emails de modification:', err));
+    return inscrits.length;
+};
+
+// Capacité saisie : directe, en lignes d'eau, sinon celle par défaut du sport
+const capaciteSaisie = async (sportId, champs) => (await resoudreCapaciteAvecSport(db, sportId, champs)) || 0;
+
+// Séances d'une semaine du planning, annulées comprises
+app.get('/api/admin/seances', requireAdmin, async (req, res) => {
+    const offset = semaineDemandee(req.query.semaine, true);
+    if (offset === null) {
+        return res.status(400).json({ error: 'Semaine non consultable' });
+    }
+
+    try {
+        const lundi = seances.lundiDeLaSemaine(offset);
+        const dimanche = seances.ajouterJours(lundi, 6);
+        await seances.genererSemaine(db, lundi);
+        const liste = await seances.listerSeances(db, { debut: lundi, fin: dimanche, inclureAnnulees: true });
+        res.json({ lundi, dimanche, seances: liste });
+    } catch (err) {
+        repondreErreur(res, err, 'la récupération des séances');
+    }
+});
+
+// Séance ponctuelle, hors semaine type
+app.post('/api/admin/seances', requireAdmin, async (req, res) => {
+    try {
+        const capacite_max = await capaciteSaisie(req.body.sport_id, req.body);
+        const seance = await seancesAdmin.creerSeancePonctuelle(db, { ...req.body, capacite_max });
+        console.log(`➕ Séance ponctuelle « ${seance.nom} » (${seance.date_seance}) ajoutée par l'admin ${req.session.userId}`);
+        res.json({ message: `Séance « ${seance.nom} » ajoutée le ${dateLisible(seance.date_seance)}`, seance });
+    } catch (err) {
+        repondreErreur(res, err, "l'ajout de la séance");
+    }
+});
+
+// Ajuster une séance précise ; elle ne suit plus son créneau
+app.put('/api/admin/seances/:seanceId', requireAdmin, async (req, res) => {
+    try {
+        const actuelle = await seances.trouverSeance(db, req.params.seanceId);
+        if (!actuelle) {
+            return res.status(404).json({ error: 'Séance non trouvée' });
+        }
+
+        const capacite_max = await capaciteSaisie(actuelle.sport_id, req.body);
+        const resultat = await seancesAdmin.modifierSeance(db, actuelle.id, { ...req.body, capacite_max });
+
+        let message = 'Séance modifiée';
+        if (resultat.inscrits.length > 0) {
+            const prevenues = prevenirModifications(resultat.inscrits, resultat.seance, resultat.changements);
+            message += `. ${prevenues} personne(s) prévenue(s) par email.`;
+        }
+        if (resultat.gainDePlaces) {
+            const promus = await promouvoirSeances([actuelle.id]);
+            for (const promu of promus) {
+                notifierPromotion(promu.userId, promu.seance)
+                    .catch(err => console.error('❌ Erreur envoi email de promotion:', err));
+            }
+            if (promus.length > 0) {
+                message += ` ${promus.length} personne(s) en liste d'attente ont obtenu une place.`;
+            }
+        }
+
+        res.json({ message, seance: resultat.seance, changements: resultat.changements });
+    } catch (err) {
+        repondreErreur(res, err, 'la modification de la séance');
+    }
+});
+
+// Annuler une séance : inscrits désinscrits et prévenus
+app.post('/api/admin/seances/:seanceId/annulation', requireAdmin, async (req, res) => {
+    try {
+        const { seance, inscrits } = await seancesAdmin.annulerSeance(db, req.params.seanceId);
+        const prevenues = prevenirAnnulations([{ annulees: [{ seance, inscrits }] }], 'Le club a annulé une séance');
+        console.log(`❌ Séance « ${seance.nom} » (${seance.date_seance}) annulée par l'admin ${req.session.userId} (${prevenues} personne(s) prévenue(s))`);
+
+        const message = prevenues > 0
+            ? `Séance annulée. ${prevenues} personne(s) désinscrite(s) et prévenue(s) par email.`
+            : 'Séance annulée';
+        res.json({ message, seance });
+    } catch (err) {
+        repondreErreur(res, err, "l'annulation de la séance");
+    }
+});
+
+app.delete('/api/admin/seances/:seanceId/annulation', requireAdmin, async (req, res) => {
+    try {
+        const seance = await seancesAdmin.retablirSeance(db, req.params.seanceId);
+        res.json({ message: 'Séance rétablie : les inscriptions sont de nouveau ouvertes', seance });
+    } catch (err) {
+        repondreErreur(res, err, 'le rétablissement de la séance');
     }
 });
 const envoyerInscritsSeance = async (res, seance) => {
@@ -3873,10 +4019,11 @@ app.post('/api/admin/reset-weekly', requireAdmin, async (req, res) => {
             sportNom = sport.nom;
         }
 
-        const filtreSport = sport_id
-            ? ` WHERE seance_id IN (SELECT id FROM seances WHERE sport_id = ${db.isPostgres ? '$1' : '?'})`
-            : '';
-        const params = sport_id ? [sport_id] : [];
+        // Seules la semaine en cours et les précédentes sont vidées : les
+        // réservations des semaines à venir sont conservées
+        const finSemaine = seances.ajouterJours(seances.lundiDeLaSemaine(0), 6);
+        const filtreSport = ` WHERE seance_id IN (SELECT id FROM seances WHERE date_seance <= ?${sport_id ? ' AND sport_id = ?' : ''})`;
+        const params = sport_id ? [finSemaine, sport_id] : [finSemaine];
 
         const countResult = await db.get(`SELECT COUNT(*) as total FROM inscriptions${filtreSport}`, params);
         const inscriptionsAvant = countResult.total || 0;

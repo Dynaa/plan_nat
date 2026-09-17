@@ -135,6 +135,27 @@ test.describe('Interface / Inscription au créneau', () => {
         await expect(cartes.nth(1)).toContainText('Vélo');
     });
 
+    test('Une séance annulée par le club s\'affiche barrée, sans inscription possible', async ({ page }) => {
+        // Les routes enregistrées en dernier priment : la semaine suivante renvoie une séance annulée
+        await page.route('**/api/seances*', async route => {
+            await route.fulfill({
+                json: [{
+                    id: 3, creneau_id: 13, nom: 'Natation annulée', date_seance: '2099-01-06', est_passe: false,
+                    jour_semaine: 2, heure_debut: '07:00', heure_fin: '08:00', capacite_max: 10, inscrits: 0,
+                    en_attente: 0, public_cible: 'les deux', annulee: true, motif_annulation: 'admin',
+                    sport_slug: 'natation', sport_nom: 'Natation', sport_icone: '🏊', sport_couleur: '#28A0E8'
+                }]
+            });
+        });
+        await page.click('#btn-semaine-pro');
+
+        const carte = page.locator('.creneau-card.annulee');
+        await expect(carte).toHaveCount(1);
+        await expect(carte.locator('h3 s')).toHaveText('Natation annulée');
+        await expect(carte).toContainText('Séance annulée par le club');
+        await expect(carte.locator('.btn-success')).toBeDisabled();
+    });
+
     test('Cliquer sur S\'inscrire envoie une requête à l\'API', async ({ page }) => {
         // Préparer le mock pour la réponse de l'inscription
         let corpsInscription = null;

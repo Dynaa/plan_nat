@@ -773,7 +773,9 @@ async function remiseAZeroHebdomadaire() {
         : null;
 
     // Le libellé suit la portée réelle : une discipline, ou toutes
-    const portee = sportNom ? `des créneaux de ${sportNom}` : 'de TOUS les créneaux';
+    const portee = sportNom
+        ? `des séances de ${sportNom} de la semaine en cours`
+        : 'de TOUTES les séances de la semaine en cours';
     const motAttendu = sportNom ? 'VIDER' : 'VIDER TOUT';
 
     const confirmation = confirm(
@@ -781,7 +783,8 @@ async function remiseAZeroHebdomadaire() {
         'Cette action va :\n' +
         `• Désinscrire tous les utilisateurs ${portee}\n` +
         '• Vider les listes d\'attente correspondantes\n' +
-        '• Remettre les compteurs à zéro\n\n' +
+        '• Remettre les compteurs à zéro\n' +
+        '(les réservations des semaines suivantes sont conservées)\n\n' +
         'Cette action est IRRÉVERSIBLE !\n\n' +
         'Êtes-vous absolument sûr de vouloir continuer ?'
     );
@@ -1735,8 +1738,9 @@ async function chargerPlanning() {
                             <td style="padding: 0.6rem 0.5rem; color: #4a5568;">
                                 ${s.nb_seances} séance(s) • ${s.nb_inscriptions} inscription(s)
                             </td>
-                            <td style="padding: 0.6rem 0.5rem; text-align: right;">
+                            <td style="padding: 0.6rem 0.5rem; text-align: right; white-space: nowrap;">
                                 <button type="button" class="btn-success" data-appliquer="${s.lundi}" disabled>Appliquer</button>
+                                <button type="button" class="btn-warning" data-detail="${s.offset}">📋 Détail</button>
                             </td>
                         </tr>
                     `).join('')}
@@ -1750,6 +1754,9 @@ async function chargerPlanning() {
             const bouton = conteneur.querySelector(`button[data-appliquer="${select.dataset.lundi}"]`);
             bouton.disabled = select.value === select.dataset.actuel;
         });
+    });
+    conteneur.querySelectorAll('button[data-detail]').forEach(bouton => {
+        bouton.addEventListener('click', () => afficherDetailSemaine(Number(bouton.dataset.detail)));
     });
     conteneur.querySelectorAll('button[data-appliquer]').forEach(bouton => {
         bouton.addEventListener('click', () => {
@@ -1801,4 +1808,209 @@ async function appliquerSemaineType(lundi, semaineTypeId) {
     }
     chargerPlanning();
     loadAdminCreneaux();
+    rafraichirDetailSemaine();
+}
+
+// --- DÉTAIL D'UNE SEMAINE : AJUSTER SÉANCE PAR SÉANCE ---
+
+let semaineDetaillee = null; // offset de la semaine ouverte, ou null
+const LIBELLES_SEMAINES = ['Cette semaine', 'Semaine prochaine', 'Dans 2 semaines', 'Dans 3 semaines'];
+
+function rafraichirDetailSemaine() {
+    if (semaineDetaillee !== null) afficherDetailSemaine(semaineDetaillee);
+}
+
+async function afficherDetailSemaine(offset) {
+    const conteneur = document.getElementById('detail-semaine');
+    semaineDetaillee = offset;
+
+    let semaine;
+    try {
+        semaine = await appelApi(`/api/admin/seances?semaine=${offset}`);
+    } catch (error) {
+        conteneur.innerHTML = `<p style="color:#c53030;">${echapperHtml(error.message)}</p>`;
+        return;
+    }
+
+    const aujourdhui = new Date().toLocaleDateString('en-CA');
+    const badge = (texte, couleur) =>
+        `<span style="background:${couleur};color:white;border-radius:999px;padding:1px 8px;font-size:0.7rem;margin-left:0.25rem;">${texte}</span>`;
+
+    const lignes = semaine.seances.map(s => {
+        const passee = s.date_seance < aujourdhui;
+        const remplissage = s.sans_limite ? `${s.inscrits} inscrit(s)` : `${s.inscrits}/${s.capacite_max}`;
+        const badges = [
+            s.sport_nom ? badge(`${s.sport_icone || ''} ${echapperHtml(s.sport_nom)}`, s.sport_couleur || '#28A0E8') : '',
+            s.creneau_id ? '' : badge('ponctuelle', '#6b46c1'),
+            s.modifiee && s.creneau_id ? badge('ajustée', '#b7791f') : '',
+            s.annulee ? badge(s.motif_annulation === 'admin' ? 'annulée' : 'hors semaine type', '#c53030') : ''
+        ].join('');
+
+        let actions = '';
+        if (!s.annulee) {
+            actions += `<button type="button" class="btn-warning" onclick="voirInscriptions(${s.id})">👥 ${s.en_attente ? `${s.inscrits} + ${s.en_attente}` : s.inscrits}</button> `;
+        }
+        if (!passee && !s.annulee) {
+            actions += `<button type="button" class="btn-success" onclick="ouvrirFormulaireSeance(${s.id})">✏️ Modifier</button>
+                        <button type="button" class="btn-danger" onclick="annulerSeanceAdmin(${s.id})">❌ Annuler</button>`;
+        }
+        if (!passee && s.annulee && s.motif_annulation === 'admin') {
+            actions += `<button type="button" class="btn-success" onclick="retablirSeanceAdmin(${s.id})">↩️ Rétablir</button>`;
+        }
+
+        return `
+            <tr style="border-top: 1px solid #e2e8f0; ${s.annulee || passee ? 'opacity: 0.6;' : ''}">
+                <td style="padding: 0.5rem; white-space: nowrap;">${formaterJour(s.date_seance)}</td>
+                <td style="padding: 0.5rem; white-space: nowrap;">${s.heure_debut} - ${s.heure_fin}</td>
+                <td style="padding: 0.5rem;">
+                    ${s.annulee ? `<s>${echapperHtml(s.nom)}</s>` : echapperHtml(s.nom)}${badges}
+                    ${s.lieu ? `<br><small style="color:#718096;">📍 ${echapperHtml(s.lieu)}</small>` : ''}
+                </td>
+                <td style="padding: 0.5rem; white-space: nowrap;">${s.annulee ? '—' : remplissage}</td>
+                <td style="padding: 0.5rem; text-align: right; white-space: nowrap;">${actions}</td>
+            </tr>
+        `;
+    }).join('');
+
+    conteneur.innerHTML = `
+        <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+                <h4 style="margin: 0;">📋 ${LIBELLES_SEMAINES[offset]} — ${formaterJour(semaine.lundi)} → ${formaterJour(semaine.dimanche)}</h4>
+                <div>
+                    <button type="button" class="btn-success" onclick="ouvrirFormulaireSeance(null)">➕ Séance ponctuelle</button>
+                    <button type="button" class="btn-warning" onclick="fermerDetailSemaine()">Fermer</button>
+                </div>
+            </div>
+            ${semaine.seances.length === 0
+                ? '<p style="color:#718096;">Aucune séance cette semaine.</p>'
+                : `<div style="overflow-x: auto;"><table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;"><tbody>${lignes}</tbody></table></div>`}
+        </div>
+    `;
+    conteneur._semaine = semaine;
+}
+
+function fermerDetailSemaine() {
+    semaineDetaillee = null;
+    document.getElementById('detail-semaine').innerHTML = '';
+}
+
+async function annulerSeanceAdmin(seanceId) {
+    const seance = document.getElementById('detail-semaine')._semaine.seances.find(s => s.id === seanceId);
+    const inscrits = seance.inscrits + seance.en_attente;
+    if (!confirm(`Annuler « ${seance.nom} » du ${formaterJour(seance.date_seance)} ?\n\n`
+        + (inscrits > 0
+            ? `${inscrits} personne(s) seront désinscrites et prévenues par email.\n`
+            : 'Personne n\'est inscrit pour l\'instant.\n')
+        + 'La séance restera visible, barrée, pour les membres.')) return;
+
+    try {
+        const data = await appelApi(`/api/admin/seances/${seanceId}/annulation`, { method: 'POST' });
+        showMessage(data.message, 'success');
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
+    rafraichirDetailSemaine();
+    chargerPlanning();
+}
+
+async function retablirSeanceAdmin(seanceId) {
+    try {
+        const data = await appelApi(`/api/admin/seances/${seanceId}/annulation`, { method: 'DELETE' });
+        showMessage(data.message, 'success');
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
+    rafraichirDetailSemaine();
+    chargerPlanning();
+}
+
+// Formulaire de modification (seanceId) ou de création d'une séance ponctuelle (null)
+async function ouvrirFormulaireSeance(seanceId) {
+    const semaine = document.getElementById('detail-semaine')._semaine;
+    const seance = seanceId ? semaine.seances.find(s => s.id === seanceId) : null;
+    const creation = !seance;
+
+    if (creation && !sports.length) {
+        try { sports = await appelApi('/api/sports'); } catch (error) { /* liste vide : le serveur refusera */ }
+    }
+
+    // Une séance de créneau ne change de jour que dans sa semaine
+    const joursSemaine = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(`${semaine.lundi}T12:00:00`);
+        d.setDate(d.getDate() + i);
+        return d.toLocaleDateString('en-CA');
+    });
+    const aujourdhui = new Date().toLocaleDateString('en-CA');
+    const valeur = (champ, defaut = '') => echapperHtml(seance && seance[champ] !== null && seance[champ] !== undefined ? seance[champ] : defaut);
+    const avecLignes = seance && seance.nombre_lignes;
+
+    const champDate = seance && seance.creneau_id
+        ? `<select name="date_seance">${joursSemaine.filter(j => j >= aujourdhui).map(j =>
+            `<option value="${j}" ${j === seance.date_seance ? 'selected' : ''}>${formaterJour(j)}</option>`).join('')}</select>`
+        : `<input type="date" name="date_seance" required min="${aujourdhui}"
+                  value="${seance ? seance.date_seance : joursSemaine.find(j => j >= aujourdhui) || aujourdhui}">`;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal modal-seance';
+    modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
+    modal.innerHTML = `
+        <form style="background: white; border-radius: 12px; padding: 2rem; max-width: 520px; width: 90%; max-height: 85vh; overflow-y: auto; display: grid; gap: 0.75rem;">
+            <h3 style="margin: 0;">${creation ? '➕ Séance ponctuelle' : `✏️ Modifier la séance`}</h3>
+            ${seance && seance.creneau_id ? '<p style="margin:0;color:#718096;font-size:0.85rem;">Cette séance ne suivra plus les modifications de son créneau.</p>' : ''}
+            <label>Nom <input name="nom" required value="${valeur('nom')}"></label>
+            ${creation ? `<label>Sport
+                <select name="sport_id" required>
+                    <option value="">Choisir…</option>
+                    ${sports.map(sp => `<option value="${sp.id}">${sp.icone || ''} ${echapperHtml(sp.nom)}</option>`).join('')}
+                </select></label>` : ''}
+            <label>Jour ${champDate}</label>
+            <div style="display: flex; gap: 0.5rem;">
+                <label style="flex:1;">Début <input type="time" name="heure_debut" required value="${valeur('heure_debut')}"></label>
+                <label style="flex:1;">Fin <input type="time" name="heure_fin" required value="${valeur('heure_fin')}"></label>
+            </div>
+            ${avecLignes
+                ? `<div style="display: flex; gap: 0.5rem;">
+                       <label style="flex:1;">Lignes d'eau <input type="number" min="1" name="nombre_lignes" value="${valeur('nombre_lignes')}"></label>
+                       <label style="flex:1;">Personnes / ligne <input type="number" min="1" name="personnes_par_ligne" value="${valeur('personnes_par_ligne')}"></label>
+                   </div>`
+                : `<label>Capacité <input type="number" min="1" name="capacite_max" value="${valeur('capacite_max')}" placeholder="Défaut du sport"></label>`}
+            <label style="display:flex;align-items:center;gap:0.5rem;"><input type="checkbox" name="sans_limite" style="width:auto;" ${seance && seance.sans_limite ? 'checked' : ''}> Sans limite de places</label>
+            <label>Lieu <input name="lieu" value="${valeur('lieu')}" list="lieux-connus"></label>
+            <label>Public
+                <select name="public_cible">
+                    ${[['les deux', 'Tous publics'], ['adulte', 'Adultes'], ['jeune', 'Jeunes']].map(([v, l]) =>
+                        `<option value="${v}" ${(seance ? seance.public_cible : 'les deux') === v ? 'selected' : ''}>${l}</option>`).join('')}
+                </select></label>
+            ${seance && (seance.inscrits + seance.en_attente) > 0
+                ? `<p style="margin:0;color:#b7791f;font-size:0.85rem;">⚠️ Un changement de jour, d'horaire ou de lieu sera signalé par email aux ${seance.inscrits + seance.en_attente} personne(s) inscrite(s).</p>`
+                : ''}
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn-warning" data-fermer>Annuler</button>
+                <button type="submit" class="btn-success">${creation ? 'Ajouter' : 'Enregistrer'}</button>
+            </div>
+        </form>
+    `;
+
+    const fermer = () => modal.remove();
+    modal.addEventListener('click', (e) => { if (e.target === modal) fermer(); });
+    modal.querySelector('[data-fermer]').addEventListener('click', fermer);
+    modal.querySelector('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const donnees = Object.fromEntries(new FormData(e.target).entries());
+        donnees.sans_limite = e.target.elements.sans_limite.checked;
+
+        try {
+            const data = creation
+                ? await appelApi('/api/admin/seances', { method: 'POST', body: donnees })
+                : await appelApi(`/api/admin/seances/${seance.id}`, { method: 'PUT', body: donnees });
+            showMessage(data.message, 'success');
+            fermer();
+            rafraichirDetailSemaine();
+            chargerPlanning();
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    });
+
+    document.body.appendChild(modal);
 }
