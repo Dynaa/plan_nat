@@ -47,11 +47,13 @@ const creerMembre = async (email) => {
 const creerCreneau = async (champs = {}) => {
     const c = { nom: 'Lundi 7h', sport_id: natation, jour_semaine: 1, heure_debut: '07:00', heure_fin: '08:00',
         capacite_max: 1, semaine_type_id: standard, ...champs };
-    return (await db.run(
-        `INSERT INTO creneaux (nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, public_cible, semaine_type_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'les deux', ?)`,
-        [c.nom, c.sport_id, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max, c.semaine_type_id]
+    const id = (await db.run(
+        `INSERT INTO creneaux (nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, public_cible)
+         VALUES (?, ?, ?, ?, ?, ?, 'les deux')`,
+        [c.nom, c.sport_id, c.jour_semaine, c.heure_debut, c.heure_fin, c.capacite_max]
     )).lastID;
+    await db.run(`INSERT INTO semaine_type_creneaux (semaine_type_id, creneau_id) VALUES (?, ?)`, [c.semaine_type_id, id]);
+    return id;
 };
 
 const seanceDuCreneau = async (creneauId) => {
@@ -83,7 +85,7 @@ const modifier = (seance, champs = {}) => request(app).put(`/api/admin/seances/$
     ...champs
 });
 
-const TABLES = ['inscriptions', 'waitlist_tokens', 'seances', 'bloc_creneaux', 'blocs', 'creneaux', 'semaines'];
+const TABLES = ['inscriptions', 'waitlist_tokens', 'seances', 'bloc_creneaux', 'blocs', 'semaine_type_creneaux', 'creneaux', 'semaines'];
 
 beforeAll(async () => {
     await app.locals.dbPrete;

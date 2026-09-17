@@ -110,7 +110,9 @@ async function handleCreateCreneau(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne,
-                capacite_max, sans_limite, lieu, public_cible, semaine_type_id: semaineTypeCourante
+                capacite_max, sans_limite, lieu, public_cible,
+                // Créé depuis une semaine type, le créneau en fait partie d'emblée
+                semaine_type_ids: semaineTypeCourante ? [semaineTypeCourante] : []
             })
         });
 
@@ -1183,7 +1185,7 @@ function showManageCreneauxModal(blocId, blocNom, creneaux, blocCreneauxIds) {
             ${creneaux.map(c => `
                 <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 0.5rem; cursor: pointer;">
                     <input type="checkbox" value="${c.id}" ${blocCreneauxIds.includes(c.id) ? 'checked' : ''}>
-                    <span>${c.nom} - ${joursNoms[c.jour_semaine]} ${c.heure_debut}-${c.heure_fin}${semainesTypes.length > 1 && c.semaine_type_nom ? ` <small style="color:#718096;">· ${c.semaine_type_nom}</small>` : ''}</span>
+                    <span>${c.nom} - ${joursNoms[c.jour_semaine]} ${c.heure_debut}-${c.heure_fin}${semainesTypes.length > 1 && c.semaines_types && c.semaines_types.length ? ` <small style="color:#718096;">· ${c.semaines_types.map(t => t.nom).join(', ')}</small>` : ''}</span>
                 </label>
             `).join('')}
             
@@ -1559,7 +1561,9 @@ function telechargerModeleImport() {
 // --- SEMAINES TYPES ET PLANNING ---
 
 let semainesTypes = [];
-let semaineTypeCourante = null; // semaine type dont on affiche les créneaux
+// Semaine type dont on affiche les créneaux : null pour toute la bibliothèque,
+// undefined tant qu'aucun choix n'est fait (la semaine type par défaut)
+let semaineTypeCourante;
 
 const JOURS_COURTS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
 
@@ -1586,10 +1590,11 @@ function initSemainesTypes() {
     select.dataset.pret = '1';
 
     select.addEventListener('change', () => {
-        semaineTypeCourante = Number(select.value);
+        semaineTypeCourante = select.value ? Number(select.value) : null;
         afficherSemaineTypeCourante();
         loadAdminCreneaux();
     });
+    document.getElementById('st-choisir').addEventListener('click', choisirCreneauxDuType);
     document.getElementById('st-nouvelle').addEventListener('click', () => creerSemaineType(false));
     document.getElementById('st-dupliquer').addEventListener('click', () => creerSemaineType(true));
     document.getElementById('st-renommer').addEventListener('click', renommerSemaineType);
@@ -1606,13 +1611,14 @@ async function chargerSemainesTypes() {
     }
 
     // Garder la sélection si elle existe encore, sinon la semaine type par défaut
-    if (!semainesTypes.some(t => t.id === semaineTypeCourante)) {
+    if (semaineTypeCourante !== null && !semainesTypes.some(t => t.id === semaineTypeCourante)) {
         const defaut = semainesTypes.find(t => t.par_defaut) || semainesTypes[0];
         semaineTypeCourante = defaut ? defaut.id : null;
     }
 
     const select = document.getElementById('semaine-type-courante');
-    select.innerHTML = semainesTypes.map(t => `
+    select.innerHTML = `<option value="" ${semaineTypeCourante === null ? 'selected' : ''}>📚 Bibliothèque (tous les créneaux)</option>`
+        + semainesTypes.map(t => `
         <option value="${t.id}" ${t.id === semaineTypeCourante ? 'selected' : ''}>
             ${t.par_defaut ? '★ ' : ''}${echapperHtml(t.nom)} (${t.nb_creneaux} créneau${t.nb_creneaux > 1 ? 'x' : ''})
         </option>
@@ -1625,17 +1631,19 @@ async function chargerSemainesTypes() {
 function afficherSemaineTypeCourante() {
     const type = semainesTypes.find(t => t.id === semaineTypeCourante);
     document.querySelectorAll('.semaine-type-libelle').forEach(el => {
-        el.textContent = type ? `— ${type.nom}` : '';
+        el.textContent = type ? `— ${type.nom}` : '— bibliothèque';
     });
-    const boutonDefaut = document.getElementById('st-defaut');
-    boutonDefaut.disabled = !type || type.par_defaut;
+    ['st-choisir', 'st-dupliquer', 'st-renommer'].forEach(id => {
+        document.getElementById(id).disabled = !type;
+    });
+    document.getElementById('st-defaut').disabled = !type || type.par_defaut;
     document.getElementById('st-supprimer').disabled = !type || type.par_defaut;
 }
 
 async function creerSemaineType(depuisCourante) {
     const source = semainesTypes.find(t => t.id === semaineTypeCourante);
     const nom = prompt(depuisCourante && source
-        ? `Nom de la copie de « ${source.nom} » (ses créneaux seront copiés) :`
+        ? `Nom de la nouvelle semaine type, reprenant les créneaux de « ${source.nom} » (partagés, pas recopiés) :`
         : 'Nom de la nouvelle semaine type (ex. : Vacances scolaires) :');
     if (!nom || !nom.trim()) return;
 
@@ -1688,12 +1696,12 @@ async function definirSemaineTypeParDefaut() {
 
 async function supprimerSemaineType() {
     const type = semainesTypes.find(t => t.id === semaineTypeCourante);
-    if (!type || !confirm(`Supprimer la semaine type « ${type.nom} » ?`)) return;
+    if (!type || !confirm(`Supprimer la semaine type « ${type.nom} » ?\n\nSes créneaux restent dans la bibliothèque.`)) return;
 
     try {
         const data = await appelApi(`/api/admin/semaines-types/${type.id}`, { method: 'DELETE' });
         showMessage(data.message, 'success');
-        semaineTypeCourante = null;
+        semaineTypeCourante = undefined;
         await chargerSemainesTypes();
     } catch (error) {
         showMessage(error.message, 'error');
@@ -2013,4 +2021,138 @@ async function ouvrirFormulaireSeance(seanceId) {
     });
 
     document.body.appendChild(modal);
+}
+
+// --- CRÉNEAUX D'UNE SEMAINE TYPE ---
+
+// Résumé, avant enregistrement, de l'effet d'une nouvelle sélection sur les
+// semaines à venir qui suivent la semaine type
+function texteImpactSelection(type, semaines) {
+    const lignes = [`Enregistrer les créneaux de « ${type.nom} » ?`, ''];
+    const touchees = semaines.filter(s => s.creees || s.reactivees || s.annulees.length);
+    if (touchees.length === 0) {
+        lignes.push("Aucune des semaines à venir n'est modifiée.");
+    }
+    for (const s of touchees) {
+        const details = [];
+        if (s.creees) details.push(`${s.creees} séance(s) créée(s)`);
+        if (s.reactivees) details.push(`${s.reactivees} rétablie(s)`);
+        if (s.annulees.length) details.push(`${s.annulees.length} annulée(s)`);
+        lignes.push(`• Semaine du ${formaterJour(s.lundi)} : ${details.join(', ')}`);
+        for (const a of s.annulees) {
+            lignes.push(`    – ${a.nom} (${formaterJour(a.date_seance)} ${a.heure_debut}) : ${a.inscrits.length} inscrit(s)`);
+        }
+    }
+    const personnes = semaines.reduce((total, s) => total + s.personnes_concernees, 0);
+    if (personnes > 0) {
+        lignes.push('', `⚠️ ${personnes} personne(s) seront désinscrites et prévenues par email.`);
+    }
+    return lignes.join('\n');
+}
+
+// Enregistre une sélection après confirmation de son impact. Renvoie true si
+// elle a été enregistrée.
+async function enregistrerSelection(type, ids) {
+    const url = `/api/admin/semaines-types/${type.id}/creneaux`;
+    try {
+        const apercu = await appelApi(url, { method: 'PUT', body: { creneau_ids: ids, simulation: true } });
+        if (!confirm(texteImpactSelection(type, apercu.semaines))) return false;
+
+        const data = await appelApi(url, { method: 'PUT', body: { creneau_ids: ids } });
+        showMessage(data.message, 'success');
+    } catch (error) {
+        showMessage(error.message, 'error');
+        return false;
+    }
+
+    await chargerSemainesTypes();
+    chargerPlanning();
+    rafraichirDetailSemaine();
+    return true;
+}
+
+async function choisirCreneauxDuType() {
+    const type = semainesTypes.find(t => t.id === semaineTypeCourante);
+    if (!type) return;
+
+    let bibliotheque;
+    try {
+        bibliotheque = await appelApi('/api/creneaux');
+    } catch (error) {
+        showMessage(error.message, 'error');
+        return;
+    }
+
+    // Un créneau rangé dans plusieurs blocs apparaît plusieurs fois dans la réponse
+    const parId = new Map(bibliotheque.map(c => [c.id, c]));
+    const creneaux = [...parId.values()].sort((a, b) =>
+        ((a.jour_semaine || 7) - (b.jour_semaine || 7)) || a.heure_debut.localeCompare(b.heure_debut));
+    const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
+    modal.innerHTML = `
+        <form style="background: white; border-radius: 12px; padding: 2rem; max-width: 640px; width: 92%; max-height: 85vh; display: flex; flex-direction: column; gap: 0.75rem;">
+            <h3 style="margin: 0;">🗂 Créneaux de « ${echapperHtml(type.nom)} »</h3>
+            <p style="margin: 0; color: #718096; font-size: 0.9rem;">
+                Cochez les créneaux de la bibliothèque que cette semaine type contient.
+                Un créneau peut être coché dans plusieurs semaines types.
+            </p>
+            <div style="display: flex; gap: 0.5rem;">
+                <button type="button" class="btn-warning" data-tout="1">Tout cocher</button>
+                <button type="button" class="btn-warning" data-tout="0">Tout décocher</button>
+            </div>
+            <div style="overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                ${creneaux.length === 0 ? '<p style="padding: 1rem; color: #718096;">La bibliothèque est vide.</p>' : creneaux.map(c => {
+                    const autres = (c.semaines_types || []).filter(t => t.id !== type.id).map(t => t.nom);
+                    const coche = (c.semaines_types || []).some(t => t.id === type.id);
+                    return `
+                        <label style="display: flex; gap: 0.6rem; align-items: center; padding: 0.55rem 0.75rem; border-bottom: 1px solid #edf2f7; cursor: pointer;">
+                            <input type="checkbox" value="${c.id}" ${coche ? 'checked' : ''} style="width: auto;">
+                            <span style="min-width: 9.5rem; white-space: nowrap;">${joursNoms[c.jour_semaine]} ${c.heure_debut}-${c.heure_fin}</span>
+                            <span>${c.sport_icone || ''} ${echapperHtml(c.nom)}
+                                <small style="color: #718096;">· ${c.sans_limite === true || c.sans_limite === 1 ? 'sans limite' : `${c.capacite_max} places`}${c.lieu ? ` · ${echapperHtml(c.lieu)}` : ''}</small>
+                                ${autres.length ? `<br><small style="color: #718096;">aussi dans : ${autres.map(echapperHtml).join(', ')}</small>` : ''}
+                            </span>
+                        </label>
+                    `;
+                }).join('')}
+            </div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn-warning" data-fermer>Annuler</button>
+                <button type="submit" class="btn-success">Enregistrer</button>
+            </div>
+        </form>
+    `;
+
+    const fermer = () => modal.remove();
+    modal.addEventListener('click', (e) => { if (e.target === modal) fermer(); });
+    modal.querySelector('[data-fermer]').addEventListener('click', fermer);
+    modal.querySelectorAll('[data-tout]').forEach(bouton => bouton.addEventListener('click', () => {
+        modal.querySelectorAll('input[type="checkbox"]').forEach(caseACocher => {
+            caseACocher.checked = bouton.dataset.tout === '1';
+        });
+    }));
+    modal.querySelector('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const ids = [...modal.querySelectorAll('input[type="checkbox"]:checked')].map(c => Number(c.value));
+        if (await enregistrerSelection(type, ids)) fermer();
+    });
+
+    document.body.appendChild(modal);
+}
+
+// Retire un créneau de la semaine type affichée ; il reste dans la bibliothèque
+async function retirerCreneauDuType(creneauId) {
+    const type = semainesTypes.find(t => t.id === semaineTypeCourante);
+    if (!type) return;
+
+    try {
+        const actuels = await appelApi(`/api/creneaux?semaine_type=${type.id}`);
+        const ids = [...new Set(actuels.map(c => c.id))].filter(id => id !== creneauId);
+        await enregistrerSelection(type, ids);
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
 }

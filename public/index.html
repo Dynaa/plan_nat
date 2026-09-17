@@ -209,13 +209,15 @@
                     <div class="admin-section">
                         <h3>Semaines types</h3>
                         <p style="color: #4a5568; margin-bottom: 1rem;">
-                            Chaque créneau appartient à une semaine type (période scolaire, vacances…).
-                            Le planning ci-dessous indique celle que suit chacune des prochaines semaines ;
+                            Les créneaux forment une bibliothèque ; une semaine type (période scolaire, vacances…)
+                            en sélectionne une partie, et un même créneau peut servir à plusieurs semaines types.
+                            Le planning ci-dessous indique la semaine type que suit chacune des prochaines semaines ;
                             sans choix, c'est la semaine type par défaut (★).
                         </p>
                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
                             <label for="semaine-type-courante" style="font-weight: 500;">Créneaux de :</label>
                             <select id="semaine-type-courante" style="min-width: 220px; padding: 0.5rem;"></select>
+                            <button type="button" class="btn-success" id="st-choisir">🗂 Choisir les créneaux</button>
                             <button type="button" class="btn-success" id="st-nouvelle">➕ Nouvelle</button>
                             <button type="button" class="btn-success" id="st-dupliquer">📄 Dupliquer</button>
                             <button type="button" class="btn-warning" id="st-renommer">✏️ Renommer</button>
