@@ -203,9 +203,16 @@ function displaySportFilter() {
 function displayCreneaux() {
     const container = document.getElementById('creneaux-list');
 
-    const creneauxAffiches = sportFiltreActif === 'tous'
-        ? creneaux
-        : creneaux.filter(c => c.sport_slug === sportFiltreActif);
+    // L'API regroupe les créneaux par sport (ordre utile à l'admin) : ici on
+    // les présente dans l'ordre de la semaine, toutes disciplines confondues.
+    // Le tri étant stable, l'ordre des sports départage deux créneaux simultanés.
+    const creneauxAffiches = (sportFiltreActif === 'tous'
+        ? [...creneaux]
+        : creneaux.filter(c => c.sport_slug === sportFiltreActif)
+    ).sort((a, b) =>
+        (a.date_seance || '').localeCompare(b.date_seance || '')
+        || (a.heure_debut || '').localeCompare(b.heure_debut || '')
+    );
 
     if (creneauxAffiches.length === 0) {
         container.innerHTML = creneaux.length === 0
