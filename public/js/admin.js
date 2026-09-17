@@ -1228,3 +1228,320 @@ function showManageCreneauxModal(blocId, blocNom, creneaux, blocCreneauxIds) {
         }
     });
 }
+
+// --- IMPORT DE COMPTES (CSV / EXCEL) ---
+
+// SheetJS n'est chargé qu'à la première utilisation : inutile de l'imposer
+// à chaque visiteur de l'application.
+const SHEETJS_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+let sheetJsChargement = null;
+
+let importLignesBrutes = null; // lignes du fichier, telles que lues
+let importAnalyse = null;      // dernière analyse renvoyée par le serveur
+// Corrections manuelles par numéro de ligne, réappliquées quand un changement
+// de valeur par défaut relance l'analyse du fichier
+let importCorrections = {};
+
+const LIBELLES_STATUT_IMPORT = {
+    nouveau: { texte: 'À créer', couleur: '#2f855a' },
+    existant: { texte: 'Compte existant', couleur: '#2b6cb0' },
+    doublon: { texte: 'Doublon dans le fichier', couleur: '#b7791f' },
+    erreur: { texte: 'Erreur', couleur: '#c53030' }
+};
+
+const LICENCES_IMPORT = ['Compétition', 'Loisir/Senior', 'Benjamins/Junior', 'Poussins/Pupilles'];
+const PUBLICS_IMPORT = [['adulte', 'Adulte'], ['jeune', 'Jeune'], ['les deux', 'Les deux']];
+
+function echapperHtml(texte) {
+    const div = document.createElement('div');
+    div.textContent = texte ?? '';
+    return div.innerHTML.replace(/"/g, '&quot;');
+}
+
+function initImportComptes() {
+    const inputFichier = document.getElementById('import-fichier');
+    if (!inputFichier) return;
+
+    inputFichier.addEventListener('change', () => {
+        if (inputFichier.files[0]) chargerFichierImport(inputFichier.files[0]);
+    });
+
+    // Changer une valeur par défaut relance l'analyse du fichier déjà chargé
+    ['import-defaut-licence', 'import-defaut-public'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => {
+            if (importLignesBrutes) analyserFichierImport();
+        });
+    });
+
+    document.getElementById('import-modele-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        telechargerModeleImport();
+    });
+}
+
+function chargerSheetJS() {
+    if (window.XLSX) return Promise.resolve();
+    if (!sheetJsChargement) {
+        sheetJsChargement = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = SHEETJS_URL;
+            script.onload = resolve;
+            script.onerror = () => {
+                sheetJsChargement = null;
+                reject(new Error('Impossible de charger le lecteur de fichiers'));
+            };
+            document.head.appendChild(script);
+        });
+    }
+    return sheetJsChargement;
+}
+
+// Les exports CSV sont souvent en Windows-1252 (Excel français) : on tente
+// l'UTF-8 strict, puis on se rabat sur cet encodage.
+function decoderTexteCsv(buffer) {
+    try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    } catch {
+        return new TextDecoder('windows-1252').decode(buffer);
+    }
+}
+
+async function lireFichierImport(fichier) {
+    await chargerSheetJS();
+    const buffer = await fichier.arrayBuffer();
+
+    // raw : garder les valeurs telles quelles (pas de conversion en nombre ou en date)
+    const classeur = /\.csv$/i.test(fichier.name)
+        ? XLSX.read(decoderTexteCsv(buffer), { type: 'string', raw: true })
+        : XLSX.read(buffer, { type: 'array' });
+
+    const feuille = classeur.Sheets[classeur.SheetNames[0]];
+    // blankrows : conserver les lignes vides pour que les numéros de ligne
+    // affichés correspondent à ceux du fichier (le serveur les écarte)
+    return XLSX.utils.sheet_to_json(feuille, { defval: '', raw: false, blankrows: true });
+}
+
+async function chargerFichierImport(fichier) {
+    const zone = document.getElementById('import-apercu');
+    zone.innerHTML = '<p>Lecture du fichier…</p>';
+    importLignesBrutes = null;
+    importAnalyse = null;
+    importCorrections = {};
+
+    try {
+        const lignes = await lireFichierImport(fichier);
+        if (lignes.length === 0) {
+            zone.innerHTML = '<p style="color:#c53030;">Le fichier ne contient aucune ligne.</p>';
+            return;
+        }
+        importLignesBrutes = lignes;
+        await analyserFichierImport();
+    } catch (error) {
+        console.error('Erreur lecture fichier import:', error);
+        zone.innerHTML = `<p style="color:#c53030;">Fichier illisible : ${echapperHtml(error.message)}</p>`;
+    }
+}
+
+async function analyserFichierImport() {
+    const zone = document.getElementById('import-apercu');
+    const defauts = {
+        licence_type: document.getElementById('import-defaut-licence').value,
+        public_cible: document.getElementById('import-defaut-public').value
+    };
+
+    try {
+        const response = await fetch('/api/admin/users/import/apercu', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lignes: importLignesBrutes, defauts })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            zone.innerHTML = `<p style="color:#c53030;">${echapperHtml(data.error)}</p>`;
+            return;
+        }
+        importAnalyse = data.lignes.map(l => ({ ...l, ...importCorrections[l.ligne] }));
+        if (Object.keys(importCorrections).length > 0) {
+            await revaliderImport();
+        } else {
+            afficherApercuImport(data.resume);
+        }
+    } catch (error) {
+        zone.innerHTML = '<p style="color:#c53030;">Erreur de connexion</p>';
+    }
+}
+
+// Une licence ou un public corrigé à la main : le serveur revalide la ligne
+async function corrigerLigneImport(index, champ, valeur) {
+    const ligne = importAnalyse[index];
+    ligne[champ] = valeur || null;
+    importCorrections[ligne.ligne] = { ...importCorrections[ligne.ligne], [champ]: ligne[champ] };
+    await revaliderImport();
+}
+
+async function revaliderImport() {
+    try {
+        const response = await fetch('/api/admin/users/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lignes: importAnalyse, simulation: true })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            importAnalyse = data.lignes;
+            afficherApercuImport(data.resume);
+        } else {
+            showMessage(data.error, 'error');
+        }
+    } catch (error) {
+        showMessage('Erreur de connexion', 'error');
+    }
+}
+
+function selecteurImport(index, champ, options, valeur) {
+    const choix = options.map(([v, libelle]) =>
+        `<option value="${echapperHtml(v)}" ${v === valeur ? 'selected' : ''}>${echapperHtml(libelle)}</option>`
+    ).join('');
+    const vide = champ === 'licence_type' && !valeur ? '<option value="" selected>— À choisir —</option>' : '';
+    return `<select onchange="corrigerLigneImport(${index}, '${champ}', this.value)">${vide}${choix}</select>`;
+}
+
+function afficherApercuImport(resume) {
+    const zone = document.getElementById('import-apercu');
+    // Garder l'état des cases à cocher entre deux rafraîchissements
+    const majExistants = document.getElementById('import-maj-existants')?.checked ?? false;
+    const envoyerEmails = document.getElementById('import-envoyer-emails')?.checked ?? true;
+
+    const pastille = (statut) => {
+        const { texte, couleur } = LIBELLES_STATUT_IMPORT[statut];
+        return `<span style="background:${couleur};color:white;border-radius:999px;padding:2px 8px;font-size:0.75rem;white-space:nowrap;">${texte}</span>`;
+    };
+
+    const lignesHtml = importAnalyse.map((l, i) => `
+        <tr style="border-top:1px solid #e2e8f0;">
+            <td>${l.ligne}</td>
+            <td>${pastille(l.statut)}</td>
+            <td>${echapperHtml(l.nom)}</td>
+            <td>${echapperHtml(l.prenom)}</td>
+            <td>${echapperHtml(l.email)}</td>
+            <td>${selecteurImport(i, 'licence_type', LICENCES_IMPORT.map(x => [x, x]), l.licence_type)}</td>
+            <td>${selecteurImport(i, 'public_cible', PUBLICS_IMPORT, l.public_cible)}</td>
+            <td style="color:#c53030;font-size:0.85rem;">${l.erreurs.map(echapperHtml).join('<br>')}</td>
+        </tr>
+    `).join('');
+
+    zone.innerHTML = `
+        <p>
+            <strong>${resume.nouveau}</strong> à créer ·
+            <strong>${resume.existant}</strong> déjà inscrit(s) ·
+            <strong>${resume.doublon}</strong> doublon(s) ·
+            <strong style="color:${resume.erreur ? '#c53030' : 'inherit'};">${resume.erreur}</strong> en erreur
+        </p>
+        <div style="overflow-x:auto;max-height:420px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;">
+            <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+                <thead style="position:sticky;top:0;background:#f7fafc;text-align:left;">
+                    <tr><th>Ligne</th><th>Statut</th><th>Nom</th><th>Prénom</th><th>Email</th><th>Licence</th><th>Public</th><th>Problème</th></tr>
+                </thead>
+                <tbody>${lignesHtml}</tbody>
+            </table>
+        </div>
+        <div style="margin-top:1rem;display:flex;flex-direction:column;gap:0.5rem;">
+            <label><input type="checkbox" id="import-maj-existants" ${majExistants ? 'checked' : ''}>
+                Mettre à jour la licence et le public des comptes existants (${resume.existant})</label>
+            <label><input type="checkbox" id="import-envoyer-emails" ${envoyerEmails ? 'checked' : ''}>
+                Envoyer aux nouveaux membres l'email pour choisir leur mot de passe</label>
+            <div>
+                <button type="button" class="btn-success" id="import-valider">Importer</button>
+                <button type="button" class="btn-warning" id="import-annuler">Annuler</button>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('import-valider').addEventListener('click', validerImport);
+    document.getElementById('import-annuler').addEventListener('click', reinitialiserImport);
+}
+
+function reinitialiserImport() {
+    importLignesBrutes = null;
+    importAnalyse = null;
+    importCorrections = {};
+    document.getElementById('import-fichier').value = '';
+    document.getElementById('import-apercu').innerHTML = '';
+}
+
+async function validerImport() {
+    const mettreAJourExistants = document.getElementById('import-maj-existants').checked;
+    const envoyerEmails = document.getElementById('import-envoyer-emails').checked;
+    const aCreer = importAnalyse.filter(l => l.statut === 'nouveau').length;
+    const aMettreAJour = mettreAJourExistants ? importAnalyse.filter(l => l.statut === 'existant').length : 0;
+
+    if (aCreer + aMettreAJour === 0) {
+        showMessage('Aucun compte à créer ni à mettre à jour', 'error');
+        return;
+    }
+
+    const resumeAction = [
+        aCreer ? `créer ${aCreer} compte(s)` : null,
+        aMettreAJour ? `mettre à jour ${aMettreAJour} compte(s)` : null
+    ].filter(Boolean).join(' et ');
+    const avertissementEmails = envoyerEmails && aCreer ? `\n${aCreer} email(s) de bienvenue seront envoyés.` : '';
+    if (!confirm(`Vous allez ${resumeAction}.${avertissementEmails}\n\nContinuer ?`)) return;
+
+    const bouton = document.getElementById('import-valider');
+    bouton.disabled = true;
+    bouton.textContent = 'Import en cours…';
+
+    try {
+        const response = await fetch('/api/admin/users/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lignes: importAnalyse, mettreAJourExistants, envoyerEmails })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showMessage(data.error, 'error');
+            bouton.disabled = false;
+            bouton.textContent = 'Importer';
+            return;
+        }
+
+        const erreursHtml = data.erreurs.length
+            ? `<ul style="color:#c53030;">${data.erreurs.map(e =>
+                `<li>Ligne ${e.ligne} (${echapperHtml(e.email || 'sans email')}) : ${e.erreurs.map(echapperHtml).join(', ')}</li>`
+            ).join('')}</ul>`
+            : '';
+
+        document.getElementById('import-fichier').value = '';
+        importLignesBrutes = null;
+        importAnalyse = null;
+        importCorrections = {};
+        document.getElementById('import-apercu').innerHTML = `
+            <div style="background:#f0fff4;border:1px solid #c6f6d5;color:#276749;border-radius:8px;padding:1rem;">
+                ✅ ${data.crees} compte(s) créé(s), ${data.misAJour} mis à jour, ${data.ignores} ignoré(s)${data.erreurs.length ? `, ${data.erreurs.length} en erreur` : ''}.
+                ${data.emailsEnvoyes ? `<br>📧 ${data.emailsEnvoyes} email(s) de bienvenue en cours d'envoi.` : ''}
+            </div>
+            ${erreursHtml}
+        `;
+        loadAdminUsers();
+    } catch (error) {
+        showMessage('Erreur de connexion', 'error');
+        bouton.disabled = false;
+        bouton.textContent = 'Importer';
+    }
+}
+
+function telechargerModeleImport() {
+    // BOM : sans lui, Excel ouvre le fichier en Windows-1252 et abîme les accents
+    const contenu = '\uFEFFNom;Prénom;Email;Licence;Public\r\n'
+        + 'Dupont;Marie;marie.dupont@example.com;Loisir/Senior;adulte\r\n'
+        + 'Martin;Lucas;lucas.martin@example.com;Benjamins/Junior;jeune\r\n';
+    const url = URL.createObjectURL(new Blob([contenu], { type: 'text/csv;charset=utf-8' }));
+    const lien = document.createElement('a');
+    lien.href = url;
+    lien.download = 'modele-import-comptes.csv';
+    lien.click();
+    URL.revokeObjectURL(url);
+}

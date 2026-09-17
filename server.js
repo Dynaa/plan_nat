@@ -8,10 +8,15 @@ const path = require('path');
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
 const { verifierLimitesSeances, verifierRegleBloc, verifierMetaRegles, sportDuCreneau } = require('./services/businessRules');
+const importComptes = require('./services/importComptes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Configuration
+// Un export de la fédération compte beaucoup de colonnes : l'import de comptes
+// dépasse vite la limite par défaut (100 ko). Monté avant le parseur global,
+// qui ignore ensuite un corps déjà lu.
+app.use('/api/admin/users/import', bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
@@ -2489,6 +2494,197 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
         }
         console.error('Erreur création compte manuel:', err);
         return res.status(500).json({ error: 'Erreur lors de la création de l\'utilisateur' });
+    }
+});
+
+// --- IMPORT EN MASSE DE COMPTES (ADMIN) ---
+
+// Le lien « définir mon mot de passe » d'un compte importé doit survivre à
+// quelques jours d'inattention, contrairement au lien de réinitialisation.
+const VALIDITE_LIEN_BIENVENUE_JOURS = 7;
+// Resend limite à 2 requêtes/s : on espace les envois.
+const DELAI_ENTRE_EMAILS_MS = 600;
+
+const ENTITES_HTML = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' };
+const echapperHtml = (texte) => String(texte ?? '').replace(/[&<>"']/g, c => ENTITES_HTML[c]);
+
+const emailsExistants = async () => {
+    const rows = await db.query(`SELECT LOWER(email) AS email FROM users`, []);
+    return rows.map(r => r.email);
+};
+
+const lignesImportValides = (lignes, res) => {
+    if (!Array.isArray(lignes) || lignes.length === 0) {
+        res.status(400).json({ error: 'Aucune ligne à importer' });
+        return false;
+    }
+    if (lignes.length > importComptes.MAX_LIGNES) {
+        res.status(400).json({ error: `Fichier trop volumineux : ${importComptes.MAX_LIGNES} lignes maximum` });
+        return false;
+    }
+    return true;
+};
+
+// Envoi en arrière-plan : un import de plusieurs centaines de comptes
+// dépasserait sinon le délai d'une requête HTTP.
+const envoyerEmailsBienvenue = async (destinataires) => {
+    let envoyes = 0;
+    for (const [index, dest] of destinataires.entries()) {
+        if (index > 0) await new Promise(r => setTimeout(r, DELAI_ENTRE_EMAILS_MS));
+
+        const lien = `${getBaseUrl()}/reset-password?token=${dest.token}&bienvenue=1`;
+        const contenu = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #28A0E8;">👋 Bienvenue sur la plateforme de réservation</h2>
+
+                <p>Bonjour ${echapperHtml(dest.prenom)} ${echapperHtml(dest.nom)},</p>
+
+                <p>Votre club vous a créé un compte pour réserver vos séances d'entraînement.
+                Pour l'activer, choisissez votre mot de passe :</p>
+
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${lien}"
+                       style="background: #28A0E8; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+                        Définir mon mot de passe
+                    </a>
+                </div>
+
+                <p style="color: #6b7280; font-size: 14px;">
+                    Votre identifiant de connexion est votre adresse email : <strong>${echapperHtml(dest.email)}</strong><br>
+                    ⚠️ Ce lien expire dans ${VALIDITE_LIEN_BIENVENUE_JOURS} jours. Passé ce délai,
+                    utilisez « Mot de passe oublié » sur la page de connexion.
+                </p>
+
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    ACC Triathlon - Gestion des créneaux
+                </p>
+            </div>
+        `;
+
+        try {
+            if (await sendEmail(dest.email, '👋 Votre compte ACC Triathlon est prêt', contenu)) {
+                envoyes++;
+            } else {
+                console.error(`❌ Échec envoi email de bienvenue à ${dest.email}`);
+            }
+        } catch (err) {
+            console.error(`❌ Erreur envoi email de bienvenue à ${dest.email}:`, err.message);
+        }
+    }
+    console.log(`📧 Emails de bienvenue : ${envoyes}/${destinataires.length} envoyé(s)`);
+};
+
+// Étape 1 : aperçu. Reçoit les lignes brutes du fichier ({ en-tête: valeur })
+// et renvoie ce que l'import ferait de chacune, sans rien écrire.
+app.post('/api/admin/users/import/apercu', requireAdmin, async (req, res) => {
+    const { lignes, defauts } = req.body;
+    if (!lignesImportValides(lignes, res)) return;
+
+    try {
+        const { colonnes, lignes: extraites } = importComptes.extraireLignes(lignes);
+        const champsTrouves = Object.values(colonnes);
+        const colonnesManquantes = ['nom', 'prenom', 'email'].filter(c => !champsTrouves.includes(c));
+
+        if (colonnesManquantes.length > 0) {
+            return res.status(400).json({
+                error: `Colonnes introuvables dans le fichier : ${colonnesManquantes.join(', ')}`,
+                colonnes
+            });
+        }
+
+        const analyse = importComptes.analyserLignes(extraites, await emailsExistants(), defauts || {});
+        res.json({ colonnes, lignes: analyse, resume: importComptes.resumer(analyse) });
+    } catch (err) {
+        console.error('Erreur aperçu import comptes:', err);
+        res.status(500).json({ error: `Erreur lors de l'analyse du fichier` });
+    }
+});
+
+// Étape 2 : import. Reçoit les lignes de l'aperçu, éventuellement corrigées
+// par l'admin (licence, public), et les revalide avant d'écrire.
+// Avec `simulation`, renvoie seulement la nouvelle analyse : l'aperçu s'en sert
+// après chaque correction, sans dupliquer les règles de validation côté client.
+app.post('/api/admin/users/import', requireAdmin, async (req, res) => {
+    const { lignes, mettreAJourExistants = false, envoyerEmails = true, simulation = false } = req.body;
+    if (!lignesImportValides(lignes, res)) return;
+
+    try {
+        const analyse = importComptes.analyserLignes(lignes, await emailsExistants());
+        if (simulation) {
+            return res.json({ lignes: analyse, resume: importComptes.resumer(analyse) });
+        }
+
+        const resultat = { crees: 0, misAJour: 0, ignores: 0, erreurs: [] };
+        const destinataires = [];
+        const expiration = new Date();
+        expiration.setDate(expiration.getDate() + VALIDITE_LIEN_BIENVENUE_JOURS);
+
+        for (const ligne of analyse) {
+            if (ligne.statut === 'erreur') {
+                resultat.erreurs.push({ ligne: ligne.ligne, email: ligne.email, erreurs: ligne.erreurs });
+                continue;
+            }
+
+            if (ligne.statut === 'doublon' || (ligne.statut === 'existant' && !mettreAJourExistants)) {
+                resultat.ignores++;
+                continue;
+            }
+
+            try {
+                if (ligne.statut === 'existant') {
+                    await db.run(
+                        db.adaptSQL(
+                            `UPDATE users SET licence_type = ?, public_cible = ? WHERE LOWER(email) = ?`,
+                            `UPDATE users SET licence_type = $1, public_cible = $2 WHERE LOWER(email) = $3`
+                        ),
+                        [ligne.licence_type, ligne.public_cible, ligne.email]
+                    );
+                    resultat.misAJour++;
+                    continue;
+                }
+
+                // Mot de passe aléatoire jamais communiqué : le membre choisit
+                // le sien via le lien reçu par email.
+                const motDePasse = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+                const creation = await db.run(
+                    db.adaptSQL(
+                        `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible, role) VALUES (?, ?, ?, ?, ?, ?, 'membre')`,
+                        `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible, role) VALUES ($1, $2, $3, $4, $5, $6, 'membre') RETURNING id`
+                    ),
+                    [ligne.email, motDePasse, ligne.nom, ligne.prenom, ligne.licence_type, ligne.public_cible]
+                );
+                const userId = creation.lastID || creation.id;
+                resultat.crees++;
+
+                if (envoyerEmails) {
+                    const token = generateSecureToken();
+                    await db.run(`INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)`,
+                        [token, userId, expiration.toISOString()]);
+                    destinataires.push({ ...ligne, token });
+                }
+            } catch (err) {
+                // Compte créé entre l'analyse et l'écriture : on ne l'écrase pas
+                if (err.message && (err.message.includes('UNIQUE constraint failed') || err.message.includes('duplicate key'))) {
+                    resultat.ignores++;
+                } else {
+                    console.error(`Erreur import ligne ${ligne.ligne}:`, err);
+                    resultat.erreurs.push({ ligne: ligne.ligne, email: ligne.email, erreurs: [`Erreur lors de l'écriture en base`] });
+                }
+            }
+        }
+
+        console.log(`👥 Import de comptes par l'admin ${req.session.userId} : ${resultat.crees} créé(s), ${resultat.misAJour} mis à jour, ${resultat.ignores} ignoré(s), ${resultat.erreurs.length} en erreur`);
+
+        if (destinataires.length > 0) {
+            envoyerEmailsBienvenue(destinataires).catch(err =>
+                console.error('❌ Erreur envoi des emails de bienvenue:', err));
+        }
+
+        res.json({ ...resultat, emailsEnvoyes: destinataires.length });
+    } catch (err) {
+        console.error('Erreur import comptes:', err);
+        res.status(500).json({ error: `Erreur lors de l'import des comptes` });
     }
 });
 
