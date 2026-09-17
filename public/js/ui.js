@@ -297,7 +297,7 @@ function displayCreneaux() {
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
                     <div>${annulee ? '❌ Séance annulée par le club' : statusText}</div>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <div class="actions-creneau">
                         <button onclick="voirInscritsPublic(${creneau.id}, '${creneau.nom.replace(/'/g, "\\'")}', '${creneau.date_seance}')" class="btn-warning" ${annulee || (creneau.inscrits === 0 && creneau.en_attente === 0) ? 'style="display:none;"' : ''}>
                             👥 Voir inscrits
                         </button>
@@ -449,7 +449,7 @@ function displayAdminCreneaux(creneaux) {
                 : `${creneau.inscrits}/${creneau.capacite_max} inscrits`}
                         ${creneau.en_attente > 0 ? `• ${creneau.en_attente} en attente` : ''}
                     </div>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <div class="actions-creneau">
                         ${creneau.seance_id ? `<button onclick="voirInscriptions(${creneau.seance_id})" class="btn-warning">
                             👥 Inscriptions
                         </button>` : ''}

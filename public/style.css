@@ -235,6 +235,15 @@ main {
     text-align: right;
 }
 
+/* text-align n'agit pas sur les éléments d'une boîte flex : les boutons
+   s'alignent à droite, comme le texte au-dessus */
+.actions-creneau {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .capacite {
     font-weight: 500;
     margin-bottom: 0.5rem;
@@ -442,6 +451,10 @@ main {
     .creneau-status {
         text-align: left;
         width: 100%;
+    }
+
+    .actions-creneau {
+        justify-content: flex-start;
     }
 
     #create-creneau-form {
