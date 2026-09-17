@@ -34,7 +34,8 @@ function switchMainTab(tab) {
     } else if (tab === 'admin') {
         loadMetaRulesStatus(); // Charger le statut des méta-règles
         remplirSelecteurSports();
-        loadAdminCreneaux();
+        chargerSemainesTypes(); // puis les créneaux de la semaine type affichée
+        chargerPlanning();
         // Charger les utilisateurs si on est sur cet onglet
         const activeAdminTab = document.querySelector('.admin-tab-btn.active');
         if (activeAdminTab) {

@@ -207,7 +207,30 @@
                 <!-- Sous-onglet Créneaux -->
                 <div id="admin-creneaux-section" class="admin-tab-content active">
                     <div class="admin-section">
-                        <h3>Créer un nouveau créneau</h3>
+                        <h3>Semaines types</h3>
+                        <p style="color: #4a5568; margin-bottom: 1rem;">
+                            Chaque créneau appartient à une semaine type (période scolaire, vacances…).
+                            Le planning ci-dessous indique celle que suit chacune des prochaines semaines ;
+                            sans choix, c'est la semaine type par défaut (★).
+                        </p>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                            <label for="semaine-type-courante" style="font-weight: 500;">Créneaux de :</label>
+                            <select id="semaine-type-courante" style="min-width: 220px; padding: 0.5rem;"></select>
+                            <button type="button" class="btn-success" id="st-nouvelle">➕ Nouvelle</button>
+                            <button type="button" class="btn-success" id="st-dupliquer">📄 Dupliquer</button>
+                            <button type="button" class="btn-warning" id="st-renommer">✏️ Renommer</button>
+                            <button type="button" class="btn-warning" id="st-defaut">★ Définir par défaut</button>
+                            <button type="button" class="btn-danger" id="st-supprimer">🗑️ Supprimer</button>
+                        </div>
+                    </div>
+
+                    <div class="admin-section">
+                        <h3>Planning des prochaines semaines</h3>
+                        <div id="planning-semaines"></div>
+                    </div>
+
+                    <div class="admin-section">
+                        <h3>Créer un nouveau créneau <span class="semaine-type-libelle" style="font-weight: normal; color: #718096;"></span></h3>
                         <form id="create-creneau-form">
                             <input type="text" id="creneau-nom" placeholder="Nom du créneau" required>
                             <select id="creneau-sport" required>
@@ -254,7 +277,7 @@
                     </div>
 
                     <div class="admin-section">
-                        <h3>Gestion des créneaux</h3>
+                        <h3>Gestion des créneaux <span class="semaine-type-libelle" style="font-weight: normal; color: #718096;"></span></h3>
 
                         <!-- Section de remise à zéro hebdomadaire -->
                         <div

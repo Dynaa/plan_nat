@@ -3,6 +3,13 @@
 // d'avant la migration.
 const DatabaseAdapter = require('../../database');
 const seances = require('../../services/seances');
+const semainesTypes = require('../../services/semainesTypes');
+
+// La génération des séances dépend des semaines types
+const migrerTout = async (db) => {
+    await seances.migrer(db);
+    await semainesTypes.migrer(db);
+};
 
 const SCHEMA_INITIAL = [
     `CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, nom TEXT, prenom TEXT,
@@ -95,7 +102,7 @@ describe('Séances datées', () => {
                 [lundi, lundi, lundi]);
             await db.run(`INSERT INTO waitlist_tokens (token, user_id, creneau_id, expires_at) VALUES ('t', 1, ?, '2099-01-01')`, [lundi]);
 
-            await seances.migrer(db);
+            await migrerTout(db);
 
             const lignes = await db.query(`SELECT id, creneau_id, date_seance, nom, capacite_max FROM seances ORDER BY date_seance`);
             expect(lignes).toEqual([
@@ -112,15 +119,15 @@ describe('Séances datées', () => {
             const lundi = await creerCreneau(db);
             await db.run(`INSERT INTO inscriptions (user_id, creneau_id, date_seance) VALUES (1, ?, '2026-09-07')`, [lundi]);
 
-            await seances.migrer(db);
-            await seances.migrer(db);
+            await migrerTout(db);
+            await migrerTout(db);
 
             expect((await db.get(`SELECT COUNT(*) AS n FROM seances`)).n).toBe(1);
         });
 
         it('interdit deux inscriptions du même membre à la même séance', async () => {
             await creerCreneau(db);
-            await seances.migrer(db);
+            await migrerTout(db);
             await seances.genererSemaine(db, '2026-09-14');
             const [seance] = await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20' });
 
@@ -134,7 +141,7 @@ describe('Séances datées', () => {
         let db;
         beforeEach(async () => {
             db = await creerBase();
-            await seances.migrer(db);
+            await migrerTout(db);
         });
 
         it('crée une séance par créneau actif, au bon jour, avec ses réglages', async () => {
@@ -212,7 +219,7 @@ describe('Séances datées', () => {
         let db;
         beforeEach(async () => {
             db = await creerBase();
-            await seances.migrer(db);
+            await migrerTout(db);
         });
 
         it('reporte les réglages sur les séances à venir non ajustées, et déplace le jour avec ses inscrits', async () => {
@@ -244,7 +251,7 @@ describe('Séances datées', () => {
         let db, seance;
         beforeEach(async () => {
             db = await creerBase();
-            await seances.migrer(db);
+            await migrerTout(db);
             await creerCreneau(db, { jour_semaine: 0, capacite_max: 1 }); // dimanche : toujours à venir cette semaine
             await seances.genererSemaine(db, seances.lundiDeLaSemaine(0));
             [seance] = await seances.listerSeances(db, { debut: seances.lundiDeLaSemaine(0), fin: seances.ajouterJours(seances.lundiDeLaSemaine(0), 6) });
