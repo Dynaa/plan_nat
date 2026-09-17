@@ -75,10 +75,10 @@ describe('Remise à zéro hebdomadaire par discipline (phase 4)', () => {
         expect(res.body.inscriptionsSupprimes).toBe(2);
         expect(res.body.message).toContain('Vélo');
 
-        // La suppression est bornée aux créneaux de ce sport
+        // La suppression est bornée aux séances de ce sport
         const suppression = db.run.mock.calls.find(c => c[0].startsWith('DELETE FROM inscriptions'));
         expect(suppression).toBeDefined();
-        expect(suppression[0]).toContain('WHERE creneau_id IN');
+        expect(suppression[0]).toContain('WHERE seance_id IN');
         expect(suppression[0]).toContain('sport_id');
         expect(suppression[1]).toEqual([2]);
     });
