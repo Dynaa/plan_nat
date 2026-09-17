@@ -108,7 +108,10 @@ async function handleCreateCreneau(e) {
         const response = await fetch('/api/creneaux', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible })
+            body: JSON.stringify({
+                nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne,
+                capacite_max, sans_limite, lieu, public_cible, semaine_type_id: semaineTypeCourante
+            })
         });
 
         const data = await response.json();
@@ -118,7 +121,8 @@ async function handleCreateCreneau(e) {
             document.getElementById('create-creneau-form').reset();
             majChampsCapacite(); // Le reset vide le sport : réafficher l'état neutre
             chargerLieuxConnus(); // Un nouveau lieu devient une suggestion
-            loadAdminCreneaux();
+            chargerSemainesTypes(); // nombre de créneaux par semaine type
+            chargerPlanning();
         } else {
             showMessage(data.error, 'error');
         }
@@ -128,7 +132,8 @@ async function handleCreateCreneau(e) {
 }
 async function loadAdminCreneaux() {
     try {
-        const response = await fetch('/api/creneaux');
+        const filtre = semaineTypeCourante ? `?semaine_type=${semaineTypeCourante}` : '';
+        const response = await fetch(`/api/creneaux${filtre}`);
         const data = await response.json();
 
         if (response.ok) {
@@ -1175,7 +1180,7 @@ function showManageCreneauxModal(blocId, blocNom, creneaux, blocCreneauxIds) {
             ${creneaux.map(c => `
                 <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 0.5rem; cursor: pointer;">
                     <input type="checkbox" value="${c.id}" ${blocCreneauxIds.includes(c.id) ? 'checked' : ''}>
-                    <span>${c.nom} - ${joursNoms[c.jour_semaine]} ${c.heure_debut}-${c.heure_fin}</span>
+                    <span>${c.nom} - ${joursNoms[c.jour_semaine]} ${c.heure_debut}-${c.heure_fin}${semainesTypes.length > 1 && c.semaine_type_nom ? ` <small style="color:#718096;">· ${c.semaine_type_nom}</small>` : ''}</span>
                 </label>
             `).join('')}
             
@@ -1260,7 +1265,9 @@ function echapperHtml(texte) {
 
 function initImportComptes() {
     const inputFichier = document.getElementById('import-fichier');
-    if (!inputFichier) return;
+    // Appelée à chaque affichage de l'interface : ne brancher qu'une fois
+    if (!inputFichier || inputFichier.dataset.pret) return;
+    inputFichier.dataset.pret = '1';
 
     inputFichier.addEventListener('change', () => {
         if (inputFichier.files[0]) chargerFichierImport(inputFichier.files[0]);
@@ -1544,4 +1551,254 @@ function telechargerModeleImport() {
     lien.download = 'modele-import-comptes.csv';
     lien.click();
     URL.revokeObjectURL(url);
+}
+
+// --- SEMAINES TYPES ET PLANNING ---
+
+let semainesTypes = [];
+let semaineTypeCourante = null; // semaine type dont on affiche les créneaux
+
+const JOURS_COURTS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+
+// « lun. 21/09 »
+function formaterJour(dateIso) {
+    const date = new Date(`${dateIso}T12:00:00`);
+    return `${JOURS_COURTS[date.getDay()]} ${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`;
+}
+
+async function appelApi(url, options = {}) {
+    const response = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+        body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Erreur inattendue');
+    return data;
+}
+
+function initSemainesTypes() {
+    const select = document.getElementById('semaine-type-courante');
+    if (!select || select.dataset.pret) return;
+    select.dataset.pret = '1';
+
+    select.addEventListener('change', () => {
+        semaineTypeCourante = Number(select.value);
+        afficherSemaineTypeCourante();
+        loadAdminCreneaux();
+    });
+    document.getElementById('st-nouvelle').addEventListener('click', () => creerSemaineType(false));
+    document.getElementById('st-dupliquer').addEventListener('click', () => creerSemaineType(true));
+    document.getElementById('st-renommer').addEventListener('click', renommerSemaineType);
+    document.getElementById('st-defaut').addEventListener('click', definirSemaineTypeParDefaut);
+    document.getElementById('st-supprimer').addEventListener('click', supprimerSemaineType);
+}
+
+async function chargerSemainesTypes() {
+    try {
+        semainesTypes = await appelApi('/api/admin/semaines-types');
+    } catch (error) {
+        showMessage('Erreur lors du chargement des semaines types', 'error');
+        return;
+    }
+
+    // Garder la sélection si elle existe encore, sinon la semaine type par défaut
+    if (!semainesTypes.some(t => t.id === semaineTypeCourante)) {
+        const defaut = semainesTypes.find(t => t.par_defaut) || semainesTypes[0];
+        semaineTypeCourante = defaut ? defaut.id : null;
+    }
+
+    const select = document.getElementById('semaine-type-courante');
+    select.innerHTML = semainesTypes.map(t => `
+        <option value="${t.id}" ${t.id === semaineTypeCourante ? 'selected' : ''}>
+            ${t.par_defaut ? '★ ' : ''}${echapperHtml(t.nom)} (${t.nb_creneaux} créneau${t.nb_creneaux > 1 ? 'x' : ''})
+        </option>
+    `).join('');
+
+    afficherSemaineTypeCourante();
+    loadAdminCreneaux();
+}
+
+function afficherSemaineTypeCourante() {
+    const type = semainesTypes.find(t => t.id === semaineTypeCourante);
+    document.querySelectorAll('.semaine-type-libelle').forEach(el => {
+        el.textContent = type ? `— ${type.nom}` : '';
+    });
+    const boutonDefaut = document.getElementById('st-defaut');
+    boutonDefaut.disabled = !type || type.par_defaut;
+    document.getElementById('st-supprimer').disabled = !type || type.par_defaut;
+}
+
+async function creerSemaineType(depuisCourante) {
+    const source = semainesTypes.find(t => t.id === semaineTypeCourante);
+    const nom = prompt(depuisCourante && source
+        ? `Nom de la copie de « ${source.nom} » (ses créneaux seront copiés) :`
+        : 'Nom de la nouvelle semaine type (ex. : Vacances scolaires) :');
+    if (!nom || !nom.trim()) return;
+
+    try {
+        const data = await appelApi('/api/admin/semaines-types', {
+            method: 'POST',
+            body: { nom, source_id: depuisCourante && source ? source.id : undefined }
+        });
+        showMessage(data.message, 'success');
+        semaineTypeCourante = data.semaine_type.id;
+        await chargerSemainesTypes();
+        chargerPlanning();
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
+}
+
+async function renommerSemaineType() {
+    const type = semainesTypes.find(t => t.id === semaineTypeCourante);
+    if (!type) return;
+    const nom = prompt('Nouveau nom :', type.nom);
+    if (!nom || !nom.trim() || nom.trim() === type.nom) return;
+
+    try {
+        const data = await appelApi(`/api/admin/semaines-types/${type.id}`, { method: 'PUT', body: { nom } });
+        showMessage(data.message, 'success');
+        await chargerSemainesTypes();
+        chargerPlanning();
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
+}
+
+async function definirSemaineTypeParDefaut() {
+    const type = semainesTypes.find(t => t.id === semaineTypeCourante);
+    if (!type || type.par_defaut) return;
+    if (!confirm(`Faire de « ${type.nom} » la semaine type par défaut ?\n\n`
+        + 'Les semaines à venir sans choix explicite la suivront : les séances sans équivalent '
+        + 'seront annulées et leurs inscrits prévenus par email.')) return;
+
+    try {
+        const data = await appelApi(`/api/admin/semaines-types/${type.id}/defaut`, { method: 'PUT' });
+        showMessage(data.message, 'success');
+        await chargerSemainesTypes();
+        chargerPlanning();
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
+}
+
+async function supprimerSemaineType() {
+    const type = semainesTypes.find(t => t.id === semaineTypeCourante);
+    if (!type || !confirm(`Supprimer la semaine type « ${type.nom} » ?`)) return;
+
+    try {
+        const data = await appelApi(`/api/admin/semaines-types/${type.id}`, { method: 'DELETE' });
+        showMessage(data.message, 'success');
+        semaineTypeCourante = null;
+        await chargerSemainesTypes();
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
+}
+
+async function chargerPlanning() {
+    const conteneur = document.getElementById('planning-semaines');
+    if (!conteneur) return;
+
+    let semaines;
+    try {
+        semaines = await appelApi('/api/admin/semaines');
+        if (!semainesTypes.length) semainesTypes = await appelApi('/api/admin/semaines-types');
+    } catch (error) {
+        conteneur.innerHTML = `<p style="color:#c53030;">${echapperHtml(error.message)}</p>`;
+        return;
+    }
+
+    const libelleOffset = ['Cette semaine', 'Semaine prochaine', 'Dans 2 semaines', 'Dans 3 semaines'];
+
+    conteneur.innerHTML = `
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.95rem;">
+                <tbody>
+                    ${semaines.map(s => `
+                        <tr style="border-top: 1px solid #e2e8f0;">
+                            <td style="padding: 0.6rem 0.5rem;">
+                                <strong>${libelleOffset[s.offset] || ''}</strong><br>
+                                <small style="color: #718096;">${formaterJour(s.lundi)} → ${formaterJour(s.dimanche)}</small>
+                            </td>
+                            <td style="padding: 0.6rem 0.5rem;">
+                                <select data-lundi="${s.lundi}" data-actuel="${s.semaine_type_id}" style="padding: 0.4rem;">
+                                    ${semainesTypes.map(t => `
+                                        <option value="${t.id}" ${t.id === s.semaine_type_id ? 'selected' : ''}>
+                                            ${t.par_defaut ? '★ ' : ''}${echapperHtml(t.nom)}
+                                        </option>
+                                    `).join('')}
+                                </select>
+                                ${s.explicite ? '' : '<br><small style="color: #718096;">par défaut</small>'}
+                            </td>
+                            <td style="padding: 0.6rem 0.5rem; color: #4a5568;">
+                                ${s.nb_seances} séance(s) • ${s.nb_inscriptions} inscription(s)
+                            </td>
+                            <td style="padding: 0.6rem 0.5rem; text-align: right;">
+                                <button type="button" class="btn-success" data-appliquer="${s.lundi}" disabled>Appliquer</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    conteneur.querySelectorAll('select[data-lundi]').forEach(select => {
+        select.addEventListener('change', () => {
+            const bouton = conteneur.querySelector(`button[data-appliquer="${select.dataset.lundi}"]`);
+            bouton.disabled = select.value === select.dataset.actuel;
+        });
+    });
+    conteneur.querySelectorAll('button[data-appliquer]').forEach(bouton => {
+        bouton.addEventListener('click', () => {
+            const select = conteneur.querySelector(`select[data-lundi="${bouton.dataset.appliquer}"]`);
+            appliquerSemaineType(bouton.dataset.appliquer, Number(select.value));
+        });
+    });
+}
+
+// Montre l'impact avant d'appliquer une semaine type à une semaine
+async function appliquerSemaineType(lundi, semaineTypeId) {
+    const url = `/api/admin/semaines/${lundi}`;
+    let bilan;
+    try {
+        ({ bilan } = await appelApi(url, { method: 'POST', body: { semaine_type_id: semaineTypeId, simulation: true } }));
+    } catch (error) {
+        showMessage(error.message, 'error');
+        return;
+    }
+
+    const lignes = [
+        `Appliquer « ${bilan.semaine_type.nom} » à la semaine du ${formaterJour(lundi)} ?`,
+        '',
+        `• ${bilan.conservees} séance(s) conservée(s), avec leurs inscrits`,
+        `• ${bilan.creees} séance(s) créée(s)`
+    ];
+    if (bilan.reactivees > 0) lignes.push(`• ${bilan.reactivees} séance(s) rétablie(s)`);
+    if (bilan.annulees.length > 0) {
+        lignes.push(`• ${bilan.annulees.length} séance(s) annulée(s) :`);
+        for (const s of bilan.annulees) {
+            lignes.push(`    – ${s.nom} (${formaterJour(s.date_seance)} ${s.heure_debut}) : ${s.inscrits.length} inscrit(s)`);
+        }
+        if (bilan.personnes_concernees > 0) {
+            lignes.push('', `⚠️ ${bilan.personnes_concernees} personne(s) seront désinscrites et prévenues par email.`);
+        }
+    }
+    lignes.push('', 'Les jours déjà passés ne sont pas modifiés.');
+
+    if (!confirm(lignes.join('\n'))) {
+        chargerPlanning(); // remettre la sélection d'origine
+        return;
+    }
+
+    try {
+        const data = await appelApi(url, { method: 'POST', body: { semaine_type_id: semaineTypeId } });
+        showMessage(data.message, 'success');
+    } catch (error) {
+        showMessage(error.message, 'error');
+    }
+    chargerPlanning();
+    loadAdminCreneaux();
 }

@@ -138,6 +138,9 @@ function setupMainEventListeners() {
 
     // Import de comptes depuis un fichier CSV/Excel
     initImportComptes();
+
+    // Semaines types et planning
+    initSemainesTypes();
 }
 
 

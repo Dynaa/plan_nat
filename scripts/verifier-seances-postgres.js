@@ -107,6 +107,28 @@ const connexion = async (email, password) => {
     const apres = await seances.trouverSeance(db, seance.id);
     verifier('séance à venir synchronisée', apres.nom.endsWith('(modifié)') && apres.capacite_max === 5, apres);
 
+    // Semaines types : duplication, application avec correspondance, retour
+    const types = await admin.get('/api/admin/semaines-types');
+    const standard = types.body.find(t => t.par_defaut);
+    verifier('semaine type par défaut présente', types.status === 200 && !!standard, types.body);
+    const copie = await admin.post('/api/admin/semaines-types').send({ nom: `Vérification ${Date.now()}`, source_id: standard.id });
+    verifier('duplication d\'une semaine type', copie.status === 200 && copie.body.semaine_type.nb_creneaux > 0, copie.body);
+    const copieId = copie.body.semaine_type.id;
+    const lundi1 = seances.lundiDeLaSemaine(1);
+
+    const apercu = await admin.post(`/api/admin/semaines/${lundi1}`).send({ semaine_type_id: copieId, simulation: true });
+    verifier('aperçu : tout se conserve vers une copie', apercu.status === 200 && apercu.body.bilan.annulees.length === 0, apercu.body);
+    const application = await admin.post(`/api/admin/semaines/${lundi1}`).send({ semaine_type_id: copieId });
+    verifier('application de la copie', application.status === 200, application.body);
+    const planningSemaines = await admin.get('/api/admin/semaines');
+    verifier('planning : choix enregistré', planningSemaines.body[1].explicite && planningSemaines.body[1].semaine_type_id === copieId, planningSemaines.body);
+    const retour = await admin.post(`/api/admin/semaines/${lundi1}`).send({ semaine_type_id: standard.id });
+    verifier('retour à la semaine type initiale', retour.status === 200 && retour.body.bilan.annulees.length === 0, retour.body);
+    const defaut = await admin.put(`/api/admin/semaines-types/${copieId}/defaut`);
+    verifier('changement de semaine type par défaut', defaut.status === 200, defaut.body);
+    const remise = await admin.put(`/api/admin/semaines-types/${standard.id}/defaut`);
+    verifier('rétablissement du défaut', remise.status === 200, remise.body);
+
     // Reprise d'une inscription héritée (sans séance)
     const semaineSuivante = seances.lundiDeLaSemaine(1);
     const autre = liste.body.find(s => s.creneau_id !== seance.creneau_id);

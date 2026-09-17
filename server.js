@@ -10,6 +10,7 @@ const { Resend } = require('resend');
 const { verifierLimitesSeances, verifierRegleBloc, verifierMetaRegles } = require('./services/businessRules');
 const importComptes = require('./services/importComptes');
 const seances = require('./services/seances');
+const semainesTypes = require('./services/semainesTypes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -1035,6 +1036,9 @@ async function initializeDatabase() {
             }
         }
 
+        // Semaines types : après les créneaux d'exemple, qu'elles rattachent
+        await semainesTypes.migrer(db);
+
         console.log('✅ Base de données initialisée avec succès');
     } catch (err) {
         console.error('❌ Erreur initialisation base de données:', err);
@@ -1776,12 +1780,19 @@ app.get('/api/creneaux', async (req, res) => {
         const fin = seances.ajouterJours(debut, 6);
         await seances.genererSemaine(db, debut);
 
-        const filtrePublic = !isAdmin && (publicCible === 'jeune' || publicCible === 'adulte')
-            ? ` AND c.public_cible IN ('${publicCible}', 'les deux')`
-            : '';
+        const filtres = [];
+        const params = [debut, fin];
+        if (!isAdmin && (publicCible === 'jeune' || publicCible === 'adulte')) {
+            filtres.push(`AND c.public_cible IN ('${publicCible}', 'les deux')`);
+        }
+        // Créneaux d'une semaine type précise (administration)
+        if (req.query.semaine_type) {
+            filtres.push('AND c.semaine_type_id = ?');
+            params.push(req.query.semaine_type);
+        }
 
         const rows = await db.query(
-            `SELECT c.*, b.id AS bloc_id, b.nom AS bloc_nom,
+            `SELECT c.*, b.id AS bloc_id, b.nom AS bloc_nom, st.nom AS semaine_type_nom,
                     sp.slug AS sport_slug, sp.nom AS sport_nom, sp.icone AS sport_icone, sp.couleur AS sport_couleur,
                     s.id AS seance_id, s.date_seance AS date_seance,
                     (SELECT COUNT(*) FROM inscriptions i WHERE i.seance_id = s.id AND i.statut = 'inscrit') AS inscrits,
@@ -1791,9 +1802,10 @@ app.get('/api/creneaux', async (req, res) => {
              LEFT JOIN bloc_creneaux bc ON c.id = bc.creneau_id
              LEFT JOIN blocs b ON bc.bloc_id = b.id
              LEFT JOIN seances s ON s.creneau_id = c.id AND s.date_seance BETWEEN ? AND ?
-             WHERE c.actif = true${filtrePublic}
+             LEFT JOIN semaines_types st ON st.id = c.semaine_type_id
+             WHERE c.actif = true ${filtres.join(' ')}
              ORDER BY sp.ordre, CASE WHEN c.jour_semaine = 0 THEN 7 ELSE c.jour_semaine END, c.heure_debut`,
-            [debut, fin]
+            params
         );
 
         const aujourdhui = seances.aujourdhuiIso();
@@ -1834,6 +1846,194 @@ app.get('/api/creneaux/:creneauId', async (req, res) => {
     }
 });
 
+// --- SEMAINES TYPES ET PLANNING (ADMIN) ---
+
+// Prévenir un membre que sa séance est annulée (changement de semaine type)
+const notifierAnnulation = async (inscrit, seance) => {
+    const jour = dateLisible(seance.date_seance);
+    const place = inscrit.statut === 'attente' ? "Votre place en liste d'attente a été retirée" : 'Votre inscription a été retirée';
+    try {
+        return await sendEmail(
+            inscrit.email,
+            `❌ Séance annulée - ${seance.nom}`,
+            `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #c53030;">❌ Séance annulée</h2>
+                <p>Bonjour ${echapperHtml(inscrit.prenom)} ${echapperHtml(inscrit.nom)},</p>
+                <p>Le planning de la semaine a changé : la séance
+                   <strong>${echapperHtml(seance.nom)}</strong> du ${jour} (${seance.heure_debut} - ${seance.heure_fin})
+                   n'aura pas lieu.</p>
+                <p>${place} ; elle ne compte plus dans votre quota de la semaine.
+                   Rendez-vous sur l'application pour choisir une autre séance.</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${getBaseUrl()}"
+                       style="background: #28A0E8; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+                        Voir les séances
+                    </a>
+                </div>
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    ACC Triathlon - Gestion des créneaux
+                </p>
+            </div>
+            `
+        );
+    } catch (err) {
+        console.error(`❌ Erreur envoi email d'annulation à ${inscrit.email}:`, err.message);
+        return false;
+    }
+};
+
+// Les emails d'annulation partent en arrière-plan, espacés comme les autres
+// envois groupés. Renvoie le nombre de personnes prévenues.
+const prevenirAnnulations = (bilans) => {
+    const aPrevenir = bilans.flatMap(bilan =>
+        bilan.annulees.flatMap(({ seance, inscrits }) => inscrits.map(inscrit => ({ inscrit, seance }))));
+
+    (async () => {
+        for (const [index, { inscrit, seance }] of aPrevenir.entries()) {
+            if (index > 0) await new Promise(r => setTimeout(r, DELAI_ENTRE_EMAILS_MS));
+            await notifierAnnulation(inscrit, seance);
+        }
+    })().catch(err => console.error('❌ Erreur envoi des emails d\'annulation:', err));
+
+    return aPrevenir.length;
+};
+
+// Les séances rattachées à un créneau plus grand accueillent leur liste d'attente
+const promouvoirRattachees = async (bilans) => {
+    const promus = await promouvoirSeances(bilans.flatMap(b => b.seancesRattachees));
+    for (const promu of promus) {
+        notifierPromotion(promu.userId, promu.seance)
+            .catch(err => console.error('❌ Erreur envoi email de promotion:', err));
+    }
+    return promus.length;
+};
+
+// Bilan d'un changement de semaine type, sans les coordonnées des inscrits
+const resumeBilan = (bilan) => ({
+    lundi: bilan.lundi,
+    semaine_type: bilan.semaine_type,
+    conservees: bilan.conservees,
+    creees: bilan.creees,
+    reactivees: bilan.reactivees,
+    annulees: bilan.annulees.map(({ seance, inscrits }) => ({
+        ...seance,
+        inscrits: inscrits.map(i => ({ nom: i.nom, prenom: i.prenom, statut: i.statut }))
+    })),
+    personnes_concernees: bilan.annulees.reduce((total, a) => total + a.inscrits.length, 0)
+});
+
+const repondreErreur = (res, err, contexte) => {
+    if (err instanceof semainesTypes.ErreurSemaineType) {
+        return res.status(err.status).json({ error: err.message });
+    }
+    console.error(`Erreur ${contexte}:`, err);
+    return res.status(500).json({ error: `Erreur lors de ${contexte}` });
+};
+
+app.get('/api/admin/semaines-types', requireAdmin, async (req, res) => {
+    try {
+        res.json(await semainesTypes.listerTypes(db));
+    } catch (err) {
+        repondreErreur(res, err, 'la récupération des semaines types');
+    }
+});
+
+// Nouvelle semaine type, vide ou copiée d'une autre ({ nom, source_id })
+app.post('/api/admin/semaines-types', requireAdmin, async (req, res) => {
+    const { nom, source_id } = req.body;
+    try {
+        const semaineType = source_id
+            ? await semainesTypes.dupliquerType(db, source_id, nom)
+            : await semainesTypes.creerType(db, nom);
+        const message = source_id
+            ? `Semaine type « ${semaineType.nom} » créée avec ${semaineType.nb_creneaux} créneau(x)`
+            : `Semaine type « ${semaineType.nom} » créée`;
+        res.json({ message, semaine_type: semaineType });
+    } catch (err) {
+        repondreErreur(res, err, 'la création de la semaine type');
+    }
+});
+
+app.put('/api/admin/semaines-types/:id', requireAdmin, async (req, res) => {
+    try {
+        const semaineType = await semainesTypes.renommerType(db, req.params.id, req.body.nom);
+        res.json({ message: 'Semaine type renommée', semaine_type: semaineType });
+    } catch (err) {
+        repondreErreur(res, err, 'le renommage de la semaine type');
+    }
+});
+
+// Nouvelle semaine type par défaut : les semaines à venir sans choix explicite la suivent
+app.put('/api/admin/semaines-types/:id/defaut', requireAdmin, async (req, res) => {
+    try {
+        const bilans = await semainesTypes.definirParDefaut(db, req.params.id);
+        const prevenues = prevenirAnnulations(bilans);
+        await promouvoirRattachees(bilans);
+        const annulees = bilans.reduce((total, b) => total + b.annulees.length, 0);
+
+        let message = 'Semaine type par défaut modifiée';
+        if (annulees > 0) {
+            message += `. ${annulees} séance(s) annulée(s), ${prevenues} personne(s) prévenue(s) par email.`;
+        }
+        res.json({ message, semaines: bilans.map(resumeBilan) });
+    } catch (err) {
+        repondreErreur(res, err, 'le changement de semaine type par défaut');
+    }
+});
+
+app.delete('/api/admin/semaines-types/:id', requireAdmin, async (req, res) => {
+    try {
+        await semainesTypes.supprimerType(db, req.params.id);
+        res.json({ message: 'Semaine type supprimée' });
+    } catch (err) {
+        repondreErreur(res, err, 'la suppression de la semaine type');
+    }
+});
+
+// Les semaines planifiables et la semaine type de chacune
+app.get('/api/admin/semaines', requireAdmin, async (req, res) => {
+    try {
+        await seances.genererSemaines(db, seances.SEMAINES_ADMIN);
+        res.json(await semainesTypes.planning(db));
+    } catch (err) {
+        repondreErreur(res, err, 'la récupération du planning');
+    }
+});
+
+// Appliquer une semaine type à une semaine ({ semaine_type_id, simulation })
+app.post('/api/admin/semaines/:lundi', requireAdmin, async (req, res) => {
+    const { semaine_type_id, simulation } = req.body;
+    if (!semaine_type_id) {
+        return res.status(400).json({ error: 'Semaine type requise' });
+    }
+
+    try {
+        const bilan = await semainesTypes.appliquerType(db, req.params.lundi, semaine_type_id, {
+            simulation: simulation === true
+        });
+        const resume = resumeBilan(bilan);
+        if (simulation === true) {
+            return res.json({ simulation: true, bilan: resume });
+        }
+
+        const prevenues = prevenirAnnulations([bilan]);
+        const promus = await promouvoirRattachees([bilan]);
+        console.log(`📅 Semaine du ${bilan.lundi} : « ${bilan.semaine_type.nom} » appliquée par l'admin ${req.session.userId} (${bilan.annulees.length} séance(s) annulée(s), ${prevenues} personne(s) prévenue(s))`);
+
+        let message = `Semaine type « ${bilan.semaine_type.nom} » appliquée`;
+        if (bilan.annulees.length > 0) {
+            message += `. ${bilan.annulees.length} séance(s) annulée(s), ${prevenues} personne(s) prévenue(s) par email.`;
+        }
+        if (promus > 0) {
+            message += ` ${promus} personne(s) en liste d'attente ont obtenu une place.`;
+        }
+        res.json({ message, bilan: resume });
+    } catch (err) {
+        repondreErreur(res, err, "l'application de la semaine type");
+    }
+});
 const envoyerInscritsSeance = async (res, seance) => {
     if (!seance) {
         return res.status(404).json({ error: 'Séance non trouvée' });
@@ -2091,7 +2291,7 @@ app.put('/api/admin/meta-rules/:id/toggle', requireAdmin, async (req, res) => {
 
 // Route de création de créneaux (ADMIN)
 app.post('/api/creneaux', requireAdmin, async (req, res) => {
-    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, sans_limite, lieu, nombre_lignes, personnes_par_ligne, public_cible } = req.body;
+    const { nom, sport_id, jour_semaine, heure_debut, heure_fin, capacite_max, sans_limite, lieu, nombre_lignes, personnes_par_ligne, public_cible, semaine_type_id } = req.body;
     const sansLimite = sans_limite === true || sans_limite === 'true';
     const lieuNettoye = (lieu || '').trim() || null;
 
@@ -2104,6 +2304,10 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
     const varCible = (public_cible && cibles.includes(public_cible)) ? public_cible : 'les deux';
 
     try {
+        if (semaine_type_id && !(await semainesTypes.trouverType(db, semaine_type_id))) {
+            return res.status(400).json({ error: 'Semaine type inconnue' });
+        }
+
         // Sans sport explicite, on rattache à la natation (sport historique)
         let sportId = sport_id;
         if (!sportId) {
@@ -2123,11 +2327,13 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
             capaciteMax = 0;
         }
 
+        // Sans semaine type précisée, le créneau rejoint celle par défaut
+        const typeParDefaut = `(SELECT id FROM semaines_types WHERE par_defaut = true ORDER BY id LIMIT 1)`;
         const sql = db.isPostgres ?
-            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible)
-             VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id` :
-            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible)
-             VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible, semaine_type_id)
+             VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::integer, ${typeParDefaut})) RETURNING id` :
+            `INSERT INTO creneaux(nom, sport_id, jour_semaine, heure_debut, heure_fin, nombre_lignes, personnes_par_ligne, capacite_max, sans_limite, lieu, public_cible, semaine_type_id)
+             VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, ${typeParDefaut}))`;
 
         const result = await db.run(sql, [
             nom,
@@ -2140,7 +2346,8 @@ app.post('/api/creneaux', requireAdmin, async (req, res) => {
             capaciteMax,
             sansLimite,
             lieuNettoye,
-            varCible
+            varCible,
+            semaine_type_id || null
         ]);
 
         res.json({
