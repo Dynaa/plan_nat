@@ -6,6 +6,12 @@ const seances = require('../../services/seances');
 const semainesTypes = require('../../services/semainesTypes');
 
 // La génération des séances dépend des semaines types
+// Semaines entièrement à venir : la génération ne crée rien dans le passé
+const S1 = seances.lundiDeLaSemaine(1);
+const S1_FIN = seances.ajouterJours(S1, 6);
+const S2 = seances.lundiDeLaSemaine(2);
+const S2_FIN = seances.ajouterJours(S2, 6);
+
 const migrerTout = async (db) => {
     await seances.migrer(db);
     await semainesTypes.migrer(db);
@@ -136,8 +142,8 @@ describe('Séances datées', () => {
         it('interdit deux inscriptions du même membre à la même séance', async () => {
             await creerCreneau(db);
             await migrerTout(db);
-            await seances.genererSemaine(db, '2026-09-14');
-            const [seance] = await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20' });
+            await seances.genererSemaine(db, S1);
+            const [seance] = await seances.listerSeances(db, { debut: S1, fin: S1_FIN });
 
             await inscrire(db, 1, seance);
             await expect(db.run(`INSERT INTO inscriptions (user_id, creneau_id, date_seance, seance_id) VALUES (1, 999, '2026-01-01', ?)`, [seance.id]))
@@ -158,42 +164,59 @@ describe('Séances datées', () => {
             await creerCreneau(db, { nom: 'Inactif', jour_semaine: 2 });
             await db.run(`UPDATE creneaux SET actif = 0 WHERE nom = 'Inactif'`);
 
-            expect(await seances.genererSemaine(db, '2026-09-14')).toBe(2);
-            const liste = await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20' });
+            expect(await seances.genererSemaine(db, S1)).toBe(2);
+            const liste = await seances.listerSeances(db, { debut: S1, fin: S1_FIN });
 
             expect(liste.map(s => [s.nom, s.date_seance, s.jour_semaine])).toEqual([
-                ['Mercredi', '2026-09-16', 3],
-                ['Dimanche vélo', '2026-09-20', 0]
+                ['Mercredi', seances.ajouterJours(S1, 2), 3],
+                ['Dimanche vélo', S1_FIN, 0]
             ]);
             expect(liste[1]).toMatchObject({ sans_limite: true, sport_nom: 'Vélo', inscrits: 0, en_attente: 0 });
         });
 
+        it('ne crée aucune séance pour un jour déjà passé', async () => {
+            for (const jour of [1, 2, 3, 4, 5, 6, 0]) {
+                await creerCreneau(db, { nom: `Jour ${jour}`, jour_semaine: jour });
+            }
+
+            expect(await seances.genererSemaine(db, seances.lundiDeLaSemaine(-1))).toBe(0);
+
+            // Semaine en cours : seulement d'aujourd'hui à dimanche
+            const lundi = seances.lundiDeLaSemaine(0);
+            const joursRestants = [0, 1, 2, 3, 4, 5, 6]
+                .map(i => seances.ajouterJours(lundi, i))
+                .filter(date => date >= seances.aujourdhuiIso());
+            expect(await seances.genererSemaine(db, lundi)).toBe(joursRestants.length);
+            const liste = await seances.listerSeances(db, { debut: lundi, fin: seances.ajouterJours(lundi, 6) });
+            expect(liste.map(s => s.date_seance)).toEqual(joursRestants);
+        });
+
         it('ne recrée pas une séance déjà présente dans la semaine, même déplacée', async () => {
             await creerCreneau(db);
-            await seances.genererSemaine(db, '2026-09-14');
-            await db.run(`UPDATE seances SET date_seance = '2026-09-15', modifiee = 1`);
+            await seances.genererSemaine(db, S1);
+            await db.run(`UPDATE seances SET date_seance = ?, modifiee = 1`, [seances.ajouterJours(S1, 1)]);
 
-            expect(await seances.genererSemaine(db, '2026-09-14')).toBe(0);
+            expect(await seances.genererSemaine(db, S1)).toBe(0);
             expect((await db.get(`SELECT COUNT(*) AS n FROM seances`)).n).toBe(1);
         });
 
         it('compte inscrits et attente, et filtre public et séances annulées', async () => {
             await creerCreneau(db, { nom: 'Adultes', public_cible: 'adulte' });
             await creerCreneau(db, { nom: 'Jeunes', public_cible: 'jeune', heure_debut: '08:00' });
-            await seances.genererSemaine(db, '2026-09-14');
-            const [adultes, jeunes] = await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20' });
+            await seances.genererSemaine(db, S1);
+            const [adultes, jeunes] = await seances.listerSeances(db, { debut: S1, fin: S1_FIN });
             await inscrire(db, 1, adultes);
             await inscrire(db, 2, adultes, 'attente', 1);
 
-            const pourJeunes = await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20', publicCible: 'jeune' });
+            const pourJeunes = await seances.listerSeances(db, { debut: S1, fin: S1_FIN, publicCible: 'jeune' });
             expect(pourJeunes.map(s => s.nom)).toEqual(['Jeunes']);
 
-            const tous = await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20' });
+            const tous = await seances.listerSeances(db, { debut: S1, fin: S1_FIN });
             expect(tous[0]).toMatchObject({ nom: 'Adultes', inscrits: 1, en_attente: 1 });
 
             await db.run(`UPDATE seances SET annulee = 1 WHERE id = ?`, [jeunes.id]);
-            expect((await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20' })).map(s => s.nom)).toEqual(['Adultes']);
-            expect(await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20', inclureAnnulees: true })).toHaveLength(2);
+            expect((await seances.listerSeances(db, { debut: S1, fin: S1_FIN })).map(s => s.nom)).toEqual(['Adultes']);
+            expect(await seances.listerSeances(db, { debut: S1, fin: S1_FIN, inclureAnnulees: true })).toHaveLength(2);
         });
 
         it('retrouve la séance désignée par un ancien client (créneau + date)', async () => {
@@ -213,13 +236,13 @@ describe('Séances datées', () => {
             await creerCreneau(db, { nom: 'Mardi', jour_semaine: 2 });
             await db.run(`INSERT INTO blocs (nom) VALUES ('Début de semaine')`);
             await db.run(`INSERT INTO bloc_creneaux (bloc_id, creneau_id) VALUES (1, ?)`, [c1]);
-            await seances.genererSemaine(db, '2026-09-14');
-            await seances.genererSemaine(db, '2026-09-21');
-            const [lundi] = await seances.listerSeances(db, { debut: '2026-09-14', fin: '2026-09-20' });
+            await seances.genererSemaine(db, S1);
+            await seances.genererSemaine(db, S2);
+            const [lundi] = await seances.listerSeances(db, { debut: S1, fin: S1_FIN });
             await inscrire(db, 1, lundi);
 
-            expect((await seances.blocsOccupes(db, 1, '2026-09-14', '2026-09-20')).get('1')).toEqual({ seance_id: lundi.id, nom: 'Lundi' });
-            expect((await seances.blocsOccupes(db, 1, '2026-09-21', '2026-09-27')).size).toBe(0);
+            expect((await seances.blocsOccupes(db, 1, S1, S1_FIN)).get('1')).toEqual({ seance_id: lundi.id, nom: 'Lundi' });
+            expect((await seances.blocsOccupes(db, 1, S2, S2_FIN)).size).toBe(0);
         });
     });
 
@@ -235,7 +258,13 @@ describe('Séances datées', () => {
             const lundiPasse = seances.lundiDeLaSemaine(-1);
             const lundiSuivant = seances.lundiDeLaSemaine(1);
             const lundiDApres = seances.lundiDeLaSemaine(2);
-            for (const l of [lundiPasse, lundiSuivant, lundiDApres]) await seances.genererSemaine(db, l);
+            for (const l of [lundiSuivant, lundiDApres]) await seances.genererSemaine(db, l);
+            // Séance ayant déjà eu lieu (la génération ne crée rien dans le passé)
+            await db.run(
+                `INSERT INTO seances (creneau_id, date_seance, nom, sport_id, heure_debut, heure_fin, capacite_max)
+                 VALUES (?, ?, 'Lundi 7h', 1, '07:00', '08:00', 2)`,
+                [creneau, lundiPasse]
+            );
             const suivante = await seances.trouverSeanceParCreneau(db, creneau, lundiSuivant);
             await inscrire(db, 1, suivante);
             await db.run(`UPDATE seances SET modifiee = 1, nom = 'Ajustée' WHERE date_seance = ?`, [lundiDApres]);

@@ -271,12 +271,15 @@ const genererSemaine = async (db, lundi) => {
         `INSERT INTO seances (${colonnes}) VALUES (${marqueurs}) ON CONFLICT (creneau_id, date_seance) DO NOTHING`
     );
 
+    // Pas de séance dans le passé : un créneau ajouté en cours de semaine ne
+    // doit pas faire apparaître, pour un jour déjà écoulé, une séance
+    // « terminée » qui n'a jamais eu lieu.
+    const aujourdhui = aujourdhuiIso();
     let creees = 0;
     for (const creneau of creneaux) {
-        if (dejaGeneres.has(String(creneau.id))) continue;
-        const resultat = await db.run(insertion, [
-            creneau.id, dateDuJour(lundi, creneau.jour_semaine), ...reglagesDuCreneau(creneau)
-        ]);
+        const date = dateDuJour(lundi, creneau.jour_semaine);
+        if (dejaGeneres.has(String(creneau.id)) || date < aujourdhui) continue;
+        const resultat = await db.run(insertion, [creneau.id, date, ...reglagesDuCreneau(creneau)]);
         creees += resultat.changes || 0;
     }
     return creees;

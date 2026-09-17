@@ -181,7 +181,12 @@ describe('POST /api/inscriptions', () => {
         expect((await request(app).post('/api/inscriptions').send({ seanceId: lointaine.id })).body.error)
             .toBe('Les inscriptions à cette séance ne sont pas encore ouvertes');
 
-        const passee = await seanceDe(creneau, -1);
+        // Séance ayant déjà eu lieu (la génération ne crée rien dans le passé)
+        const passee = { id: (await db.run(
+            `INSERT INTO seances (creneau_id, date_seance, nom, sport_id, heure_debut, heure_fin, capacite_max)
+             VALUES (?, ?, 'Créneau', ?, '10:00', '11:00', 1)`,
+            [creneau, seances.dateDuJour(seances.lundiDeLaSemaine(-1), 0), natation]
+        )).lastID };
         expect((await request(app).post('/api/inscriptions').send({ seanceId: passee.id })).body.error)
             .toBe('Cette séance est terminée');
 
