@@ -77,6 +77,34 @@ describe('Authentification et Routes Protégées', () => {
             expect(response.status).toBe(200);
             expect(response.body.user.nom).toBe('Dupont'); // le JSON retourne nom/prenom/role
         });
+
+        // L'import enregistre les emails en minuscules : saisir « Jean@Test.com »
+        // ne doit pas renvoyer « Email ou mot de passe incorrect ».
+        it("devrait ignorer la casse et les espaces de l'email saisi", async () => {
+            const passwordStr = 'supermotdepasse';
+            const hashedPassword = await bcrypt.hash(passwordStr, 10);
+
+            mockDb.get.mockResolvedValueOnce({
+                id: 1,
+                email: 'user@test.com',
+                password: hashedPassword,
+                role: 'membre',
+                prenom: 'Jean',
+                nom: 'Dupont',
+                licence_type: 'Loisir/Senior'
+            });
+
+            const response = await request(app)
+                .post('/api/login')
+                .send({ email: '  User@Test.COM ', password: passwordStr });
+
+            expect(response.status).toBe(200);
+
+            // La requête compare les deux côtés en minuscules
+            const [sql, params] = mockDb.get.mock.calls[0];
+            expect(sql).toContain('LOWER(email)');
+            expect(params[0]).toBe('user@test.com');
+        });
     });
 
     describe('Protection des routes (Middleware requireAuth)', () => {

@@ -1066,6 +1066,11 @@ const generateSecureToken = () => {
     return crypto.randomBytes(32).toString('hex');
 };
 
+// L'email sert d'identifiant : il se compare toujours en minuscules, des deux
+// côtés. Les comptes créés avant cette règle peuvent contenir des majuscules,
+// d'où le LOWER(email) dans les requêtes plutôt qu'une simple égalité.
+const normaliserEmail = (email) => String(email ?? '').trim().toLowerCase();
+
 // Promotion automatique de la liste d'attente après un gain de places
 // (capacité augmentée, ou créneau passé sans limite), séance par séance.
 // Contrairement à la libération d'une place unique — qui notifie tout le monde
@@ -1406,7 +1411,7 @@ app.post('/api/register', async (req, res) => {
             `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id` :
             `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible) VALUES (?, ?, ?, ?, ?, ?)`;
 
-        const result = await db.run(sql, [email, hashedPassword, nom, prenom, licence_type, cible]);
+        const result = await db.run(sql, [normaliserEmail(email), hashedPassword, nom, prenom, licence_type, cible]);
 
         res.json({
             message: 'Compte créé avec succès',
@@ -1433,10 +1438,10 @@ app.post('/api/login', async (req, res) => {
     try {
         // Utiliser la syntaxe PostgreSQL avec $1 au lieu de ?
         const sql = db.isPostgres ?
-            `SELECT * FROM users WHERE email = $1` :
-            `SELECT * FROM users WHERE email = ?`;
+            `SELECT * FROM users WHERE LOWER(email) = $1` :
+            `SELECT * FROM users WHERE LOWER(email) = ?`;
 
-        const user = await db.get(sql, [email]);
+        const user = await db.get(sql, [normaliserEmail(email)]);
 
         if (!user) {
             console.log('Utilisateur non trouvé:', email);
@@ -1485,9 +1490,9 @@ app.post('/api/forgot-password', async (req, res) => {
     try {
         const user = await db.get(
             db.isPostgres ?
-                `SELECT id, email, nom, prenom FROM users WHERE email = $1` :
-                `SELECT id, email, nom, prenom FROM users WHERE email = ?`,
-            [email]
+                `SELECT id, email, nom, prenom FROM users WHERE LOWER(email) = $1` :
+                `SELECT id, email, nom, prenom FROM users WHERE LOWER(email) = ?`,
+            [normaliserEmail(email)]
         );
 
         if (!user) {
@@ -2760,7 +2765,7 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
             `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id` :
             `INSERT INTO users (email, password, nom, prenom, licence_type, public_cible, role) VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
-        const result = await db.run(sql, [email, hashedPassword, nom, prenom, licence_type, pCible, userRole]);
+        const result = await db.run(sql, [normaliserEmail(email), hashedPassword, nom, prenom, licence_type, pCible, userRole]);
 
         res.json({
             message: 'Utilisateur créé avec succès',
@@ -3267,10 +3272,10 @@ app.put('/api/mon-profil', requireAuth, async (req, res) => {
     try {
         // Vérifier si l'email n'est pas déjà utilisé par un autre utilisateur
         const checkEmailSql = db.isPostgres ?
-            `SELECT id FROM users WHERE email = $1 AND id != $2` :
-            `SELECT id FROM users WHERE email = ? AND id != ?`;
+            `SELECT id FROM users WHERE LOWER(email) = $1 AND id != $2` :
+            `SELECT id FROM users WHERE LOWER(email) = ? AND id != ?`;
 
-        const existingUser = await db.get(checkEmailSql, [email, userId]);
+        const existingUser = await db.get(checkEmailSql, [normaliserEmail(email), userId]);
 
         if (existingUser) {
             return res.status(400).json({ error: 'Cet email est déjà utilisé par un autre utilisateur' });
@@ -3281,7 +3286,7 @@ app.put('/api/mon-profil', requireAuth, async (req, res) => {
             `UPDATE users SET nom = $1, prenom = $2, email = $3 WHERE id = $4` :
             `UPDATE users SET nom = ?, prenom = ?, email = ? WHERE id = ?`;
 
-        const result = await db.run(updateSql, [nom, prenom, email, userId]);
+        const result = await db.run(updateSql, [nom, prenom, normaliserEmail(email), userId]);
 
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Utilisateur non trouvé' });
