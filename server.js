@@ -3108,6 +3108,13 @@ app.delete('/api/admin/users/:userId', requireAdmin, async (req, res) => {
             });
         }
 
+        // Les jetons du membre (lien de bienvenue, réinitialisation du mot de
+        // passe, place libérée) référencent son compte : sans ce nettoyage, la
+        // clé étrangère bloque la suppression. Cas courant d'un compte importé
+        // dont l'inscription n'a jamais été finalisée.
+        await db.run(`DELETE FROM password_reset_tokens WHERE user_id = ?`, [userId]);
+        await db.run(`DELETE FROM waitlist_tokens WHERE user_id = ?`, [userId]);
+
         // Supprimer l'utilisateur
         const deleteResult = await db.run(`DELETE FROM users WHERE id = ?`, [userId]);
 

@@ -347,4 +347,23 @@ describe('Import de comptes — routes admin', () => {
             expect(res.body).toMatchObject({ crees: 0, ignores: 1, erreurs: [], emailsEnvoyes: 0 });
         });
     });
+
+    // Un compte importé garde son jeton de bienvenue tant que le membre n'a pas
+    // choisi son mot de passe : la suppression doit le retirer, sinon la clé
+    // étrangère la fait échouer.
+    describe("Suppression d'un compte importé", () => {
+
+        it('retire les jetons du membre avant de supprimer son compte', async () => {
+            db.get.mockResolvedValueOnce({ count: 0 }); // aucune inscription
+            db.run.mockResolvedValue({ changes: 1 });
+
+            const res = await request(app).delete('/api/admin/users/42');
+
+            expect(res.status).toBe(200);
+
+            const tables = db.run.mock.calls.map(([sql]) => sql.match(/DELETE FROM (\w+)/)[1]);
+            expect(tables).toEqual(['password_reset_tokens', 'waitlist_tokens', 'users']);
+            expect(db.run.mock.calls.every(([, params]) => params[0] === '42')).toBe(true);
+        });
+    });
 });
