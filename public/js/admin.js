@@ -1289,6 +1289,100 @@ function initImportComptes() {
         e.preventDefault();
         telechargerModeleImport();
     });
+
+    document.getElementById('email-test-bouton').addEventListener('click', envoyerEmailDeTest);
+}
+
+// Envoi de test : dit tout de suite si le fournisseur accepte le message, et
+// affiche le motif exact du refus le cas échéant.
+async function envoyerEmailDeTest() {
+    const champ = document.getElementById('email-test-adresse');
+    const zone = document.getElementById('email-test-resultat');
+    const bouton = document.getElementById('email-test-bouton');
+    const email = champ.value.trim();
+
+    if (!email) {
+        zone.innerHTML = encadreImport('error', 'Indiquez une adresse pour recevoir le test.');
+        return;
+    }
+
+    bouton.disabled = true;
+    bouton.textContent = 'Envoi en cours…';
+    zone.innerHTML = '';
+
+    try {
+        const response = await fetch('/api/admin/emails/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            zone.innerHTML = encadreImport('error', echapperHtml(data.error || 'Envoi impossible.'));
+        } else if (data.ok && /Ethereal/i.test(data.fournisseur || '')) {
+            zone.innerHTML = encadreImport('warning',
+                `Message accepté par la boîte de test Ethereal : il n'atteint <strong>personne</strong>. ` +
+                `Configurez BREVO_API_KEY, RESEND_API_KEY ou SMTP_HOST pour de vrais envois.`);
+        } else if (data.ok) {
+            zone.innerHTML = encadreImport('success',
+                `Email envoyé à <strong>${echapperHtml(data.email)}</strong> via ${echapperHtml(data.fournisseur)}. ` +
+                `S'il n'arrive pas, regardez les indésirables : le message est bien parti de la plateforme.`);
+        } else {
+            const parQui = data.fournisseur ? ' par ' + echapperHtml(data.fournisseur) : '';
+            zone.innerHTML = encadreImport('error',
+                `Envoi refusé${parQui} : ${echapperHtml(data.erreur || 'motif inconnu')}`);
+        }
+    } catch (error) {
+        zone.innerHTML = encadreImport('error', 'Erreur de connexion au serveur.');
+    } finally {
+        bouton.disabled = false;
+        bouton.textContent = '📧 Envoyer un email de test';
+    }
+}
+
+function encadreImport(type, contenuHtml) {
+    const palettes = {
+        success: 'background:#f0fff4;border:1px solid #c6f6d5;color:#276749;',
+        warning: 'background:#fffaf0;border:1px solid #feebc8;color:#975a16;',
+        error: 'background:#fff5f5;border:1px solid #fed7d7;color:#c53030;'
+    };
+    const styles = palettes[type] || palettes.error;
+    return `<div style="${styles}border-radius:8px;padding:0.75rem;">${contenuHtml}</div>`;
+}
+
+// Les emails de bienvenue partent après la réponse du serveur : on relit le
+// bilan jusqu'à ce qu'il soit terminé, pour afficher les envois réellement
+// aboutis plutôt qu'une promesse d'envoi.
+async function suivreBilanEmails(zone, attendus) {
+    const echeance = Date.now() + 120000;
+
+    while (Date.now() < echeance) {
+        await new Promise(r => setTimeout(r, 2000));
+
+        let bilan;
+        try {
+            const response = await fetch('/api/admin/emails/bilan');
+            if (!response.ok) return;
+            bilan = await response.json();
+        } catch (error) {
+            return;
+        }
+
+        if (bilan.aucunEnvoi || bilan.total !== attendus) return;
+
+        const enCours = bilan.termine ? '' : ' (envoi en cours…)';
+        const echecsHtml = bilan.echecs.length
+            ? `<ul style="margin:0.5rem 0 0 1rem;">${bilan.echecs.map(e =>
+                `<li>${echapperHtml(e.email)} : ${echapperHtml(e.erreur)}</li>`).join('')}</ul>`
+            : '';
+
+        zone.innerHTML = bilan.echecs.length
+            ? encadreImport('error', `📧 ${bilan.envoyes}/${bilan.total} email(s) de bienvenue envoyé(s)${enCours}. Échecs :${echecsHtml}`)
+            : encadreImport('success', `📧 ${bilan.envoyes}/${bilan.total} email(s) de bienvenue envoyé(s)${enCours}.`);
+
+        if (bilan.termine) return;
+    }
 }
 
 function chargerSheetJS() {
@@ -1533,10 +1627,15 @@ async function validerImport() {
         document.getElementById('import-apercu').innerHTML = `
             <div style="background:#f0fff4;border:1px solid #c6f6d5;color:#276749;border-radius:8px;padding:1rem;">
                 ✅ ${data.crees} compte(s) créé(s), ${data.misAJour} mis à jour, ${data.ignores} ignoré(s)${data.erreurs.length ? `, ${data.erreurs.length} en erreur` : ''}.
-                ${data.emailsEnvoyes ? `<br>📧 ${data.emailsEnvoyes} email(s) de bienvenue en cours d'envoi.` : ''}
             </div>
+            <div id="import-bilan-emails" style="margin-top:0.75rem;">${data.emailsEnvoyes
+                ? encadreImport('success', `📧 ${data.emailsEnvoyes} email(s) de bienvenue en cours d'envoi…`)
+                : ''}</div>
             ${erreursHtml}
         `;
+        if (data.emailsEnvoyes) {
+            suivreBilanEmails(document.getElementById('import-bilan-emails'), data.emailsEnvoyes);
+        }
         loadAdminUsers();
     } catch (error) {
         showMessage('Erreur de connexion', 'error');

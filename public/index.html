@@ -370,6 +370,18 @@
                         </div>
                         <input type="file" id="import-fichier" accept=".csv,.xlsx,.xls,.ods">
                         <div id="import-apercu" style="margin-top: 1rem;"></div>
+
+                        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
+                            <p style="color: #4a5568; margin-bottom: 0.5rem;">
+                                Avant un import sur toute la liste, vérifiez que les emails partent bien :
+                            </p>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <input type="email" id="email-test-adresse" placeholder="votre@adresse.fr"
+                                       style="flex: 1; min-width: 220px;">
+                                <button type="button" class="btn-success" id="email-test-bouton">📧 Envoyer un email de test</button>
+                            </div>
+                            <div id="email-test-resultat" style="margin-top: 0.75rem;"></div>
+                        </div>
                     </div>
 
                     <div class="admin-section">

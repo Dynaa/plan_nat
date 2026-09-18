@@ -1236,7 +1236,11 @@ const getBaseUrl = () => {
 //
 // Railway bloque les ports SMTP sortants (25/465/587/2525) hors plan Pro :
 // en production, seuls les fournisseurs à API HTTPS fonctionnent.
-const sendEmail = async (to, subject, htmlContent) => {
+// Envoie un email et dit ce qui s'est passé : quel fournisseur a pris le
+// relais, ou le motif du refus. sendEmail garde son booléen pour les appels
+// existants ; les routes de diagnostic utilisent le détail.
+const envoyerEmailDetaille = async (to, subject, htmlContent) => {
+    let dernierEchec = null;
     // Priorité 1 : Resend si configuré (gratuit 3000 emails/mois)
     if (process.env.RESEND_API_KEY) {
         try {
@@ -1254,12 +1258,14 @@ const sendEmail = async (to, subject, htmlContent) => {
             // L'API Resend ne lève pas d'exception : elle renvoie { data, error }
             if (error) {
                 console.error('❌ Erreur Resend:', { message: error.message, name: error.name, to, subject });
+                dernierEchec = { fournisseur: "Resend", erreur: error.message };
             } else {
                 console.log('✅ Email envoyé via Resend:', { id: data?.id, to, subject });
-                return true;
+                return { ok: true, fournisseur: "Resend" };
             }
         } catch (error) {
             console.error('❌ Erreur Resend (exception):', error.message);
+            dernierEchec = { fournisseur: "Resend", erreur: error.message };
             // Fallback vers SMTP si Resend échoue
         }
     }
@@ -1282,6 +1288,7 @@ const sendEmail = async (to, subject, htmlContent) => {
 
         if (!senderEmail) {
             console.error('❌ Brevo : définissez MAIL_FROM_EMAIL avec l\'adresse expéditrice validée dans Brevo');
+            dernierEchec = { fournisseur: "Brevo", erreur: "MAIL_FROM_EMAIL n'est pas défini : indiquez l'adresse expéditrice validée dans Brevo" };
         } else {
             try {
                 // Empreinte non sensible de la clé pour diagnostiquer les écarts de copier/coller
@@ -1304,14 +1311,16 @@ const sendEmail = async (to, subject, htmlContent) => {
                 if (response.ok) {
                     const data = await response.json().catch(() => ({}));
                     console.log('✅ Email envoyé via Brevo:', { messageId: data.messageId, to, subject });
-                    return true;
+                    return { ok: true, fournisseur: "Brevo" };
                 }
 
                 // Brevo renvoie un statut HTTP d'erreur avec { code, message }
                 const details = await response.text().catch(() => '');
                 console.error('❌ Erreur Brevo:', { status: response.status, details, to, subject });
+                dernierEchec = { fournisseur: "Brevo", erreur: messageErreurBrevo(response.status, details) };
             } catch (error) {
                 console.error('❌ Erreur Brevo (exception):', error.message);
+                dernierEchec = { fournisseur: "Brevo", erreur: error.message };
             }
         }
     }
@@ -1319,7 +1328,9 @@ const sendEmail = async (to, subject, htmlContent) => {
     // Priorité 3 : SMTP si transporteur configuré (développement local)
     if (!transporter) {
         console.log('📧 Email non envoyé (aucun transporteur configuré):', subject);
-        return false;
+        return dernierEchec
+            ? { ok: false, ...dernierEchec }
+            : { ok: false, erreur: "Aucun fournisseur d'email configuré (RESEND_API_KEY, BREVO_API_KEY ou SMTP_HOST)" };
     }
 
     try {
@@ -1351,7 +1362,7 @@ const sendEmail = async (to, subject, htmlContent) => {
         } else {
             console.log('✅ Email envoyé via SMTP:', { messageId: info.messageId, to, subject });
         }
-        return true;
+        return { ok: true, fournisseur: isEtherealTransport ? "Ethereal (boîte de test)" : "SMTP" };
     } catch (error) {
         console.error('❌ Erreur SMTP:', {
             error: error.message,
@@ -1359,8 +1370,29 @@ const sendEmail = async (to, subject, htmlContent) => {
             to: to,
             subject: subject
         });
-        return false;
+        // SMTP n'est qu'un dernier recours : si le fournisseur principal a déjà
+        // refusé, c'est son motif qui aide l'administrateur, pas celui du repli.
+        const echecSmtp = { fournisseur: "SMTP", erreur: error.message };
+        return dernierEchec ? { ok: false, ...dernierEchec, repli: echecSmtp } : { ok: false, ...echecSmtp };
     }
+};
+
+// Traduit les refus les plus courants de Brevo en une phrase exploitable.
+const messageErreurBrevo = (status, details) => {
+    let code = "";
+    try { code = JSON.parse(details).code || ""; } catch { /* réponse non JSON */ }
+
+    if (status === 401) return "Clé API refusée par Brevo (BREVO_API_KEY invalide ou révoquée)";
+    if (code === "invalid_parameter" && /sender/i.test(details)) {
+        return "Adresse expéditrice refusée : validez MAIL_FROM_EMAIL dans Brevo (Senders, Domains & Dedicated IPs)";
+    }
+    if (status === 400) return "Requête refusée par Brevo : " + details.slice(0, 200);
+    return "Brevo a répondu " + status + " : " + details.slice(0, 200);
+};
+
+const sendEmail = async (to, subject, htmlContent) => {
+    const resultat = await envoyerEmailDetaille(to, subject, htmlContent);
+    return resultat.ok;
 };
 
 // Middleware d'authentification
@@ -2810,8 +2842,15 @@ const lignesImportValides = (lignes, res) => {
 
 // Envoi en arrière-plan : un import de plusieurs centaines de comptes
 // dépasserait sinon le délai d'une requête HTTP.
+// Les emails de bienvenue partent en arrière-plan, après la réponse à l'admin :
+// sans ce bilan, un refus du fournisseur ne se voit que dans les logs du
+// serveur. L'interface le relit après l'import.
+let dernierBilanEmails = null;
+
 const envoyerEmailsBienvenue = async (destinataires) => {
     let envoyes = 0;
+    const bilan = { total: destinataires.length, envoyes: 0, echecs: [], termine: false, debut: new Date().toISOString() };
+    dernierBilanEmails = bilan;
     for (const [index, dest] of destinataires.entries()) {
         if (index > 0) await new Promise(r => setTimeout(r, DELAI_ENTRE_EMAILS_MS));
 
@@ -2846,20 +2885,57 @@ const envoyerEmailsBienvenue = async (destinataires) => {
         `;
 
         try {
-            if (await sendEmail(dest.email, '👋 Votre compte ACC Triathlon est prêt', contenu)) {
+            const resultat = await envoyerEmailDetaille(dest.email, '👋 Votre compte ACC Triathlon est prêt', contenu);
+            if (resultat.ok) {
                 envoyes++;
+                bilan.envoyes++;
             } else {
                 console.error(`❌ Échec envoi email de bienvenue à ${dest.email}`);
+                bilan.echecs.push({ email: dest.email, erreur: resultat.erreur || "Envoi refusé", fournisseur: resultat.fournisseur || null });
             }
         } catch (err) {
             console.error(`❌ Erreur envoi email de bienvenue à ${dest.email}:`, err.message);
+            bilan.echecs.push({ email: dest.email, erreur: err.message, fournisseur: null });
         }
     }
+    bilan.termine = true;
     console.log(`📧 Emails de bienvenue : ${envoyes}/${destinataires.length} envoyé(s)`);
 };
 
 // Étape 1 : aperçu. Reçoit les lignes brutes du fichier ({ en-tête: valeur })
 // et renvoie ce que l'import ferait de chacune, sans rien écrire.
+// Bilan du dernier envoi groupé : l'interface l'interroge après un import,
+// le temps que les envois en arrière-plan se terminent.
+app.get('/api/admin/emails/bilan', requireAdmin, (req, res) => {
+    if (!dernierBilanEmails) {
+        return res.json({ aucunEnvoi: true });
+    }
+    res.json(dernierBilanEmails);
+});
+
+// Envoi de test : vérifie la configuration du fournisseur sans créer de compte,
+// et renvoie le motif exact d'un refus plutôt que de le laisser dans les logs.
+app.post('/api/admin/emails/test', requireAdmin, async (req, res) => {
+    const destinataire = normaliserEmail(req.body.email);
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destinataire)) {
+        return res.status(400).json({ error: 'Adresse email invalide' });
+    }
+
+    const contenu = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #28A0E8;">✅ Test d'envoi</h2>
+            <p>Si vous lisez ce message, la configuration email de la plateforme fonctionne :
+            les membres importés recevront bien leur lien pour choisir leur mot de passe.</p>
+            <p style="color: #9ca3af; font-size: 12px;">ACC Triathlon - Gestion des créneaux</p>
+        </div>
+    `;
+
+    const resultat = await envoyerEmailDetaille(destinataire, "✅ Test d'envoi - ACC Triathlon", contenu);
+    console.log(`📧 Test d'envoi vers ${destinataire} : ${resultat.ok ? 'réussi' : 'échec'}`);
+    res.json({ ...resultat, email: destinataire });
+});
+
 app.post('/api/admin/users/import/apercu', requireAdmin, async (req, res) => {
     const { lignes, defauts } = req.body;
     if (!lignesImportValides(lignes, res)) return;

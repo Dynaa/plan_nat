@@ -366,4 +366,83 @@ describe('Import de comptes — routes admin', () => {
             expect(db.run.mock.calls.every(([, params]) => params[0] === '42')).toBe(true);
         });
     });
+
+    // L'admin doit pouvoir vérifier la configuration email avant un import en
+    // nombre, et voir ce que les envois en arrière-plan ont réellement donné.
+    describe('Diagnostic des envois', () => {
+        const fetchOriginal = global.fetch;
+        const ligneImport = (email) => ({ ligne: 2, nom: 'Test', prenom: 'Bilan', email, licence_type: 'Loisir/Senior', public_cible: 'adulte' });
+
+        // Brevo est le fournisseur utilisé en production : on simule ses
+        // réponses plutôt que d'envoyer de vrais emails.
+        const simulerBrevo = (reponse) => {
+            process.env.BREVO_API_KEY = 'xkeysib-factice';
+            process.env.MAIL_FROM_EMAIL = 'club@example.com';
+            global.fetch = jest.fn().mockResolvedValue(reponse);
+        };
+
+        afterEach(() => {
+            delete process.env.BREVO_API_KEY;
+            delete process.env.MAIL_FROM_EMAIL;
+            global.fetch = fetchOriginal;
+        });
+
+        it('refuse une adresse de test invalide', async () => {
+            const res = await request(app)
+                .post('/api/admin/emails/test')
+                .send({ email: 'pas-une-adresse' });
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toBe('Adresse email invalide');
+        });
+
+        it("traduit le refus du fournisseur en motif lisible", async () => {
+            simulerBrevo({ ok: false, status: 401, text: async () => '{"code":"unauthorized"}' });
+
+            const res = await request(app)
+                .post('/api/admin/emails/test')
+                .send({ email: 'Sophie@Example.com' });
+
+            expect(res.status).toBe(200);
+            expect(res.body).toMatchObject({
+                ok: false,
+                fournisseur: 'Brevo',
+                email: 'sophie@example.com'
+            });
+            expect(res.body.erreur).toMatch(/Clé API refusée par Brevo/);
+        });
+
+        it("confirme l'envoi quand le fournisseur accepte", async () => {
+            simulerBrevo({ ok: true, status: 201, json: async () => ({ messageId: '<abc@brevo>' }) });
+
+            const res = await request(app)
+                .post('/api/admin/emails/test')
+                .send({ email: 'sophie@example.com' });
+
+            expect(res.body).toMatchObject({ ok: true, fournisseur: 'Brevo' });
+        });
+
+        it('publie le bilan des emails de bienvenue, échecs compris', async () => {
+            simulerBrevo({ ok: false, status: 400, text: async () => '{"code":"invalid_parameter","message":"sender.email is not valid"}' });
+            db.query.mockResolvedValueOnce([]);
+            db.run.mockResolvedValue({ id: 12, changes: 1 });
+
+            const imp = await request(app)
+                .post('/api/admin/users/import')
+                .send({ lignes: [ligneImport('bilan@x.fr')], envoyerEmails: true });
+
+            expect(imp.body.emailsEnvoyes).toBe(1);
+
+            let bilan;
+            for (let i = 0; i < 30 && !(bilan && bilan.termine); i++) {
+                await new Promise(r => setTimeout(r, 50));
+                bilan = (await request(app).get('/api/admin/emails/bilan')).body;
+            }
+
+            expect(bilan).toMatchObject({ total: 1, envoyes: 0, termine: true });
+            expect(bilan.echecs).toEqual([
+                { email: 'bilan@x.fr', erreur: expect.stringMatching(/Adresse expéditrice refusée/), fournisseur: 'Brevo' }
+            ]);
+        });
+    });
 });
